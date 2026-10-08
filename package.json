@@ -172,6 +172,11 @@
         "command": "twincatExplorer.copyName",
         "title": "Copy Name",
         "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.hideNotebookToolbars",
+        "title": "Hide Notebook Toolbars (XAE-like Layout)",
+        "category": "TwinCAT"
       }
     ],
     "menus": {
@@ -339,6 +344,11 @@
     "configurationDefaults": {
       "[twincat-st]": {
         "editor.wordBasedSuggestions": "off"
+      },
+      "notebook.cellToolbarLocation": {
+        "default": "right",
+        "twincat-object": "hidden",
+        "twincat-file": "hidden"
       }
     }
   },

@@ -25,13 +25,24 @@ function safeName(label: string): string {
   return label.replace(/[\\/:*?"<>|#%]/g, '_');
 }
 
-/** `twincat:/c:/.../FB_X.TcPOU/<object id>/FB_X.Method.tcobj?{"label":"FB_X.Method"}` */
-export function objectUri(fsPath: string, objectId: string, label: string): vscode.Uri {
+export interface ObjectInfo {
+  id: string;
+  name: string;
+  qualifiedName: string;
+  folderPath: string[];
+}
+
+/**
+ * `twincat:/c:/.../FB_X.TcPOU/Methods/States/OnEntry.tcobj?{"label":"FB_X.OnEntry","id":"<guid>"}`:
+ * the path mirrors the XAE tree (shown in breadcrumbs), the query carries the tab title and the object id.
+ */
+export function objectUri(fsPath: string, obj: ObjectInfo): vscode.Uri {
   const filePath = vscode.Uri.file(fsPath).path;
+  const segments = [...obj.folderPath, obj.name].map(safeName).join('/');
   return vscode.Uri.from({
     scheme: OBJECT_SCHEME,
-    path: `${filePath}/${encodeURIComponent(objectId)}/${safeName(label)}.tcobj`,
-    query: JSON.stringify({ label }),
+    path: `${filePath}/${segments}.tcobj`,
+    query: JSON.stringify({ label: obj.qualifiedName, id: obj.id }),
   });
 }
 
@@ -42,11 +53,16 @@ export interface ObjectRef {
 
 export function parseObjectUri(uri: vscode.Uri): ObjectRef | undefined {
   if (uri.scheme !== OBJECT_SCHEME) return undefined;
+  let objectId: string | undefined;
+  try {
+    objectId = JSON.parse(uri.query).id;
+  } catch {
+    return undefined;
+  }
   const segments = uri.path.split('/');
-  if (segments.length < 4) return undefined;
-  segments.pop();
-  const objectId = decodeURIComponent(segments.pop()!);
-  const filePath = segments.join('/');
+  const fileIndex = segments.findIndex(s => /\.(tcpou|tcdut|tcgvl|tcio)$/i.test(s));
+  if (!objectId || fileIndex < 0) return undefined;
+  const filePath = segments.slice(0, fileIndex + 1).join('/');
   return { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, objectId };
 }
 

@@ -20,7 +20,7 @@ export interface SectionContext {
   label: string;
   role: 'decl' | 'impl';
   scope: Scope;
-  object: { id: string; kind: ObjectKind; name: string; qualifiedName: string };
+  object: { id: string; kind: ObjectKind; name: string; qualifiedName: string; folderPath: string[] };
   pou?: PouSym;
   member?: MemberSym;
   accessor?: 'Get' | 'Set';
@@ -301,7 +301,7 @@ export class LanguageIndex {
     const root = file.root;
     const ctxBase = (s: Section, obj: TcObject): SectionContext => ({
       fileKey: entry.key, filePath: entry.path, sectionKey: s.key, label: s.label, role: s.role, scope,
-      object: { id: obj.id, kind: obj.kind, name: obj.name, qualifiedName: obj.qualifiedName }, types: [],
+      object: { id: obj.id, kind: obj.kind, name: obj.name, qualifiedName: obj.qualifiedName, folderPath: obj.folderPath }, types: [],
       accessor: s.accessor,
     });
 

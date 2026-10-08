@@ -16,17 +16,13 @@ function git(args: string[], cwd: string): Promise<Buffer> {
   });
 }
 
-export async function repoRoot(fsPath: string): Promise<string> {
-  const out = await git(['rev-parse', '--show-toplevel'], path.dirname(fsPath));
-  return out.toString('utf8').trim();
-}
-
 export async function showAtRef(fsPath: string, ref: string): Promise<Buffer> {
-  const root = await repoRoot(fsPath);
-  const rel = path.relative(root, fsPath).replace(/\\/g, '/');
+  // `<ref>:./name` is resolved relative to the working directory, which avoids comparing
+  // the file path with the repository root (8.3 short names, drive letter case).
+  const rel = `./${path.basename(fsPath)}`;
   const spec = ref === INDEX ? `:${rel}` : `${ref}:${rel}`;
   try {
-    return await git(['show', spec], root);
+    return await git(['show', spec], path.dirname(fsPath));
   } catch {
     // The file does not exist at that ref (new file): compare with an empty file.
     return Buffer.alloc(0);

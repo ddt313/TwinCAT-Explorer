@@ -83,6 +83,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.languages.registerHoverProvider(stSelector, features),
     vscode.languages.registerCompletionItemProvider(stSelector, features, '.'),
     vscode.languages.registerReferenceProvider(stSelector, features),
+    vscode.languages.registerDocumentSymbolProvider(stSelector, features),
     vscode.languages.registerWorkspaceSymbolProvider(features),
   );
 
@@ -367,6 +368,18 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       void vscode.window.showInformationMessage(result.problems === 0
         ? 'TwinCAT: no problems found.'
         : `TwinCAT: ${result.problems} problem(s) in ${result.files} file(s). See the Problems panel.`);
+    }),
+    vscode.commands.registerCommand('twincatExplorer.hideNotebookToolbars', async () => {
+      // VS Code has no per-notebook-type switch for these two toolbars, so they change for every notebook.
+      const choice = await vscode.window.showInformationMessage(
+        'Hide the notebook toolbar (Run All, Select Kernel, + Code, + Markdown) and the insert buttons between cells? '
+        + 'This sets "notebook.globalToolbar" to false and "notebook.insertToolbarLocation" to "hidden" in your user settings, '
+        + 'for all notebooks.', { modal: true }, 'Hide', 'Show Again');
+      if (!choice) return;
+      const nb = vscode.workspace.getConfiguration('notebook');
+      const hide = choice === 'Hide';
+      await nb.update('globalToolbar', hide ? false : undefined, vscode.ConfigurationTarget.Global);
+      await nb.update('insertToolbarLocation', hide ? 'hidden' : undefined, vscode.ConfigurationTarget.Global);
     }),
     vscode.commands.registerCommand('twincatExplorer.copyName', async (node?: TreeNode) => {
       if (node?.name) await vscode.env.clipboard.writeText(node.name);

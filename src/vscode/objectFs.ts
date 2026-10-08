@@ -29,10 +29,6 @@ export interface ObjectDoc {
   sections: ObjectDocSection[];
 }
 
-export function objectLabel(obj: TcObject): string {
-  return obj.parent ? obj.qualifiedName : obj.name;
-}
-
 export function objectDoc(file: TcSourceFile, obj: TcObject): ObjectDoc {
   return {
     version: 1,
@@ -48,7 +44,7 @@ export function objectDoc(file: TcSourceFile, obj: TcObject): ObjectDoc {
 }
 
 export function objectUriOf(file: TcSourceFile, obj: TcObject): vscode.Uri {
-  return objectUri(file.path, obj.id, objectLabel(obj));
+  return objectUri(file.path, obj);
 }
 
 interface Stamp {

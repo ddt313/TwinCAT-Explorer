@@ -42,3 +42,16 @@ test('parser reports syntax errors', () => {
   const b = parseBody('x := ;\nIF a THEN y := 1;\n');
   assert.ok(b.errors.length >= 2);
 });
+
+test('finds the expression before a dot for member completion', async () => {
+  const { expressionBeforeDot } = await import('../../src/lang/completion');
+  const at = (s: string) => expressionBeforeDot(s.replace('|', ''), s.indexOf('|'));
+  assert.equal(at('x := fbValve.|'), 'fbValve');
+  assert.equal(at('x := fbValve.Act|'), 'fbValve');
+  assert.equal(at('THIS^.Settings.OpenTime.|'), 'THIS^.Settings.OpenTime');
+  assert.equal(at('a := aItems[i + 1].fb.|'), 'aItems[i + 1].fb');
+  assert.equal(at('GetThing(a, (b)).Value.|'), 'GetThing(a, (b)).Value');
+  assert.equal(at('IF pObj^.|'), 'pObj^');
+  assert.equal(at('x := 1..|'), undefined);
+  assert.equal(at('x := y |'), undefined);
+});

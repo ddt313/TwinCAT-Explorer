@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { LanguageIndex, SectionContext } from '../lang/index';
 import { Analysis, Analyzer, Occurrence, analyze } from '../lang/analyzer';
 import { Loc, Sym, Ty, tyToString } from '../lang/symbols';
+import { expressionBeforeDot } from '../lang/completion';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { sectionOffsetToFileOffset } from '../core/tcfile';
 import { cellMeta } from './serializers';
@@ -119,54 +120,6 @@ export function describeOwner(s: Sym): string {
   }
 }
 
-/** Text of the expression before the dot that precedes `offset` (for `a.b[i]^.c.|`). */
-export function expressionBeforeDot(text: string, offset: number): string | undefined {
-  let p = offset;
-  while (p > 0 && /\w/.test(text[p - 1])) p--;
-  while (p > 0 && /[ \t]/.test(text[p - 1])) p--;
-  if (text[p - 1] !== '.') return undefined;
-  const end = p - 1;
-  p = end;
-  for (;;) {
-    while (p > 0 && /\s/.test(text[p - 1])) p--;
-    const c = text[p - 1];
-    if (c === ')' || c === ']') {
-      const open = c === ')' ? '(' : '[';
-      let depth = 0;
-      while (p > 0) {
-        const ch = text[p - 1];
-        if (ch === c) depth++;
-        else if (ch === open) {
-          depth--;
-          if (depth === 0) {
-            p--;
-            break;
-          }
-        }
-        p--;
-      }
-      continue;
-    }
-    if (c === '^') {
-      p--;
-      continue;
-    }
-    if (c !== undefined && /\w/.test(c)) {
-      while (p > 0 && /\w/.test(text[p - 1])) p--;
-      let q = p;
-      while (q > 0 && /\s/.test(text[q - 1])) q--;
-      if (text[q - 1] === '.' && !(q >= 2 && text[q - 2] === '.')) {
-        p = q - 1;
-        continue;
-      }
-      break;
-    }
-    break;
-  }
-  const expr = text.slice(p, end).trim();
-  return expr.length > 0 ? expr : undefined;
-}
-
 interface CachedAnalysis {
   version: number;
   text: string;
@@ -175,7 +128,7 @@ interface CachedAnalysis {
 
 export class LanguageFeatures implements
   vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.ReferenceProvider,
-  vscode.WorkspaceSymbolProvider<vscode.SymbolInformation> {
+  vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
   private readonly cache = new Map<string, CachedAnalysis>();
   private readonly symbolLocs = new WeakMap<vscode.SymbolInformation, Loc>();
 
@@ -211,7 +164,7 @@ export class LanguageFeatures implements
   async toLocation(loc: Loc): Promise<vscode.Location | undefined> {
     const ctx = this.index.context(loc.fileKey, loc.sectionKey);
     if (!ctx) return undefined;
-    const uri = objectUri(ctx.filePath, ctx.object.id, ctx.object.qualifiedName);
+    const uri = objectUri(ctx.filePath, ctx.object);
     const nb = await vscode.workspace.openNotebookDocument(uri);
     const cell = nb.getCells().find(c => cellMeta(c)?.key === loc.sectionKey);
     if (!cell) return new vscode.Location(uri, new vscode.Position(0, 0));
@@ -309,6 +262,18 @@ export class LanguageFeatures implements
     return out;
   }
 
+  // ------------------------------------------------------------------ document symbols (Outline)
+
+  provideDocumentSymbols(doc: vscode.TextDocument): vscode.DocumentSymbol[] {
+    const r = this.analysisForDocument(doc);
+    if (!r) return [];
+    return r.analysis.occurrences.filter(o => o.decl).map(o => {
+      const range = new vscode.Range(doc.positionAt(o.start), doc.positionAt(o.end));
+      const detail = o.sym.kind === 'var' ? o.sym.signature.slice(o.sym.name.length).replace(/^\s*:\s*/, '') : '';
+      return new vscode.DocumentSymbol(o.sym.name, detail, symbolKind(o.sym), range, range);
+    });
+  }
+
   // ------------------------------------------------------------------ workspace symbols
 
   provideWorkspaceSymbols(query: string): vscode.SymbolInformation[] {
@@ -325,7 +290,7 @@ export class LanguageFeatures implements
       if (!s.loc || !matches(s.name)) return;
       const ctx = this.index.context(s.loc.fileKey, s.loc.sectionKey);
       if (!ctx) return;
-      const uri = objectUri(ctx.filePath, ctx.object.id, ctx.object.qualifiedName);
+      const uri = objectUri(ctx.filePath, ctx.object);
       // Location without a range: VS Code calls resolveWorkspaceSymbol when the symbol is picked.
       const info = new vscode.SymbolInformation(s.name, symbolKind(s), container, new vscode.Location(uri, undefined as unknown as vscode.Range));
       this.symbolLocs.set(info, s.loc);

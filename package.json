@@ -252,7 +252,7 @@
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == twincat && twincatExplorer.activeFileModified",
+          "when": "resourceScheme == twincat",
           "group": "navigation@91"
         }
       ],

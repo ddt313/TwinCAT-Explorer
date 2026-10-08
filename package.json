@@ -19,7 +19,8 @@
     "onFileSystem:twincat-diff",
     "onNotebook:twincat-object",
     "onNotebook:twincat-diff",
-    "onNotebook:twincat-file"
+    "onNotebook:twincat-file",
+    "onStartupFinished"
   ],
   "main": "./out/src/extension.js",
   "contributes": {
@@ -336,8 +337,8 @@
         },
         "twincatExplorer.exclude": {
           "type": "string",
-          "default": "**/{node_modules,.git,_Boot,_CompileInfo,_Libraries}/**",
-          "description": "Glob of folders ignored when searching for .tsproj files."
+          "default": "**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**",
+          "description": "Glob of folders ignored when searching for .tsproj files. Folders whose name starts with a dot (for example .claude/worktrees) are always ignored."
         }
       }
     },

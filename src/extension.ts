@@ -93,7 +93,13 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const loadProjects = async () => {
     const exclude = config().get<string>('exclude') || undefined;
     const uris = await vscode.workspace.findFiles('**/*.tsproj', exclude);
-    ws.load(uris.map(u => u.fsPath));
+    // Copies of the repository in hidden folders (git worktrees under .claude/worktrees, ...) are not projects of this workspace.
+    const inHiddenFolder = (u: vscode.Uri) => {
+      const folder = vscode.workspace.getWorkspaceFolder(u);
+      const rel = folder ? path.relative(folder.uri.fsPath, u.fsPath) : u.fsPath;
+      return rel.split(/[\/]/).slice(0, -1).some(seg => seg.startsWith('.'));
+    };
+    ws.load(uris.filter(u => !inHiddenFolder(u)).map(u => u.fsPath));
     index.invalidateAll();
     tree.rebuild();
     await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', ws.tsProjects.length > 0);

@@ -1,0 +1,818 @@
+// Declarations of Beckhoff (and TcUnit) library symbols. The libraries ship
+// compiled, so their sources are not in the workspace; these stubs give
+// hover, completion and member checks for the commonly used parts. Written
+// as Structured Text and parsed like any other declaration. More can be added
+// through the `twincatExplorer.stubFiles` setting.
+
+import { StubSource } from './index';
+
+const TC2_STANDARD = `
+LIBRARY Tc2_Standard
+FUNCTION_BLOCK TON
+VAR_INPUT
+	IN : BOOL; // Starts the timer on a rising edge, resets it on a falling edge
+	PT : TIME; // Preset time
+END_VAR
+VAR_OUTPUT
+	Q : BOOL;  // TRUE when PT has elapsed while IN is TRUE
+	ET : TIME; // Elapsed time
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK TOF
+VAR_INPUT
+	IN : BOOL;
+	PT : TIME;
+END_VAR
+VAR_OUTPUT
+	Q : BOOL;
+	ET : TIME;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK TP
+VAR_INPUT
+	IN : BOOL;
+	PT : TIME;
+END_VAR
+VAR_OUTPUT
+	Q : BOOL;
+	ET : TIME;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK LTON
+VAR_INPUT
+	IN : BOOL;
+	PT : LTIME;
+END_VAR
+VAR_OUTPUT
+	Q : BOOL;
+	ET : LTIME;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK R_TRIG
+VAR_INPUT
+	CLK : BOOL;
+END_VAR
+VAR_OUTPUT
+	Q : BOOL; // TRUE for one call on a rising edge of CLK
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK F_TRIG
+VAR_INPUT
+	CLK : BOOL;
+END_VAR
+VAR_OUTPUT
+	Q : BOOL; // TRUE for one call on a falling edge of CLK
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK RS
+VAR_INPUT
+	SET : BOOL;
+	RESET1 : BOOL;
+END_VAR
+VAR_OUTPUT
+	Q1 : BOOL;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK SR
+VAR_INPUT
+	SET1 : BOOL;
+	RESET : BOOL;
+END_VAR
+VAR_OUTPUT
+	Q1 : BOOL;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK CTU
+VAR_INPUT
+	CU : BOOL;
+	RESET : BOOL;
+	PV : WORD;
+END_VAR
+VAR_OUTPUT
+	Q : BOOL;
+	CV : WORD;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK CTD
+VAR_INPUT
+	CD : BOOL;
+	LOAD : BOOL;
+	PV : WORD;
+END_VAR
+VAR_OUTPUT
+	Q : BOOL;
+	CV : WORD;
+END_VAR
+END_FUNCTION_BLOCK
+END_LIBRARY
+`;
+
+const TC2_SYSTEM = `
+LIBRARY Tc2_System
+TYPE T_MaxString : STRING(255); END_TYPE
+TYPE OTCID : UDINT; END_TYPE
+
+TYPE PlcTaskSystemInfo :
+STRUCT
+	ObjId : OTCID;
+	CycleTimeCount : UDINT;
+	CycleTime : UDINT; // Cycle time in 100 ns units
+	Priority : UINT;
+	AdsPort : UINT;
+	CycleCount : UDINT;
+	DcTaskTime : LINT;
+	LastExecTime : UDINT;
+	FirstCycle : BOOL;
+	CycleTimeExceeded : BOOL;
+	InCallAfterOutputUpdate : BOOL;
+	RTViolation : BOOL;
+	TaskName : STRING(63);
+END_STRUCT
+END_TYPE
+
+VAR_GLOBAL
+	_TaskInfo : ARRAY[1..20] OF PlcTaskSystemInfo; // From TwinCAT_SystemInfoVarList
+END_VAR
+
+VAR_GLOBAL CONSTANT
+	ADSLOG_MSGTYPE_HINT : DWORD := 16#01;
+	ADSLOG_MSGTYPE_WARN : DWORD := 16#02;
+	ADSLOG_MSGTYPE_ERROR : DWORD := 16#04;
+	ADSLOG_MSGTYPE_LOG : DWORD := 16#10;
+	ADSLOG_MSGTYPE_MSGBOX : DWORD := 16#20;
+	ADSLOG_MSGTYPE_RESOURCE : DWORD := 16#40;
+	ADSLOG_MSGTYPE_STRING : DWORD := 16#80;
+END_VAR
+
+FUNCTION ADSLOGSTR : DINT
+VAR_INPUT
+	msgCtrlMask : DWORD;
+	msgFmtStr : T_MaxString; // Message with an optional %s placeholder
+	strArg : T_MaxString;
+END_VAR
+END_FUNCTION
+
+FUNCTION ADSLOGDINT : DINT
+VAR_INPUT
+	msgCtrlMask : DWORD;
+	msgFmtStr : T_MaxString;
+	dintArg : DINT;
+END_VAR
+END_FUNCTION
+
+FUNCTION ADSLOGLREAL : DINT
+VAR_INPUT
+	msgCtrlMask : DWORD;
+	msgFmtStr : T_MaxString;
+	lrealArg : LREAL;
+END_VAR
+END_FUNCTION
+
+FUNCTION F_GetSystemTime : ULINT // Windows system time in 100 ns units
+END_FUNCTION
+
+FUNCTION GETCURTASKINDEXEX : DINT // Index of the calling task in _TaskInfo
+END_FUNCTION
+
+FUNCTION MEMSET : UDINT
+VAR_INPUT
+	destAddr : PVOID;
+	fillByte : SINT;
+	n : UDINT;
+END_VAR
+END_FUNCTION
+
+FUNCTION MEMCPY : UDINT
+VAR_INPUT
+	destAddr : PVOID;
+	srcAddr : PVOID;
+	n : UDINT;
+END_VAR
+END_FUNCTION
+
+FUNCTION MEMMOVE : UDINT
+VAR_INPUT
+	destAddr : PVOID;
+	srcAddr : PVOID;
+	n : UDINT;
+END_VAR
+END_FUNCTION
+
+FUNCTION MEMCMP : DINT
+VAR_INPUT
+	pBuf1 : PVOID;
+	pBuf2 : PVOID;
+	n : UDINT;
+END_VAR
+END_FUNCTION
+END_LIBRARY
+`;
+
+const TC2_UTILITIES = `
+LIBRARY Tc2_Utilities
+TYPE T_Arg :
+STRUCT
+	eType : DINT;
+	cbLen : UDINT;
+	pData : PVOID;
+END_STRUCT
+END_TYPE
+
+FUNCTION_BLOCK FB_FormatString
+VAR_INPUT
+	sFormat : T_MaxString; // Format string with %s, %d, %f, ... placeholders
+	arg1 : T_Arg;
+	arg2 : T_Arg;
+	arg3 : T_Arg;
+	arg4 : T_Arg;
+	arg5 : T_Arg;
+	arg6 : T_Arg;
+	arg7 : T_Arg;
+	arg8 : T_Arg;
+	arg9 : T_Arg;
+	arg10 : T_Arg;
+END_VAR
+VAR_OUTPUT
+	bError : BOOL;
+	nErrId : UDINT;
+	sOut : T_MaxString;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION F_STRING : T_Arg VAR_INPUT in : T_MaxString; END_VAR END_FUNCTION
+FUNCTION F_BOOL : T_Arg VAR_INPUT in : BOOL; END_VAR END_FUNCTION
+FUNCTION F_BYTE : T_Arg VAR_INPUT in : BYTE; END_VAR END_FUNCTION
+FUNCTION F_WORD : T_Arg VAR_INPUT in : WORD; END_VAR END_FUNCTION
+FUNCTION F_DWORD : T_Arg VAR_INPUT in : DWORD; END_VAR END_FUNCTION
+FUNCTION F_LWORD : T_Arg VAR_INPUT in : LWORD; END_VAR END_FUNCTION
+FUNCTION F_SINT : T_Arg VAR_INPUT in : SINT; END_VAR END_FUNCTION
+FUNCTION F_USINT : T_Arg VAR_INPUT in : USINT; END_VAR END_FUNCTION
+FUNCTION F_INT : T_Arg VAR_INPUT in : INT; END_VAR END_FUNCTION
+FUNCTION F_UINT : T_Arg VAR_INPUT in : UINT; END_VAR END_FUNCTION
+FUNCTION F_DINT : T_Arg VAR_INPUT in : DINT; END_VAR END_FUNCTION
+FUNCTION F_UDINT : T_Arg VAR_INPUT in : UDINT; END_VAR END_FUNCTION
+FUNCTION F_LINT : T_Arg VAR_INPUT in : LINT; END_VAR END_FUNCTION
+FUNCTION F_ULINT : T_Arg VAR_INPUT in : ULINT; END_VAR END_FUNCTION
+FUNCTION F_REAL : T_Arg VAR_INPUT in : REAL; END_VAR END_FUNCTION
+FUNCTION F_LREAL : T_Arg VAR_INPUT in : LREAL; END_VAR END_FUNCTION
+END_LIBRARY
+`;
+
+const TC2_MATH = `
+LIBRARY Tc2_Math
+FUNCTION CEIL : LREAL VAR_INPUT lr_in : LREAL; END_VAR END_FUNCTION
+FUNCTION FLOOR : LREAL VAR_INPUT lr_in : LREAL; END_VAR END_FUNCTION
+FUNCTION FRAC : LREAL VAR_INPUT lr_in : LREAL; END_VAR END_FUNCTION
+FUNCTION LTRUNC : LREAL VAR_INPUT lr_in : LREAL; END_VAR END_FUNCTION
+FUNCTION MODABS : LREAL VAR_INPUT lr_in : LREAL; lr_Base : LREAL; END_VAR END_FUNCTION
+FUNCTION MODTURNS : LREAL VAR_INPUT lr_in : LREAL; lr_Base : LREAL; END_VAR END_FUNCTION
+END_LIBRARY
+`;
+
+const TC2_MC2 = `
+LIBRARY Tc2_MC2
+TYPE MC_Direction :
+(
+	MC_Positive_Direction := 1,
+	MC_Shortest_Way,
+	MC_Negative_Direction,
+	MC_Current_Direction,
+	MC_Undefined_Direction := 128
+);
+END_TYPE
+
+TYPE MC_BufferMode :
+(
+	MC_Aborting,
+	MC_Buffered,
+	MC_BlendingLow,
+	MC_BlendingPrevious,
+	MC_BlendingNext,
+	MC_BlendingHigh
+);
+END_TYPE
+
+TYPE ST_AxisStatus :
+STRUCT
+	UpdateTaskIndex : BYTE;
+	UpdateCycleTime : LREAL;
+	CycleCounter : UDINT;
+	NcCycleCounter : UDINT;
+	MotionState : DINT;
+	Error : BOOL;
+	ErrorID : UDINT;
+	ErrorStop : BOOL;
+	Disabled : BOOL;
+	Stopping : BOOL;
+	StandStill : BOOL;
+	DiscreteMotion : BOOL;
+	ContinuousMotion : BOOL;
+	SynchronizedMotion : BOOL;
+	Homing : BOOL;
+	ConstantVelocity : BOOL;
+	Accelerating : BOOL;
+	Decelerating : BOOL;
+	Operational : BOOL;
+	ControlLoopClosed : BOOL;
+	HasJob : BOOL;
+	HasBeenStopped : BOOL;
+	NewTargetPosition : BOOL;
+	InPositionArea : BOOL;
+	InTargetPosition : BOOL;
+	Protected : BOOL;
+	Homed : BOOL;
+	HomingBusy : BOOL;
+	MotionCommandsLocked : BOOL;
+	SoftLimitMinExceeded : BOOL;
+	SoftLimitMaxExceeded : BOOL;
+	Moving : BOOL;
+	PositiveDirection : BOOL;
+	NegativeDirection : BOOL;
+	NotMoving : BOOL;
+	Compensating : BOOL;
+	ExtSetPointGenEnabled : BOOL;
+	PhasingActive : BOOL;
+	ExternalLatchValid : BOOL;
+	CamDataQueued : BOOL;
+	CamTableQueued : BOOL;
+	CamScalingPending : BOOL;
+	CmdBuffered : BOOL;
+	PTPmode : BOOL;
+	SoftLimitsEnabled : BOOL;
+	ActualPosition : LREAL;
+	ActualVelocity : LREAL;
+END_STRUCT
+END_TYPE
+
+TYPE NCTOPLC_AXIS_REF :
+STRUCT
+	StateDWord : DWORD;
+	ErrorCode : UDINT;
+	AxisState : UDINT;
+	AxisModeConfirmation : UDINT;
+	HomingState : UDINT;
+	CoupleState : UDINT;
+	SvbEntries : UDINT;
+	SafEntries : UDINT;
+	AxisId : UDINT;
+	OpModeDWord : DWORD;
+	ActPos : LREAL;
+	ModuloActPos : LREAL;
+	ActVelo : LREAL;
+	PosDiff : LREAL;
+	SetPos : LREAL;
+	SetVelo : LREAL;
+	SetAcc : LREAL;
+	TargetPos : LREAL;
+	ModuloSetPos : LREAL;
+	CmdNo : UINT;
+	CmdState : UINT;
+	SetJerk : LREAL;
+	SetTorque : LREAL;
+	ActTorque : LREAL;
+	ActAcc : LREAL;
+END_STRUCT
+END_TYPE
+
+TYPE PLCTONC_AXIS_REF :
+STRUCT
+	ControlDWord : DWORD;
+	Override : UDINT;
+	AxisModeRequest : UDINT;
+	AxisModeDWord : UDINT;
+	AxisModeLReal : LREAL;
+	PositionCorrection : LREAL;
+	ExtSetPos : LREAL;
+	ExtSetVelo : LREAL;
+	ExtSetAcc : LREAL;
+	ExtSetDirection : DINT;
+	ExtControllerOutput : LREAL;
+	GearRatio1 : LREAL;
+	GearRatio2 : LREAL;
+	GearRatio3 : LREAL;
+	GearRatio4 : LREAL;
+	MapState : BOOL;
+	PlcCycleControl : BYTE;
+	PlcCycleCount : BYTE;
+END_STRUCT
+END_TYPE
+
+FUNCTION_BLOCK AXIS_REF
+VAR_INPUT
+	PlcToNc : PLCTONC_AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	NcToPlc : NCTOPLC_AXIS_REF;
+END_VAR
+VAR
+	Status : ST_AxisStatus;
+END_VAR
+METHOD ReadStatus
+END_METHOD
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_Power
+VAR_INPUT
+	Enable : BOOL;
+	Enable_Positive : BOOL;
+	Enable_Negative : BOOL;
+	Override : LREAL;
+	BufferMode : MC_BufferMode;
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	Status : BOOL;
+	Busy : BOOL;
+	Active : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_Reset
+VAR_INPUT
+	Execute : BOOL;
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	Done : BOOL;
+	Busy : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_Halt
+VAR_INPUT
+	Execute : BOOL;
+	Deceleration : LREAL;
+	Jerk : LREAL;
+	BufferMode : MC_BufferMode;
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	Done : BOOL;
+	Busy : BOOL;
+	Active : BOOL;
+	CommandAborted : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_MoveAbsolute
+VAR_INPUT
+	Execute : BOOL;
+	Position : LREAL;
+	Velocity : LREAL;
+	Acceleration : LREAL;
+	Deceleration : LREAL;
+	Jerk : LREAL;
+	BufferMode : MC_BufferMode;
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	Done : BOOL;
+	Busy : BOOL;
+	Active : BOOL;
+	CommandAborted : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_MoveRelative
+VAR_INPUT
+	Execute : BOOL;
+	Distance : LREAL;
+	Velocity : LREAL;
+	Acceleration : LREAL;
+	Deceleration : LREAL;
+	Jerk : LREAL;
+	BufferMode : MC_BufferMode;
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	Done : BOOL;
+	Busy : BOOL;
+	Active : BOOL;
+	CommandAborted : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_MoveAdditive
+VAR_INPUT
+	Execute : BOOL;
+	Distance : LREAL;
+	Velocity : LREAL;
+	Acceleration : LREAL;
+	Deceleration : LREAL;
+	Jerk : LREAL;
+	BufferMode : MC_BufferMode;
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	Done : BOOL;
+	Busy : BOOL;
+	Active : BOOL;
+	CommandAborted : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_MoveContinuousRelative
+VAR_INPUT
+	Execute : BOOL;
+	Distance : LREAL;
+	Velocity : LREAL;
+	EndVelocity : LREAL;
+	Acceleration : LREAL;
+	Deceleration : LREAL;
+	Jerk : LREAL;
+	BufferMode : MC_BufferMode;
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	InEndVelocity : BOOL;
+	Busy : BOOL;
+	Active : BOOL;
+	CommandAborted : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_MoveVelocity
+VAR_INPUT
+	Execute : BOOL;
+	Velocity : LREAL;
+	Acceleration : LREAL;
+	Deceleration : LREAL;
+	Jerk : LREAL;
+	Direction : MC_Direction;
+	BufferMode : MC_BufferMode;
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	InVelocity : BOOL;
+	Busy : BOOL;
+	Active : BOOL;
+	CommandAborted : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MC_SetPosition
+VAR_INPUT
+	Execute : BOOL;
+	Position : LREAL;
+	Mode : BOOL; // FALSE: absolute, TRUE: relative
+END_VAR
+VAR_IN_OUT
+	Axis : AXIS_REF;
+END_VAR
+VAR_OUTPUT
+	Done : BOOL;
+	Busy : BOOL;
+	Error : BOOL;
+	ErrorID : UDINT;
+END_VAR
+END_FUNCTION_BLOCK
+END_LIBRARY
+`;
+
+const TC3_MODULE = `
+LIBRARY Tc3_Module
+INTERFACE ITcUnknown
+METHOD TcAddRef : UDINT
+END_METHOD
+METHOD TcRelease : UDINT
+END_METHOD
+METHOD TcQueryInterface : HRESULT
+VAR_INPUT
+	iid : REFERENCE TO GUID;
+	pipItf : POINTER TO PVOID;
+END_VAR
+END_METHOD
+END_INTERFACE
+
+TYPE GUID :
+STRUCT
+	Data1 : DWORD;
+	Data2 : WORD;
+	Data3 : WORD;
+	Data4 : ARRAY[0..7] OF BYTE;
+END_STRUCT
+END_TYPE
+
+FUNCTION SUCCEEDED : BOOL VAR_INPUT hr : HRESULT; END_VAR END_FUNCTION
+FUNCTION FAILED : BOOL VAR_INPUT hr : HRESULT; END_VAR END_FUNCTION
+END_LIBRARY
+`;
+
+const SYSTEM = `
+LIBRARY __System
+INTERFACE IQueryInterface
+END_INTERFACE
+
+TYPE TYPE_CLASS :
+(
+	TYPE_BOOL, TYPE_BIT, TYPE_BYTE, TYPE_WORD, TYPE_DWORD, TYPE_LWORD, TYPE_SINT, TYPE_INT, TYPE_DINT, TYPE_LINT,
+	TYPE_USINT, TYPE_UINT, TYPE_UDINT, TYPE_ULINT, TYPE_REAL, TYPE_LREAL, TYPE_STRING, TYPE_WSTRING, TYPE_TIME,
+	TYPE_DATE, TYPE_DATEANDTIME, TYPE_TIMEOFDAY, TYPE_POINTER, TYPE_REFERENCE, TYPE_SUBRANGE, TYPE_ENUM, TYPE_ARRAY,
+	TYPE_PARAMS, TYPE_USERDEF, TYPE_NONE, TYPE_ANY, TYPE_ANYBIT, TYPE_ANYDATE, TYPE_ANYINT, TYPE_ANYNUM, TYPE_ANYREAL,
+	TYPE_LAZY, TYPE_LTIME, TYPE_BITCONST, TYPE_INTERFACE
+);
+END_TYPE
+END_LIBRARY
+`;
+
+const TCUNIT = `
+LIBRARY TcUnit
+FUNCTION_BLOCK FB_Test
+METHOD GetName : T_MaxString
+END_METHOD
+METHOD IsFinished : BOOL
+END_METHOD
+METHOD IsSkipped : BOOL
+END_METHOD
+METHOD SetFinished : BOOL
+END_METHOD
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK FB_TestSuite
+METHOD AssertEquals
+VAR_INPUT
+	Expected : ANY;
+	Actual : ANY;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_BOOL
+VAR_INPUT
+	Expected : BOOL;
+	Actual : BOOL;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_INT
+VAR_INPUT
+	Expected : INT;
+	Actual : INT;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_DINT
+VAR_INPUT
+	Expected : DINT;
+	Actual : DINT;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_UINT
+VAR_INPUT
+	Expected : UINT;
+	Actual : UINT;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_UDINT
+VAR_INPUT
+	Expected : UDINT;
+	Actual : UDINT;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_REAL
+VAR_INPUT
+	Expected : REAL;
+	Actual : REAL;
+	Delta : REAL;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_LREAL
+VAR_INPUT
+	Expected : LREAL;
+	Actual : LREAL;
+	Delta : LREAL;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_STRING
+VAR_INPUT
+	Expected : T_MaxString;
+	Actual : T_MaxString;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertEquals_TIME
+VAR_INPUT
+	Expected : TIME;
+	Actual : TIME;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertTrue
+VAR_INPUT
+	Condition : BOOL;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD AssertFalse
+VAR_INPUT
+	Condition : BOOL;
+	Message : T_MaxString;
+END_VAR
+END_METHOD
+METHOD GetNumberOfTests : UINT
+END_METHOD
+METHOD GetNumberOfFailedTests : UINT
+END_METHOD
+END_FUNCTION_BLOCK
+
+FUNCTION TEST : REFERENCE TO FB_Test
+VAR_INPUT
+	TestName : T_MaxString;
+END_VAR
+END_FUNCTION
+
+FUNCTION TEST_ORDERED : BOOL
+VAR_INPUT
+	TestName : T_MaxString;
+END_VAR
+END_FUNCTION
+
+FUNCTION TEST_FINISHED : BOOL
+END_FUNCTION
+
+FUNCTION TEST_FINISHED_NAMED : BOOL
+VAR_INPUT
+	TestName : T_MaxString;
+END_VAR
+END_FUNCTION
+
+FUNCTION RUN
+END_FUNCTION
+
+FUNCTION RUN_IN_SEQUENCE
+END_FUNCTION
+
+FUNCTION WRITE_PROTECTED_BOOL VAR_INPUT Ptr : POINTER TO BOOL; Value : BOOL; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_BYTE VAR_INPUT Ptr : POINTER TO BYTE; Value : BYTE; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_WORD VAR_INPUT Ptr : POINTER TO WORD; Value : WORD; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_DWORD VAR_INPUT Ptr : POINTER TO DWORD; Value : DWORD; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_SINT VAR_INPUT Ptr : POINTER TO SINT; Value : SINT; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_INT VAR_INPUT Ptr : POINTER TO INT; Value : INT; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_DINT VAR_INPUT Ptr : POINTER TO DINT; Value : DINT; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_LINT VAR_INPUT Ptr : POINTER TO LINT; Value : LINT; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_USINT VAR_INPUT Ptr : POINTER TO USINT; Value : USINT; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_UINT VAR_INPUT Ptr : POINTER TO UINT; Value : UINT; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_UDINT VAR_INPUT Ptr : POINTER TO UDINT; Value : UDINT; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_ULINT VAR_INPUT Ptr : POINTER TO ULINT; Value : ULINT; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_REAL VAR_INPUT Ptr : POINTER TO REAL; Value : REAL; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_LREAL VAR_INPUT Ptr : POINTER TO LREAL; Value : LREAL; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_STRING VAR_INPUT Ptr : POINTER TO STRING; Value : STRING; END_VAR END_FUNCTION
+FUNCTION WRITE_PROTECTED_TIME VAR_INPUT Ptr : POINTER TO TIME; Value : TIME; END_VAR END_FUNCTION
+END_LIBRARY
+`;
+
+export const BUNDLED_STUBS: StubSource[] = [
+  { path: 'bundled:Tc2_Standard', text: TC2_STANDARD },
+  { path: 'bundled:Tc2_System', text: TC2_SYSTEM },
+  { path: 'bundled:Tc2_Utilities', text: TC2_UTILITIES },
+  { path: 'bundled:Tc2_Math', text: TC2_MATH },
+  { path: 'bundled:Tc2_MC2', text: TC2_MC2 },
+  { path: 'bundled:Tc3_Module', text: TC3_MODULE },
+  { path: 'bundled:__System', text: SYSTEM },
+  { path: 'bundled:TcUnit', text: TCUNIT },
+];

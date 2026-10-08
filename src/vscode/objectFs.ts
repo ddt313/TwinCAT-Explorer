@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import { TcObject, TcSourceFile, encodeText, normalizeEol, parseTcFile } from '../core/tcfile';
 import { SpliceError, applySectionEdits } from '../core/splice';
 import { fileKey } from '../core/workspace';
-import { parseObjectUri } from './uris';
+import { OBJECT_NOTEBOOK, parseObjectUri } from './uris';
 import { debugLog } from '../core/debugLog';
 
 export interface ObjectDocSection {
@@ -169,6 +169,14 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
     }
   }
 
+  /**
+   * Hash a cell is compared with to decide whether the user edited it: what this provider last wrote
+   * for that URI, else the hash taken when the document was loaded.
+   */
+  effectiveBase(uri: vscode.Uri, key: string, loadBase: string | undefined): string | undefined {
+    return this.written.get(uri.toString())?.get(key) ?? loadBase;
+  }
+
   /** Drops what is kept per URI once VS Code has closed that document. */
   forget(uri: vscode.Uri): void {
     this.stamps.delete(uri.toString());
@@ -192,16 +200,28 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
     });
   }
 
-  /** Tells VS Code that the objects of a real file may have changed. */
+  /**
+   * Tells VS Code that the objects of a real file may have changed. Every open document of the file
+   * gets the event, not only the watched ones: VS Code watches non-file URIs only while their editor
+   * is visible, so a hidden tab would otherwise keep its old text.
+   */
   notifyRealFileChanged(fsPath: string, except?: vscode.Uri): void {
-    const m = this.watched.get(fileKey(fsPath));
-    debugLog(`notify ${fsPath.split(/[\\/]/).pop()} watched=${m ? [...m.values()].map(u => u.path.split('/').pop()).join(',') : 'none'}`);
-    if (!m) return;
-    const events: vscode.FileChangeEvent[] = [];
-    for (const uri of m.values()) {
-      if (except && uri.toString() === except.toString()) continue;
-      events.push({ type: vscode.FileChangeType.Changed, uri });
+    const k = fileKey(fsPath);
+    const targets = new Map<string, vscode.Uri>(this.watched.get(k) ?? []);
+    for (const nb of vscode.workspace.notebookDocuments) {
+      if (nb.notebookType !== OBJECT_NOTEBOOK) continue;
+      const ref = parseObjectUri(nb.uri);
+      if (ref && fileKey(ref.fsPath) === k) targets.set(nb.uri.toString(), nb.uri);
     }
+    if (except) targets.delete(except.toString());
+    debugLog(`notify ${fsPath.split(/[\\/]/).pop()} -> ${[...targets.values()].map(u => u.path.split('/').pop()).join(',') || 'none'}`);
+    if (targets.size) this.emitter.fire([...targets.values()].map(uri => ({ type: vscode.FileChangeType.Changed, uri })));
+  }
+
+  /** Re-announces every watched document (used once after start-up, when changes may have been missed). */
+  notifyAllWatched(): void {
+    const events: vscode.FileChangeEvent[] = [];
+    for (const m of this.watched.values()) for (const uri of m.values()) events.push({ type: vscode.FileChangeType.Changed, uri });
     if (events.length) this.emitter.fire(events);
   }
 

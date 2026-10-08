@@ -89,7 +89,8 @@ export async function renamedFrom(fsPath: string, ref: string, staged: boolean):
   try {
     const prefix = (await git(['rev-parse', '--show-prefix'], cwd)).toString('utf8').trim();
     const current = (prefix + path.relative(cwd, fsPath).split(path.sep).join('/')).toLowerCase();
-    const args = ['diff', '-M', '--name-status', '-z'];
+    // Plumbing (diff-index) never refreshes or writes .git/index, which the .git watcher would see.
+    const args = ['diff-index', '-M', '--name-status', '-z'];
     if (staged) args.push('--cached');
     args.push(ref, '--');
     const tokens = (await git(args, cwd)).toString('utf8').split('\0');
@@ -129,7 +130,7 @@ async function sameObjectDeleted(fsPath: string, ref: string, staged: boolean): 
   const cwd = existingDir(fsPath);
   const ext = path.extname(fsPath).toLowerCase();
   try {
-    const args = ['diff', '--name-only', '--diff-filter=D', '-z'];
+    const args = ['diff-index', '--name-only', '--diff-filter=D', '-z'];
     if (staged) args.push('--cached');
     args.push(ref, '--');
     const deleted = (await git(args, cwd)).toString('utf8').split('\0').filter(p => p && path.extname(p).toLowerCase() === ext);
@@ -156,15 +157,23 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
   private refVersion = 1;
   private readonly served = new Map<string, vscode.Uri>();
   private readonly gitDirWatchers = new Map<string, vscode.Disposable>();
+  private readonly probedDirs = new Set<string>();
+  /** Path at the ref of a renamed file, per served URI and ref version. */
+  private readonly origCache = new Map<string, { version: number; orig: string | undefined }>();
   private refTimer: NodeJS.Timeout | undefined;
 
   /** Watches HEAD, the index and the refs of the repository of a file, so ref sides refresh after commit/checkout/stage. */
   private async watchGitDir(fsPath: string): Promise<void> {
+    const cwd = existingDir(fsPath);
+    const probe = fileKey(cwd);
+    if (this.probedDirs.has(probe)) return;
+    this.probedDirs.add(probe);
     let dirs: string[];
     try {
-      const out = (await git(['rev-parse', '--absolute-git-dir', '--git-common-dir'], path.dirname(fsPath))).toString('utf8');
-      dirs = out.split(/\r?\n/).filter(Boolean).map(d => path.resolve(path.dirname(fsPath), d));
+      const out = (await git(['rev-parse', '--absolute-git-dir', '--git-common-dir'], cwd)).toString('utf8');
+      dirs = out.split(/\r?\n/).filter(Boolean).map(d => path.resolve(cwd, d));
     } catch {
+      this.probedDirs.delete(probe);
       return;
     }
     for (const dir of new Set(dirs)) {
@@ -221,7 +230,12 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
     }
     void this.watchGitDir(ref.fsPath);
     // Resolved at every read, so a rename committed later still shows the right file.
-    const orig = await originalPath(ref.fsPath, ref.ref, ref.against === INDEX);
+    const cached = this.origCache.get(uri.toString());
+    let orig = cached?.version === this.refVersion ? cached.orig : undefined;
+    if (cached?.version !== this.refVersion) {
+      orig = await originalPath(ref.fsPath, ref.ref, ref.against === INDEX);
+      this.origCache.set(uri.toString(), { version: this.refVersion, orig });
+    }
     return showAtRef(ref.fsPath, ref.ref, orig);
   }
 
@@ -300,7 +314,17 @@ export async function watchRepositories(onChange: () => void): Promise<vscode.Di
     if (ext) {
       const exports = ext.isActive ? ext.exports : await ext.activate();
       const api = exports.getAPI(1);
-      const hook = (repo: GitRepository) => disposables.push(repo.state.onDidChange(fire));
+      // Fire only when the commit or branch changes: state.onDidChange runs after every git status.
+      const hook = (repo: GitRepository) => {
+        let last = `${repo.state.HEAD?.name ?? ''}@${repo.state.HEAD?.commit ?? ''}`;
+        disposables.push(repo.state.onDidChange(() => {
+          const now = `${repo.state.HEAD?.name ?? ''}@${repo.state.HEAD?.commit ?? ''}`;
+          if (now !== last) {
+            last = now;
+            fire();
+          }
+        }));
+      };
       api.repositories.forEach(hook);
       disposables.push(api.onDidOpenRepository(hook));
     }
@@ -314,7 +338,7 @@ export async function watchRepositories(onChange: () => void): Promise<vscode.Di
 }
 
 interface GitRepository {
-  state: { onDidChange: vscode.Event<void> };
+  state: { onDidChange: vscode.Event<void>; HEAD?: { name?: string; commit?: string } };
 }
 
 interface GitApi {

@@ -11,7 +11,7 @@ import { debugLog } from './core/debugLog';
 import { LanguageIndex, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
 import { ObjectFileSystem } from './vscode/objectFs';
-import { forgetDocument, markFileChanged, openObjectDocument } from './vscode/openDocs';
+import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer, cellMeta } from './vscode/serializers';
 import { TreeNode, TwinCatTree } from './vscode/tree';
@@ -102,9 +102,12 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   // ------------------------------------------------------------------ loading and change tracking
 
   // Unsaved edits of open notebooks are visible to the rest of the index (completion, diagnostics).
-  const overlays = new OverlaySync(index, ws);
+  const overlays = new OverlaySync(index, ws, (uri, key, loadBase) => objectFs.effectiveBase(uri, key, loadBase));
   const refreshOverlays = (files?: Iterable<string>) => {
-    if (overlays.refresh(files)) diagnostics.scheduleAll(300);
+    if (overlays.refresh(files)) {
+      diagnostics.scheduleAll(300);
+      scheduleCheck();
+    }
   };
 
   // Results of "Check All Structured Text" are re-run (debounced) on any change while they are shown.
@@ -119,20 +122,15 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   };
   let checkHasResults = false;
 
-  // Watchers and the git hook are only started once a workspace has TwinCAT projects, so the
-  // extension stays idle in the other windows of the profile (it also activates on startup).
+  // The git hook is only started once a workspace has TwinCAT projects, so the extension stays idle
+  // in the other windows of the profile (it also activates on startup).
   let projectServicesStarted = false;
   const startProjectServices = () => {
     if (projectServicesStarted) return;
     projectServicesStarted = true;
-    const sourceWatcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcTTO,tcpou,tcdut,tcgvl,tcio,tctto}');
-    context.subscriptions.push(
-      sourceWatcher,
-      sourceWatcher.onDidChange(u => onSourceChanged(u.fsPath)),
-      sourceWatcher.onDidCreate(u => onSourceChanged(u.fsPath)),
-      sourceWatcher.onDidDelete(u => onSourceChanged(u.fsPath)),
-    );
     void watchRepositories(() => diffFs.notifyRefsChanged()).then(d => context.subscriptions.push(d));
+    // Tabs restored at start-up may have missed changes made before the watchers ran.
+    objectFs.notifyAllWatched();
   };
 
   let loadTimer: NodeJS.Timeout | undefined;
@@ -197,8 +195,14 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   // A change event for the URI being saved, during its save, can leave its working copy ignoring later changes.
   objectFs.onDidWriteRealFile = (fsPath, savedUri) => onSourceChanged(fsPath, savedUri);
 
+  // Created at once (before the first await) so no change is missed while the projects load.
+  const sourceWatcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcTTO,tcpou,tcdut,tcgvl,tcio,tctto}');
   const projectWatcher = vscode.workspace.createFileSystemWatcher('**/*.{tsproj,plcproj}');
   context.subscriptions.push(
+    sourceWatcher,
+    sourceWatcher.onDidChange(u => onSourceChanged(u.fsPath)),
+    sourceWatcher.onDidCreate(u => onSourceChanged(u.fsPath)),
+    sourceWatcher.onDidDelete(u => onSourceChanged(u.fsPath)),
     projectWatcher,
     projectWatcher.onDidChange(scheduleLoad),
     projectWatcher.onDidCreate(scheduleLoad),
@@ -249,7 +253,16 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       }
       refreshOverlays();
     }),
-    vscode.window.tabGroups.onDidChangeTabs(() => {
+    vscode.window.tabGroups.onDidChangeTabs(e => {
+      // One tab per object: VS Code can reopen an older revision URI by itself (Go Back, Reopen Closed
+      // Editor, history). A clean duplicate is closed and the existing tab is shown instead.
+      for (const tab of e.opened) {
+        if (!(tab.input instanceof vscode.TabInputNotebook) || tab.input.notebookType !== OBJECT_NOTEBOOK || tab.isDirty) continue;
+        const existing = objectTabsOf(tab.input.uri)[0];
+        if (!existing || !(existing.input instanceof vscode.TabInputNotebook)) continue;
+        const target = existing.input.uri;
+        void vscode.window.tabGroups.close(tab).then(() => vscode.commands.executeCommand('vscode.open', target));
+      }
       // Only documents shown in a tab (or dirty) feed the overlays.
       if (tabsTimer) clearTimeout(tabsTimer);
       tabsTimer = setTimeout(() => refreshOverlays(), 200);

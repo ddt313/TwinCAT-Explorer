@@ -5,8 +5,10 @@
 // was opened since the last change of its file on disk. Otherwise the open gets
 // a fresh URI (a new `rev` in the query) and reads the disk.
 
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { fileKey } from '../core/workspace';
+import { cellMeta } from './serializers';
 import { OBJECT_NOTEBOOK, ObjectInfo, objectUri, parseObjectUri } from './uris';
 
 let revision = 0;
@@ -46,9 +48,22 @@ export function shownInTab(uri: vscode.Uri): boolean {
   return tabUris().some(t => t.uri.toString() === key);
 }
 
+/** Disk signature (mtime and size) at the last generation bump, by file. */
+const diskSig = new Map<string, string>();
+
 /** A file changed on disk: documents opened before are no longer trusted to be current. */
 export function markFileChanged(fsPath: string): void {
   const k = fileKey(fsPath);
+  let sig = 'missing';
+  try {
+    const st = fs.statSync(fsPath);
+    sig = `${st.mtimeMs}|${st.size}`;
+  } catch {
+    // deleted
+  }
+  // The watcher echo of a write already counted (our own save) is not a new change.
+  if (diskSig.get(k) === sig) return;
+  diskSig.set(k, sig);
   generation.set(k, (generation.get(k) ?? 0) + 1);
 }
 
@@ -57,25 +72,51 @@ export function forgetDocument(uri: vscode.Uri): void {
   openedAt.delete(uri.toString());
 }
 
+export interface DiskObject extends ObjectInfo {
+  sections: { key: string; text: string }[];
+}
+
+/** Whether every cell of a document still shows the disk text of its section. */
+function matchesDisk(nb: vscode.NotebookDocument, obj: DiskObject): boolean {
+  const disk = new Map(obj.sections.map(s => [s.key, s.text]));
+  return nb.getCells().every(c => {
+    const key = cellMeta(c)?.key;
+    return !key || disk.get(key) === c.document.getText();
+  });
+}
+
+/** Other tabs showing the same object (VS Code can reopen an older revision URI by itself). */
+export function objectTabsOf(uri: vscode.Uri): vscode.Tab[] {
+  const ref = parseObjectUri(uri);
+  if (!ref) return [];
+  const k = fileKey(ref.fsPath);
+  return vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t =>
+    t.input instanceof vscode.TabInputNotebook && t.input.uri.toString() !== uri.toString() && sameObject(t.input.uri, k, ref.objectId));
+}
+
 /** The URI to use for an object right now, or undefined when a fresh document is needed. */
-function reusableUri(fsPath: string, objectId: string): vscode.Uri | undefined {
+function reusableUri(fsPath: string, obj: DiskObject): vscode.Uri | undefined {
+  const objectId = obj.id;
   const k = fileKey(fsPath);
   const gen = generation.get(k) ?? 0;
   const docs = vscode.workspace.notebookDocuments.filter(nb => nb.notebookType === OBJECT_NOTEBOOK && sameObject(nb.uri, k, objectId));
   const tabs = tabUris().filter(t => sameObject(t.uri, k, objectId));
   const inTab = (nb: vscode.NotebookDocument) => tabs.some(t => t.uri.toString() === nb.uri.toString());
-  const doc = docs.find(nb => nb.isDirty) ?? docs.find(inTab) ?? docs.find(nb => openedAt.get(nb.uri.toString()) === gen);
+  // A background document is reused only when it still equals the disk: VS Code's revert ("Don't Save")
+  // can leave discarded text in a document that stays alive for minutes after its tab closed.
+  const doc = docs.find(nb => nb.isDirty) ?? docs.find(inTab)
+    ?? docs.find(nb => openedAt.get(nb.uri.toString()) === gen && matchesDisk(nb, obj));
   if (doc) return doc.uri;
   // A tab restored after a reload whose document is not loaded yet: opening its URI reads the disk.
   const tab = tabs.find(t => t.active) ?? tabs[0];
   return tab?.uri;
 }
 
-export async function openObjectDocument(fsPath: string, obj: ObjectInfo): Promise<vscode.NotebookDocument> {
+export async function openObjectDocument(fsPath: string, obj: DiskObject): Promise<vscode.NotebookDocument> {
   const k = fileKey(fsPath);
   const key = `${k}|${obj.id}`;
   const gen = generation.get(k) ?? 0;
-  const reuse = reusableUri(fsPath, obj.id);
+  const reuse = reusableUri(fsPath, obj);
   if (reuse) {
     const doc = await vscode.workspace.openNotebookDocument(reuse);
     if (!openedAt.has(doc.uri.toString())) openedAt.set(doc.uri.toString(), gen);

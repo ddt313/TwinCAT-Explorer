@@ -42,7 +42,10 @@ export function cellInfo(doc: vscode.TextDocument): CellInfo | undefined {
       const d = parseDiffUri(nb.uri);
       fsPath = d?.fsPath;
       live = false;
-    } else fsPath = nb.uri.fsPath;
+    } else {
+      fsPath = nb.uri.fsPath;
+      live = nb.uri.scheme === 'file';
+    }
     if (!fsPath) return undefined;
     return { notebook: nb, cell, fsPath, fileKey: fileKey(fsPath), sectionKey: meta.key, live };
   }
@@ -170,7 +173,8 @@ export class LanguageFeatures implements
   async toLocation(loc: Loc): Promise<vscode.Location | undefined> {
     const ctx = this.index.context(loc.fileKey, loc.sectionKey);
     if (!ctx) return undefined;
-    const nb = await openObjectDocument(ctx.filePath, ctx.object);
+    const diskObject = this.ws.getFile(ctx.filePath)?.objects.get(ctx.object.id);
+    const nb = await openObjectDocument(ctx.filePath, diskObject ?? { ...ctx.object, sections: [] });
     const uri = nb.uri;
     const cell = nb.getCells().find(c => cellMeta(c)?.key === loc.sectionKey);
     if (!cell) return new vscode.Location(uri, new vscode.Position(0, 0));
@@ -334,6 +338,8 @@ export class LanguageFeatures implements
       const file = this.ws.getFile(ctx.filePath);
       const section = file?.sections.get(ctx.sectionKey);
       if (!file || !section) continue;
+      // A section with unsaved edits is reported live in its cell; its offsets no longer match the XML.
+      if (this.index.sectionText(ctx.fileKey, ctx.sectionKey) !== section.text) continue;
       const a = analyze(this.index, ctx, section.text, { ignore });
       if (a.problems.length === 0) continue;
       const diags = byFile.get(ctx.filePath) ?? [];

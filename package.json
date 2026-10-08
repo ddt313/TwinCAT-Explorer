@@ -1,0 +1,359 @@
+{
+  "name": "twincat-explorer",
+  "displayName": "TwinCAT Explorer",
+  "description": "XAE-like TwinCAT PLC project tree, declaration/implementation notebooks and Structured Text language features",
+  "version": "0.1.0",
+  "publisher": "thanhdang",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/*.tsproj",
+    "onFileSystem:twincat",
+    "onFileSystem:twincat-diff",
+    "onNotebook:twincat-object",
+    "onNotebook:twincat-diff",
+    "onNotebook:twincat-file"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "twincat-st",
+        "aliases": [
+          "TwinCAT Structured Text"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "twincat-st",
+        "scopeName": "source.twincat-st",
+        "path": "./syntaxes/twincat-st.tmLanguage.json"
+      }
+    ],
+    "notebooks": [
+      {
+        "type": "twincat-object",
+        "displayName": "TwinCAT Object",
+        "selector": [
+          {
+            "filenamePattern": "*.tcobj"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "type": "twincat-diff",
+        "displayName": "TwinCAT File Changes",
+        "selector": [
+          {
+            "filenamePattern": "*.tcfile"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "type": "twincat-file",
+        "displayName": "TwinCAT File (Notebook)",
+        "selector": [
+          {
+            "filenamePattern": "*.TcPOU"
+          },
+          {
+            "filenamePattern": "*.TcDUT"
+          },
+          {
+            "filenamePattern": "*.TcGVL"
+          },
+          {
+            "filenamePattern": "*.TcIO"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "resourceLabelFormatters": [
+      {
+        "scheme": "twincat",
+        "formatting": {
+          "label": "${query.label}",
+          "separator": "/"
+        }
+      },
+      {
+        "scheme": "twincat-diff",
+        "formatting": {
+          "label": "${query.label}",
+          "separator": "/"
+        }
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "twincatExplorer.tree",
+          "name": "TwinCAT",
+          "icon": "media/twincat.svg",
+          "contextualTitle": "TwinCAT Explorer",
+          "when": "twincatExplorer.hasProjects"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "twincatExplorer.tree",
+        "contents": "Loading TwinCAT projects..."
+      }
+    ],
+    "commands": [
+      {
+        "command": "twincatExplorer.refresh",
+        "title": "Refresh",
+        "category": "TwinCAT",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "twincatExplorer.open",
+        "title": "Open",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.openToSide",
+        "title": "Open to the Side",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.openXml",
+        "title": "Open XML",
+        "category": "TwinCAT",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "twincatExplorer.revealInTree",
+        "title": "Reveal in TwinCAT Explorer",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.revealActive",
+        "title": "Reveal Active Editor",
+        "category": "TwinCAT",
+        "icon": "$(target)"
+      },
+      {
+        "command": "twincatExplorer.openChanges",
+        "title": "Open Changes as TwinCAT Notebook",
+        "category": "TwinCAT",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "twincatExplorer.compareWithRef",
+        "title": "Compare with Git Ref as TwinCAT Notebook...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.goToObject",
+        "title": "Go to Object...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.checkWorkspace",
+        "title": "Check All Structured Text",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.copyName",
+        "title": "Copy Name",
+        "category": "TwinCAT"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "twincatExplorer.open",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.openToSide",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.copyName",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.openXml",
+          "when": "resourceScheme == twincat || resourceScheme == twincat-diff"
+        },
+        {
+          "command": "twincatExplorer.openChanges",
+          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
+        },
+        {
+          "command": "twincatExplorer.compareWithRef",
+          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
+        },
+        {
+          "command": "twincatExplorer.revealInTree",
+          "when": "twincatExplorer.hasProjects"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "twincatExplorer.revealActive",
+          "when": "view == twincatExplorer.tree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.refresh",
+          "when": "view == twincatExplorer.tree",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "twincatExplorer.openToSide",
+          "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.openXml",
+          "when": "view == twincatExplorer.tree && viewItem =~ /hasFile/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.openChanges",
+          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "twincatExplorer.compareWithRef",
+          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
+          "group": "navigation@4"
+        },
+        {
+          "command": "twincatExplorer.copyName",
+          "when": "view == twincatExplorer.tree && viewItem =~ /named/",
+          "group": "9_copy@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "twincatExplorer.openXml",
+          "when": "resourceScheme == twincat",
+          "group": "navigation@90"
+        },
+        {
+          "command": "twincatExplorer.openChanges",
+          "when": "resourceScheme == twincat && twincatExplorer.activeFileModified",
+          "group": "navigation@91"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "twincatExplorer.openChanges",
+          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "group": "3_compare@1"
+        },
+        {
+          "command": "twincatExplorer.revealInTree",
+          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i || resourceScheme == twincat",
+          "group": "2_files@90"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "twincatExplorer.openChanges",
+          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "group": "3_compare@90"
+        },
+        {
+          "command": "twincatExplorer.revealInTree",
+          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i",
+          "group": "navigation@90"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "twincatExplorer.openChanges",
+          "when": "scmProvider == git && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "group": "navigation@90"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "twincatExplorer.goToObject",
+        "key": "ctrl+alt+t",
+        "when": "twincatExplorer.hasProjects"
+      }
+    ],
+    "configuration": {
+      "title": "TwinCAT Explorer",
+      "properties": {
+        "twincatExplorer.autoReveal": {
+          "type": "boolean",
+          "default": true,
+          "description": "Select the active TwinCAT object or file in the TwinCAT tree."
+        },
+        "twincatExplorer.foldersFirst": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sort folders before objects in the TwinCAT tree."
+        },
+        "twincatExplorer.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report Structured Text problems (syntax, unknown identifiers, unknown members) in open TwinCAT notebooks."
+        },
+        "twincatExplorer.diagnostics.ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Identifiers that are never reported as unknown (for example symbols of a library without a stub)."
+        },
+        "twincatExplorer.stubFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra Structured Text stub files with library declarations (absolute paths or paths relative to the first workspace folder). Wrap declarations in LIBRARY <Name> ... END_LIBRARY."
+        },
+        "twincatExplorer.exclude": {
+          "type": "string",
+          "default": "**/{node_modules,.git,_Boot,_CompileInfo,_Libraries}/**",
+          "description": "Glob of folders ignored when searching for .tsproj files."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[twincat-st]": {
+        "editor.wordBasedSuggestions": "off"
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
+    "test": "npm run compile && npm run test:unit",
+    "package": "vsce package --no-dependencies --allow-missing-repository --skip-license"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.95.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.6.3"
+  }
+}

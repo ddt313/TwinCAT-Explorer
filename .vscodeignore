@@ -1,0 +1,8 @@
+**
+!package.json
+!README.md
+!language-configuration.json
+!syntaxes/**
+!media/**
+!out/src/**
+out/src/**/*.map

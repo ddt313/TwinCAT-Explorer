@@ -169,6 +169,12 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
     }
   }
 
+  /** Drops what is kept per URI once VS Code has closed that document. */
+  forget(uri: vscode.Uri): void {
+    this.stamps.delete(uri.toString());
+    this.written.delete(uri.toString());
+  }
+
   watch(uri: vscode.Uri): vscode.Disposable {
     const ref = parseObjectUri(uri);
     if (!ref) return new vscode.Disposable(() => undefined);

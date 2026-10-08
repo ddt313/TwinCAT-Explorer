@@ -10,26 +10,48 @@ import { INDEX, WORKTREE, diffUri, parseDiffUri } from './uris';
 
 function git(args: string[], cwd: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    cp.execFile('git', args, { cwd, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+    // English messages: errors are recognised by their text (like the built-in git extension does).
+    const env = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' };
+    cp.execFile('git', args, { cwd, env, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       if (err) reject(new Error(Buffer.from(stderr).toString('utf8').trim() || err.message));
       else resolve(stdout);
     });
   });
 }
 
-/** git's message when a path does not exist at a ref or in the index (new or renamed file). */
-const MISSING_PATH = /does not exist in|exists on disk, but not in|not in the index|bad revision|invalid object name|path '.*' does not exist/i;
+/** git's message when a path does not exist at a ref or in the index (new, renamed or deleted file). */
+const MISSING_PATH = /does not exist in|exists on disk, but not in|not in the index|neither on disk nor in the index|bad revision|invalid object name|path '.*' does not exist/i;
+
+/** Nearest existing folder of a file: its own folder, unless that was deleted or moved. */
+function existingDir(fsPath: string): string {
+  let dir = path.dirname(fsPath);
+  while (!fs.existsSync(dir)) {
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return dir;
+}
+
+/** `./`-relative git path of a file seen from `cwd`, which avoids comparing it with the repository root (8.3 names, drive case). */
+function relFrom(cwd: string, fsPath: string): string {
+  return './' + path.relative(cwd, fsPath).split(path.sep).join('/');
+}
+
+function specOf(ref: string, rel: string): string {
+  // `:0:` names the index stage explicitly; git then reports a missing path in words MISSING_PATH knows.
+  return ref === INDEX ? `:0:${rel}` : `${ref}:${rel}`;
+}
 
 /**
- * Content of a file at `ref` (or in the index). `orig` is the repository-relative path at that
- * ref when the file was renamed since; otherwise the current name is resolved from its folder
- * (`<ref>:./name`), which avoids comparing paths with the repository root (8.3 names, drive case).
+ * Content of a file at `ref` (or in the index). `orig` is the repository-relative path at that ref
+ * when the file was renamed since.
  */
 export async function showAtRef(fsPath: string, ref: string, orig?: string): Promise<Buffer> {
-  const rel = orig ?? `./${path.basename(fsPath)}`;
-  const spec = ref === INDEX ? `:${rel}` : `${ref}:${rel}`;
+  const cwd = existingDir(fsPath);
+  const spec = specOf(ref, orig ?? relFrom(cwd, fsPath));
   try {
-    return await git(['show', spec], path.dirname(fsPath));
+    return await git(['show', spec], cwd);
   } catch (e) {
     const message = (e as Error).message;
     // A file that does not exist at that ref (added since) is compared with an empty file;
@@ -41,7 +63,17 @@ export async function showAtRef(fsPath: string, ref: string, orig?: string): Pro
 
 export async function verifyRef(fsPath: string, ref: string): Promise<boolean> {
   try {
-    await git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], path.dirname(fsPath));
+    await git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], existingDir(fsPath));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function existsAt(fsPath: string, ref: string): Promise<boolean> {
+  const cwd = existingDir(fsPath);
+  try {
+    await git(['cat-file', '-e', specOf(ref, relFrom(cwd, fsPath))], cwd);
     return true;
   } catch {
     return false;
@@ -49,15 +81,14 @@ export async function verifyRef(fsPath: string, ref: string): Promise<boolean> {
 }
 
 /**
- * Repository-relative path the file had at `ref`, when git sees it as renamed between `ref` and
- * the working tree (or the index when `staged`). Renames are only detected once both paths are
- * known to git (staged), like in `git diff -M`.
+ * Repository-relative path the file had at `ref` when git sees it as renamed between `ref` and the
+ * working tree (or the index when `staged`), as in `git diff -M`.
  */
 export async function renamedFrom(fsPath: string, ref: string, staged: boolean): Promise<string | undefined> {
-  const cwd = path.dirname(fsPath);
+  const cwd = existingDir(fsPath);
   try {
     const prefix = (await git(['rev-parse', '--show-prefix'], cwd)).toString('utf8').trim();
-    const current = (prefix + path.basename(fsPath)).toLowerCase();
+    const current = (prefix + path.relative(cwd, fsPath).split(path.sep).join('/')).toLowerCase();
     const args = ['diff', '-M', '--name-status', '-z'];
     if (staged) args.push('--cached');
     args.push(ref, '--');
@@ -78,6 +109,44 @@ export async function renamedFrom(fsPath: string, ref: string, staged: boolean):
     // Not a repository or unknown ref: no rename information.
   }
   return undefined;
+}
+
+const ROOT_ID = /<(?:POU|DUT|GVL|Itf)\s[^>]*?\bId="\{?([0-9a-fA-F-]+)\}?"/;
+
+/**
+ * Repository-relative path of a file deleted since `ref` that holds the same TwinCAT object (same
+ * root GUID). TwinCAT keeps the GUID when an object is renamed, so this finds renames git does not
+ * report yet: the new file untracked, or too different for `git diff -M`.
+ */
+async function sameObjectDeleted(fsPath: string, ref: string, staged: boolean): Promise<string | undefined> {
+  let id: string | undefined;
+  try {
+    id = ROOT_ID.exec(fs.readFileSync(fsPath, 'utf8'))?.[1]?.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  if (!id) return undefined;
+  const cwd = existingDir(fsPath);
+  const ext = path.extname(fsPath).toLowerCase();
+  try {
+    const args = ['diff', '--name-only', '--diff-filter=D', '-z'];
+    if (staged) args.push('--cached');
+    args.push(ref, '--');
+    const deleted = (await git(args, cwd)).toString('utf8').split('\0').filter(p => p && path.extname(p).toLowerCase() === ext);
+    for (const candidate of deleted.slice(0, 100)) {
+      const text = (await git(['show', `${ref}:${candidate}`], cwd)).toString('utf8');
+      if (ROOT_ID.exec(text)?.[1]?.toLowerCase() === id) return candidate;
+    }
+  } catch {
+    // no information
+  }
+  return undefined;
+}
+
+/** Path at `ref` of the file now at `fsPath`, when it was renamed since (undefined when not renamed). */
+export async function originalPath(fsPath: string, ref: string, staged: boolean): Promise<string | undefined> {
+  if (await existsAt(fsPath, ref)) return undefined;
+  return (await renamedFrom(fsPath, ref, staged)) ?? (await sameObjectDeleted(fsPath, ref, staged));
 }
 
 export class DiffFileSystem implements vscode.FileSystemProvider {
@@ -151,7 +220,9 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
       }
     }
     void this.watchGitDir(ref.fsPath);
-    return showAtRef(ref.fsPath, ref.ref, ref.orig);
+    // Resolved at every read, so a rename committed later still shows the right file.
+    const orig = await originalPath(ref.fsPath, ref.ref, ref.against === INDEX);
+    return showAtRef(ref.fsPath, ref.ref, orig);
   }
 
   watch(): vscode.Disposable {
@@ -208,9 +279,9 @@ function refLabel(ref: string): string {
 /** Opens a notebook diff of a TwinCAT source file: `ref` on the left, working tree (or `right`) on the right. */
 export async function openNotebookDiff(fsPath: string, ref: string, right: string = WORKTREE): Promise<void> {
   const base = path.basename(fsPath);
-  const orig = await renamedFrom(fsPath, ref, right === INDEX);
+  const orig = await originalPath(fsPath, ref, right === INDEX);
   const leftName = orig ? path.posix.basename(orig) : base;
-  const left = diffUri(fsPath, ref, `${leftName} (${refLabel(ref)})`, orig);
+  const left = diffUri(fsPath, ref, `${leftName} (${refLabel(ref)})`, right);
   const rightUri = diffUri(fsPath, right, right === WORKTREE ? base : `${base} (${refLabel(right)})`);
   const title = `${orig ? `${leftName} → ` : ''}${base} (${refLabel(ref)} ↔ ${right === WORKTREE ? 'Working Tree' : refLabel(right)})`;
   await vscode.commands.executeCommand('vscode.diff', left, rightUri, title, { preview: true });

@@ -11,7 +11,8 @@ import { debugLog } from './core/debugLog';
 import { LanguageIndex, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
 import { ObjectFileSystem } from './vscode/objectFs';
-import { openObjectDocument } from './vscode/openDocs';
+import { forgetDocument, markFileChanged, openObjectDocument } from './vscode/openDocs';
+import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer, cellMeta } from './vscode/serializers';
 import { TreeNode, TwinCatTree } from './vscode/tree';
 import { CellDiagnostics, LanguageFeatures, cellInfo } from './vscode/language';
@@ -42,6 +43,8 @@ function config() {
   return vscode.workspace.getConfiguration('twincatExplorer');
 }
 
+const warnedStubs = new Set<string>();
+
 function userStubs(): StubSource[] {
   const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const out: StubSource[] = [];
@@ -51,7 +54,9 @@ function userStubs(): StubSource[] {
     try {
       out.push({ path: full, text: fs.readFileSync(full, 'utf8') });
     } catch (e) {
-      void vscode.window.showWarningMessage(`TwinCAT Explorer: cannot read stub file ${full}: ${(e as Error).message}`);
+      const message = `TwinCAT Explorer: cannot read stub file ${full}: ${(e as Error).message}`;
+      if (!warnedStubs.has(message)) void vscode.window.showWarningMessage(message);
+      warnedStubs.add(message);
     }
   }
   return out;
@@ -97,12 +102,37 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   // ------------------------------------------------------------------ loading and change tracking
 
   // Unsaved edits of open notebooks are visible to the rest of the index (completion, diagnostics).
-  // Overlays follow the cell text of dirty notebooks only; a clean notebook equals the disk.
-  const syncOverlays = (nb: vscode.NotebookDocument) => {
-    for (const cell of nb.getCells()) {
-      const info = cellInfo(cell.document);
-      if (info?.live) index.setOverlay(info.fileKey, info.sectionKey, nb.isDirty ? cell.document.getText() : undefined);
-    }
+  const overlays = new OverlaySync(index, ws);
+  const refreshOverlays = (files?: Iterable<string>) => {
+    if (overlays.refresh(files)) diagnostics.scheduleAll(300);
+  };
+
+  // Results of "Check All Structured Text" are re-run (debounced) on any change while they are shown.
+  let checkTimer: NodeJS.Timeout | undefined;
+  const scheduleCheck = () => {
+    if (!checkHasResults) return;
+    if (checkTimer) clearTimeout(checkTimer);
+    checkTimer = setTimeout(() => {
+      checkTimer = undefined;
+      checkHasResults = features.checkWorkspace(checkCollection).problems > 0;
+    }, 800);
+  };
+  let checkHasResults = false;
+
+  // Watchers and the git hook are only started once a workspace has TwinCAT projects, so the
+  // extension stays idle in the other windows of the profile (it also activates on startup).
+  let projectServicesStarted = false;
+  const startProjectServices = () => {
+    if (projectServicesStarted) return;
+    projectServicesStarted = true;
+    const sourceWatcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcTTO,tcpou,tcdut,tcgvl,tcio,tctto}');
+    context.subscriptions.push(
+      sourceWatcher,
+      sourceWatcher.onDidChange(u => onSourceChanged(u.fsPath)),
+      sourceWatcher.onDidCreate(u => onSourceChanged(u.fsPath)),
+      sourceWatcher.onDidDelete(u => onSourceChanged(u.fsPath)),
+    );
+    void watchRepositories(() => diffFs.notifyRefsChanged()).then(d => context.subscriptions.push(d));
   };
 
   let loadTimer: NodeJS.Timeout | undefined;
@@ -117,14 +147,21 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
         return !isInHiddenFolder(folder ? path.relative(folder.uri.fsPath, u.fsPath) : u.fsPath);
       });
       ws.load(visible.map(u => u.fsPath));
-      if (ws.tsProjects.length > 0) index.setStubs([...BUNDLED_STUBS, ...userStubs()]);
+      const hasProjects = ws.tsProjects.length > 0;
+      if (hasProjects) {
+        startProjectServices();
+        index.setStubs([...BUNDLED_STUBS, ...userStubs()]);
+      }
       index.invalidateAll();
-      for (const nb of vscode.workspace.notebookDocuments) syncOverlays(nb);
+      refreshOverlays();
       tree.rebuild();
       checkCollection.clear();
-      await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', ws.tsProjects.length > 0);
-      log.info(`Loaded ${ws.tsProjects.length} TwinCAT project(s), ${ws.plcProjects.length} PLC project(s), `
-        + `${ws.sourceEntries.length} source file(s); ignored ${uris.length - visible.length} .tsproj file(s) in hidden folders.`);
+      checkHasResults = false;
+      await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', hasProjects);
+      if (hasProjects || ws.loadErrors.length) {
+        log.info(`Loaded ${ws.tsProjects.length} TwinCAT project(s), ${ws.plcProjects.length} PLC project(s), `
+          + `${ws.sourceEntries.length} source file(s); ignored ${uris.length - visible.length} .tsproj file(s) in hidden folders.`);
+      }
       for (const err of ws.loadErrors) log.warn(err);
       const errors = ws.loadErrors.join('\n');
       if (errors && errors !== reportedErrors) {
@@ -147,78 +184,79 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   const onSourceChanged = (fsPath: string, except?: vscode.Uri) => {
     debugLog(`onSourceChanged ${fsPath}`);
+    markFileChanged(fsPath);
     ws.invalidate(fsPath);
     index.invalidateFile(fsPath);
     objectFs.notifyRealFileChanged(fsPath, except);
     diffFs.notifyChanged(fsPath);
     tree.scheduleRebuild();
+    refreshOverlays([fsPath]);
     diagnostics.scheduleAll();
-    // Results of "Check All Structured Text" for this file are re-checked instead of going stale.
-    if (checkCollection.has(vscode.Uri.file(fsPath))) features.checkWorkspace(checkCollection, fsPath);
+    scheduleCheck();
   };
   // A change event for the URI being saved, during its save, can leave its working copy ignoring later changes.
   objectFs.onDidWriteRealFile = (fsPath, savedUri) => onSourceChanged(fsPath, savedUri);
 
-  const sourceWatcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcTTO,tcpou,tcdut,tcgvl,tcio,tctto}');
   const projectWatcher = vscode.workspace.createFileSystemWatcher('**/*.{tsproj,plcproj}');
   context.subscriptions.push(
-    sourceWatcher, projectWatcher,
-    sourceWatcher.onDidChange(u => onSourceChanged(u.fsPath)),
-    sourceWatcher.onDidCreate(u => onSourceChanged(u.fsPath)),
-    sourceWatcher.onDidDelete(u => onSourceChanged(u.fsPath)),
+    projectWatcher,
     projectWatcher.onDidChange(scheduleLoad),
     projectWatcher.onDidCreate(scheduleLoad),
     projectWatcher.onDidDelete(scheduleLoad),
     vscode.workspace.onDidChangeWorkspaceFolders(scheduleLoad),
   );
-  void watchRepositories(() => diffFs.notifyRefsChanged()).then(d => context.subscriptions.push(d));
 
-  const clearOverlays = (nb: vscode.NotebookDocument) => {
-    for (const cell of nb.getCells()) {
-      const info = cellInfo(cell.document);
-      if (info?.live) index.setOverlay(info.fileKey, info.sectionKey, undefined);
-    }
-  };
+  let tabsTimer: NodeJS.Timeout | undefined;
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument(e => {
       if (e.document.languageId !== ST_LANGUAGE || e.contentChanges.length === 0) return;
       const info = cellInfo(e.document);
       if (!info?.live) return;
-      index.setOverlay(info.fileKey, info.sectionKey, e.document.getText());
+      overlays.touched(e.document);
+      refreshOverlays([info.fsPath]);
       diagnostics.schedule(e.document);
-      diagnostics.scheduleAll(800);
     }),
     vscode.workspace.onDidOpenNotebookDocument(nb => {
-      // Notebooks restored dirty by hot exit (window reload, extension host restart) bring unsaved text without change events.
-      syncOverlays(nb);
+      // Notebooks restored by hot exit (window reload, extension host restart) bring unsaved text without change events.
+      refreshOverlays();
       for (const cell of nb.getCells()) diagnostics.schedule(cell.document, 50);
-      if (nb.isDirty) diagnostics.scheduleAll(200);
     }),
     vscode.workspace.onDidChangeNotebookDocument(e => {
       // Revert and reload from disk replace cells without text change events.
       if (e.contentChanges.length === 0) return;
       for (const ch of e.contentChanges) {
-        for (const c of ch.removedCells) diagnostics.collection.delete(c.document.uri);
+        for (const c of ch.removedCells) {
+          diagnostics.collection.delete(c.document.uri);
+          overlays.forgetCell(c.document.uri);
+        }
         for (const c of ch.addedCells) diagnostics.schedule(c.document, 50);
       }
-      syncOverlays(e.notebook);
-      diagnostics.scheduleAll(400);
+      refreshOverlays();
     }),
     vscode.workspace.onDidCloseTextDocument(doc => {
       if (doc.uri.scheme === 'vscode-notebook-cell') diagnostics.collection.delete(doc.uri);
     }),
-    vscode.workspace.onDidSaveNotebookDocument(nb => {
-      clearOverlays(nb);
-      diagnostics.scheduleAll();
+    vscode.workspace.onDidSaveNotebookDocument(() => {
+      refreshOverlays();
+      scheduleCheck();
     }),
     vscode.workspace.onDidCloseNotebookDocument(nb => {
-      clearOverlays(nb);
       diagnostics.clearNotebook(nb);
-      diagnostics.scheduleAll();
+      for (const cell of nb.getCells()) overlays.forgetCell(cell.document.uri);
+      if (nb.notebookType === OBJECT_NOTEBOOK) {
+        objectFs.forget(nb.uri);
+        forgetDocument(nb.uri);
+      }
+      refreshOverlays();
+    }),
+    vscode.window.tabGroups.onDidChangeTabs(() => {
+      // Only documents shown in a tab (or dirty) feed the overlays.
+      if (tabsTimer) clearTimeout(tabsTimer);
+      tabsTimer = setTimeout(() => refreshOverlays(), 200);
     }),
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('twincatExplorer.foldersFirst')) tree.rebuild();
-      if (e.affectsConfiguration('twincatExplorer.stubFiles')) {
+      if (e.affectsConfiguration('twincatExplorer.stubFiles') && ws.tsProjects.length > 0) {
         index.setStubs([...BUNDLED_STUBS, ...userStubs()]);
         diagnostics.scheduleAll();
       }
@@ -439,6 +477,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Window, title: 'Checking TwinCAT Structured Text' },
         async () => features.checkWorkspace(checkCollection));
+      checkHasResults = result.problems > 0;
       void vscode.window.showInformationMessage(result.problems === 0
         ? 'TwinCAT: no problems found.'
         : `TwinCAT: ${result.problems} problem(s) in ${result.files} file(s). See the Problems panel.`);

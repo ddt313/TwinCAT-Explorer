@@ -6,7 +6,7 @@ import * as A from './ast';
 import { Trivia } from './lexer';
 import { DeclParseResult, BodyParseResult, parseDeclaration, parseBody } from './parser';
 import {
-  GlobalSym, GvlSym, MemberSym, PouSym, Scope, Sym, TypeSym, VarSym, EnumValueSym, Loc, MemberKind, PouKindSym,
+  GlobalSym, GvlSym, MemberSym, PouSym, Scope, Sym, Ty, TypeSym, VarSym, EnumValueSym, Loc, MemberKind, PouKindSym,
 } from './symbols';
 import { Builtins } from './builtins';
 import { TcWorkspace, SourceEntry, fileKey } from '../core/workspace';
@@ -88,6 +88,8 @@ export class LanguageIndex {
   readonly builtinScope = new Scope('(built-in)', true);
   readonly builtins = new Builtins(this.builtinScope);
   version = 0;
+  /** Resolved types of variables and properties; replaced on every rebuild because types point at symbols of other files. */
+  typeCache = new WeakMap<object, Ty>();
   private readonly projectScopes = new Map<PlcProject, Scope>();
   private libraryScopes = new Map<string, Scope>();
   private readonly files = new Map<string, FileSyms>();
@@ -186,6 +188,7 @@ export class LanguageIndex {
     this.allDirty = false;
     this.assembleScopes();
     this.builtWorkspaceVersion = this.ws.version;
+    this.typeCache = new WeakMap();
     this.version++;
   }
 

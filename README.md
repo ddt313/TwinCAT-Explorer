@@ -15,10 +15,12 @@ the **Declaration above the Implementation**, while the code stays in the
 - **One tab per object**, titled `FB_X` or `FB_X.Method`, as a notebook: one cell per
   section (`Declaration`, `Implementation`, `Get · Declaration`, ...). Single click opens
   a preview tab, double click (or editing) keeps it. Breadcrumbs follow the XAE path.
-- **Safe saving**: only the CDATA of the changed sections is replaced; BOM, CRLF,
-  GUIDs and every other byte of the file stay as they were. Two tabs of the same
-  file can be edited and saved independently. Changes on disk (git, XAE, other
-  tools) reload open tabs that have no unsaved edits.
+- **Safe saving**: only the CDATA of the cells you edited is replaced; BOM, CRLF,
+  GUIDs and every other byte of the file stay as they were. Cells you did not touch
+  are never written back, so changes made meanwhile in XAE or by git survive. If a
+  cell you edited was also changed on disk, the save is refused with a message instead
+  of overwriting it. Two tabs of the same file can be edited and saved independently.
+  Open tabs without unsaved edits reload when the file changes on disk.
 - **Renaming is blocked**: changing the name in a declaration header
   (`METHOD OnEntry` to `METHOD OnEnter`) makes the save fail with a message; rename
   in TwinCAT XAE.
@@ -35,8 +37,11 @@ the **Declaration above the Implementation**, while the code stays in the
 - **Ctrl+T** finds POUs, methods, properties, DUTs, GVLs and global variables.
   **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists all objects of the workspace.
 - **Notebook diff for git**: `Open Changes as TwinCAT Notebook` (tree, Explorer,
-  Source Control and editor title menus) compares a file with `HEAD` (or the index for
-  staged changes) section by section; unchanged sections are folded.
+  Source Control and editor title menus) compares a file with `HEAD` (or, in Staged
+  Changes, HEAD with the index) section by section; unchanged sections are folded.
+  Staged renames are followed, and an open comparison refreshes after a commit,
+  checkout or stage. The Source Control menu cannot filter by file type, so the entry
+  shows on every changed file and answers with a message for other files.
   `Compare with Git Ref as TwinCAT Notebook...` compares with any branch or commit,
   for example `origin/develop` when reviewing a merge request.
 - `Reopen Editor With... > TwinCAT File (Notebook)` shows a whole `.TcPOU` as one notebook.
@@ -45,15 +50,27 @@ the **Declaration above the Implementation**, while the code stays in the
 
 ## Install, update, uninstall
 
+VS Code profiles have their own extensions, and the `code` CLI installs into the
+**Default** profile unless told otherwise. A window that uses another profile (see the
+gear menu > Profiles) then never loads the extension, or keeps an old version. Always
+name the profile:
+
 ```bash
-code --install-extension twincat-explorer-0.1.0.vsix
+npm run package
+npm run install:local -- <profile>
 ```
 
-Then reload the VS Code window. To uninstall:
+`install:local` runs `code --install-extension twincat-explorer-<version>.vsix --force --profile <profile>`.
+Another way is `Extensions: Install from VSIX...` in the target window, which installs
+into that window's profile. Reload the window afterwards. To uninstall:
 
 ```bash
-code --uninstall-extension thanhdang.twincat-explorer
+code --uninstall-extension thanhdang.twincat-explorer --profile <profile>
 ```
+
+The `TwinCAT Explorer` output channel logs what was loaded and any project file that
+could not be read (for example a `.plcproj` with merge conflict markers, which the tree
+marks with a warning).
 
 ## Notebook toolbars
 
@@ -73,7 +90,7 @@ The same command can show them again.
 | `twincatExplorer.diagnostics.enabled` | `true` | Report problems in open TwinCAT notebooks. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers never reported as unknown. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files (see below). |
-| `twincatExplorer.exclude` | `**/{node_modules,.git,_Boot,_CompileInfo,_Libraries}/**` | Ignored when searching `.tsproj` files. |
+| `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Ignored when searching `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |
 
 ## Libraries
 

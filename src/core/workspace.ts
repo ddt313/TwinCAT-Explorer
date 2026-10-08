@@ -29,6 +29,8 @@ export class TcWorkspace {
   tsProjects: TsProject[] = [];
   plcProjects: PlcProject[] = [];
   loadErrors: string[] = [];
+  /** Error message per .plcproj (fileKey) that could not be parsed, e.g. during a merge conflict. */
+  readonly failedPlc = new Map<string, string>();
   /** Incremented whenever projects or files change. */
   version = 0;
   private readonly entries = new Map<string, SourceEntry>();
@@ -40,6 +42,7 @@ export class TcWorkspace {
     this.tsProjects = [];
     this.plcProjects = [];
     this.loadErrors = [];
+    this.failedPlc.clear();
     this.entries.clear();
     this.tsOfPlc.clear();
     this.plcByKey.clear();
@@ -68,7 +71,8 @@ export class TcWorkspace {
         try {
           plc = parsePlcProject(ref.plcprojPath, fs.readFileSync(ref.plcprojPath, 'utf8'));
         } catch (e) {
-          this.loadErrors.push(`${ref.plcprojPath}: ${(e as Error).message}`);
+          if (!this.failedPlc.has(plcKey)) this.loadErrors.push(`${ref.plcprojPath}: ${(e as Error).message}`);
+          this.failedPlc.set(plcKey, (e as Error).message);
           continue;
         }
         this.plcProjects.push(plc);

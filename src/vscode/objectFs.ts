@@ -5,10 +5,11 @@
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { TcObject, TcSourceFile, encodeText, parseTcFile } from '../core/tcfile';
+import { TcObject, TcSourceFile, encodeText, normalizeEol, parseTcFile } from '../core/tcfile';
 import { SpliceError, applySectionEdits } from '../core/splice';
 import { fileKey } from '../core/workspace';
-import { parseObjectUri, objectUri } from './uris';
+import { parseObjectUri } from './uris';
+import { debugLog } from '../core/debugLog';
 
 export interface ObjectDocSection {
   key: string;
@@ -17,6 +18,8 @@ export interface ObjectDocSection {
   editable: boolean;
   accessor?: 'Get' | 'Set';
   text: string;
+  /** Hash of the text on disk when the tab was loaded: tells edited cells from untouched ones at save time. */
+  base?: string;
 }
 
 export interface ObjectDoc {
@@ -27,6 +30,12 @@ export interface ObjectDoc {
   qualifiedName: string;
   kind: string;
   sections: ObjectDocSection[];
+  /** Section keys when the tab was loaded: tells cells deleted in the tab from sections that changed on disk. */
+  served?: string[];
+}
+
+export function textHash(text: string): string {
+  return crypto.createHash('sha1').update(normalizeEol(text)).digest('hex');
 }
 
 export function objectDoc(file: TcSourceFile, obj: TcObject): ObjectDoc {
@@ -38,13 +47,10 @@ export function objectDoc(file: TcSourceFile, obj: TcObject): ObjectDoc {
     qualifiedName: obj.qualifiedName,
     kind: obj.kind,
     sections: obj.sections.map(s => ({
-      key: s.key, label: s.label, role: s.role, editable: s.editable, accessor: s.accessor, text: s.text,
+      key: s.key, label: s.label, role: s.role, editable: s.editable, accessor: s.accessor, text: s.text, base: textHash(s.text),
     })),
+    served: obj.sections.map(s => s.key),
   };
-}
-
-export function objectUriOf(file: TcSourceFile, obj: TcObject): vscode.Uri {
-  return objectUri(file.path, obj);
 }
 
 interface Stamp {
@@ -57,8 +63,11 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
   readonly onDidChangeFile = this.emitter.event;
   private readonly watched = new Map<string, Map<string, vscode.Uri>>();
   private readonly stamps = new Map<string, Stamp>();
+  /** Hashes of the section texts this provider last wrote, per URI (a saved notebook is not re-read, so its bases are stale). */
+  private readonly written = new Map<string, Map<string, string>>();
   /** Called after a successful save with the real file path. */
-  onDidWriteRealFile?: (fsPath: string) => void;
+  /** Called after a successful save with the real file path and the URI being saved (which must not get a change event). */
+  onDidWriteRealFile?: (fsPath: string, savedUri: vscode.Uri) => void;
 
   private load(uri: vscode.Uri): { file: TcSourceFile; obj: TcObject } {
     const ref = parseObjectUri(uri);
@@ -92,10 +101,14 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
 
   stat(uri: vscode.Uri): vscode.FileStat {
     const { bytes, stamp } = this.content(uri);
+    debugLog(`stat ${uri.path.split('/').pop()} mtime=${stamp.mtime} size=${bytes.byteLength}`);
     return { type: vscode.FileType.File, ctime: 0, mtime: stamp.mtime, size: bytes.byteLength };
   }
 
   readFile(uri: vscode.Uri): Uint8Array {
+    debugLog(`readFile ${uri.path.split('/').pop()}`);
+    // The tab now shows the disk again, so its own bases are current.
+    this.written.delete(uri.toString());
     return this.content(uri).bytes;
   }
 
@@ -109,28 +122,50 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
       throw new Error('Invalid TwinCAT object document');
     }
     const { file, obj } = this.load(uri);
-    const known = new Set(obj.sections.map(s => s.key));
-    const seen = new Set<string>();
-    for (const s of doc.sections) {
-      if (!s.key || !known.has(s.key)) {
+    const docKeys = doc.sections.map(s => s.key);
+    const served = new Set(doc.served ?? docKeys);
+    for (const k of docKeys) {
+      if (!k || !served.has(k)) {
         throw new Error('Cells cannot be added to a TwinCAT object. Add methods or properties in TwinCAT XAE.');
       }
-      seen.add(s.key);
     }
-    if (seen.size !== known.size) {
-      throw new Error('Cells of a TwinCAT object cannot be deleted.');
+    for (const k of served) {
+      if (!docKeys.includes(k)) throw new Error('Cells of a TwinCAT object cannot be deleted.');
+    }
+    const lastWritten = this.written.get(uri.toString());
+    const edits: { key: string; text: string }[] = [];
+    for (const s of doc.sections) {
+      const base = lastWritten?.get(s.key) ?? s.base;
+      const hash = textHash(s.text);
+      // Untouched cells still hold the text of when the tab was loaded: never write them back,
+      // or a change made meanwhile outside VS Code (XAE, git) would be reverted.
+      if (base !== undefined && hash === base) continue;
+      const onDisk = file.sections.get(s.key);
+      if (!onDisk) {
+        throw new Error(`${s.label} of ${obj.qualifiedName} was removed outside VS Code. Copy your changes and revert this tab.`);
+      }
+      const diskHash = textHash(onDisk.text);
+      if (base !== undefined && diskHash !== base && diskHash !== hash) {
+        throw new Error(`${s.label} of ${obj.qualifiedName} was also changed outside VS Code since this tab was loaded. `
+          + 'Copy your changes and revert this tab, or use Compare to merge.');
+      }
+      edits.push({ key: s.key, text: s.text });
     }
     let result;
     try {
-      result = applySectionEdits(file, doc.sections.map(s => ({ key: s.key, text: s.text })));
+      result = applySectionEdits(file, edits);
     } catch (e) {
       if (e instanceof SpliceError) throw new Error(e.message);
       throw e;
     }
     if (result.changedKeys.length > 0) {
       fs.writeFileSync(ref.fsPath, encodeText(result.text, file.bom));
-      this.onDidWriteRealFile?.(ref.fsPath);
-      this.notifyRealFileChanged(ref.fsPath, uri);
+    }
+    const hashes = new Map(lastWritten ?? []);
+    for (const e of edits) hashes.set(e.key, textHash(e.text));
+    this.written.set(uri.toString(), hashes);
+    if (result.changedKeys.length > 0) {
+      this.onDidWriteRealFile?.(ref.fsPath, uri);
     }
   }
 
@@ -154,6 +189,7 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
   /** Tells VS Code that the objects of a real file may have changed. */
   notifyRealFileChanged(fsPath: string, except?: vscode.Uri): void {
     const m = this.watched.get(fileKey(fsPath));
+    debugLog(`notify ${fsPath.split(/[\\/]/).pop()} watched=${m ? [...m.values()].map(u => u.path.split('/').pop()).join(',') : 'none'}`);
     if (!m) return;
     const events: vscode.FileChangeEvent[] = [];
     for (const uri of m.values()) {

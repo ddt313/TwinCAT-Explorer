@@ -16,6 +16,8 @@ export interface CellMeta {
   accessor?: 'Get' | 'Set';
   /** Header cell of an object in a file notebook. */
   header?: boolean;
+  /** Hash of the section text on disk when the tab was loaded. */
+  base?: string;
 }
 
 export function cellMeta(cell: vscode.NotebookCell | vscode.NotebookCellData): CellMeta | undefined {
@@ -30,12 +32,14 @@ export class ObjectSerializer implements vscode.NotebookSerializer {
     const doc = JSON.parse(text) as ObjectDoc;
     const cells = doc.sections.map(s => {
       const c = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, s.text, ST_LANGUAGE);
-      const meta: CellMeta = { key: s.key, label: s.label, role: s.role, editable: s.editable, accessor: s.accessor };
+      const meta: CellMeta = { key: s.key, label: s.label, role: s.role, editable: s.editable, accessor: s.accessor, base: s.base };
       c.metadata = meta;
       return c;
     });
     const data = new vscode.NotebookData(cells);
-    data.metadata = { file: doc.file, objectId: doc.objectId, name: doc.name, qualifiedName: doc.qualifiedName, kind: doc.kind };
+    data.metadata = {
+      file: doc.file, objectId: doc.objectId, name: doc.name, qualifiedName: doc.qualifiedName, kind: doc.kind, served: doc.served,
+    };
     return data;
   }
 
@@ -48,6 +52,7 @@ export class ObjectSerializer implements vscode.NotebookSerializer {
       name: md.name,
       qualifiedName: md.qualifiedName,
       kind: md.kind,
+      served: md.served,
       sections: data.cells.map(c => {
         const m = cellMeta(c);
         return {
@@ -57,6 +62,7 @@ export class ObjectSerializer implements vscode.NotebookSerializer {
           editable: m?.editable ?? true,
           accessor: m?.accessor,
           text: c.value,
+          base: m?.base,
         };
       }),
     };

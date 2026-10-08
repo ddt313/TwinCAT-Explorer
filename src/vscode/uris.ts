@@ -36,13 +36,15 @@ export interface ObjectInfo {
  * `twincat:/c:/.../FB_X.TcPOU/Methods/States/OnEntry.tcobj?{"label":"FB_X.OnEntry","id":"<guid>"}`:
  * the path mirrors the XAE tree (shown in breadcrumbs), the query carries the tab title and the object id.
  */
-export function objectUri(fsPath: string, obj: ObjectInfo): vscode.Uri {
+export function objectUri(fsPath: string, obj: ObjectInfo, rev?: string): vscode.Uri {
   const filePath = vscode.Uri.file(fsPath).path;
   const segments = [...obj.folderPath, obj.name].map(safeName).join('/');
+  // `rev` makes a fresh document when the object is opened again (see openDocs.ts); it is not part of the identity.
+  const query = rev ? { label: obj.qualifiedName, id: obj.id, rev } : { label: obj.qualifiedName, id: obj.id };
   return vscode.Uri.from({
     scheme: OBJECT_SCHEME,
     path: `${filePath}/${segments}.tcobj`,
-    query: JSON.stringify({ label: obj.qualifiedName, id: obj.id }),
+    query: JSON.stringify(query),
   });
 }
 
@@ -70,21 +72,29 @@ export function parseObjectUri(uri: vscode.Uri): ObjectRef | undefined {
 export const WORKTREE = 'WORKTREE';
 export const INDEX = 'INDEX';
 
-export function diffUri(fsPath: string, ref: string, label: string): vscode.Uri {
+/**
+ * `twincat-diff:/c:/.../FB_X.TcPOU.tcfile?{"ref":"HEAD","label":"...","orig":"PLC/.../FB_Old.TcPOU"}`.
+ * `orig` is the repository-relative path at `ref` when the file was renamed since.
+ */
+export function diffUri(fsPath: string, ref: string, label: string, orig?: string): vscode.Uri {
   const filePath = vscode.Uri.file(fsPath).path;
-  return vscode.Uri.from({ scheme: DIFF_SCHEME, path: `${filePath}.tcfile`, query: JSON.stringify({ ref, label }) });
+  const query = orig ? { ref, label, orig } : { ref, label };
+  return vscode.Uri.from({ scheme: DIFF_SCHEME, path: `${filePath}.tcfile`, query: JSON.stringify(query) });
 }
 
-export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string } | undefined {
+export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string; orig?: string } | undefined {
   if (uri.scheme !== DIFF_SCHEME) return undefined;
   let ref = WORKTREE;
+  let orig: string | undefined;
   try {
-    ref = JSON.parse(uri.query).ref ?? WORKTREE;
+    const q = JSON.parse(uri.query);
+    ref = q.ref ?? WORKTREE;
+    orig = q.orig;
   } catch {
-    // keep default
+    // keep defaults
   }
   const filePath = uri.path.replace(/\.tcfile$/, '');
-  return { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, ref };
+  return { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, ref, orig };
 }
 
 /** Real file behind any of our URIs (or a plain file URI). */

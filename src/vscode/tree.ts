@@ -11,6 +11,13 @@ import { PlcProject, TsProject, resolutionLibraryName } from '../core/project';
 export type NodeKind = 'tsproj' | 'plcproj' | 'references' | 'library' | 'folder' | 'file' | 'innerFolder' | 'object' | 'accessor';
 
 export class TreeNode {
+  /** The .tsproj node this node belongs to. */
+  get root(): TreeNode {
+    let n: TreeNode = this;
+    while (n.parent) n = n.parent;
+    return n;
+  }
+
   children: TreeNode[] = [];
   description?: string;
   tooltip?: string;
@@ -69,8 +76,9 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
   readonly onDidChangeTreeData = this.emitter.event;
   private roots: TreeNode[] = [];
   private readonly byId = new Map<string, TreeNode>();
-  private readonly byObject = new Map<string, TreeNode>();
-  private readonly byFile = new Map<string, TreeNode>();
+  /** Every node per object and per file: a PLC project shared by two .tsproj files appears twice. */
+  private readonly byObject = new Map<string, TreeNode[]>();
+  private readonly byFile = new Map<string, TreeNode[]>();
   private refreshTimer: NodeJS.Timeout | undefined;
   loaded = false;
 
@@ -107,8 +115,17 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
     root.tooltip = ts.path;
     for (const ref of ts.plcProjects) {
       const plc = this.ws.plcProject(ref.plcprojPath);
-      if (!plc) continue;
-      this.buildPlcProject(root, plc, tsKey);
+      if (plc) {
+        this.buildPlcProject(root, plc, tsKey);
+        continue;
+      }
+      const error = this.ws.failedPlc.get(fileKey(ref.plcprojPath));
+      const failed = this.add(new TreeNode(`plc:${tsKey}|${fileKey(ref.plcprojPath)}`, 'plcproj', ref.name, root));
+      failed.fsPath = ref.plcprojPath;
+      failed.icon = icon('warning', 'problemsWarningIcon.foreground');
+      failed.description = error ? 'could not be loaded' : 'not found';
+      failed.tooltip = `${ref.plcprojPath}
+${error ?? 'The .plcproj file does not exist.'}`;
     }
     return root;
   }
@@ -165,7 +182,7 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
     node.fsPath = fsPath;
     node.sortGroup = 2;
     node.tooltip = fsPath;
-    if (!this.byFile.has(fk)) this.byFile.set(fk, node);
+    this.byFile.set(fk, [...(this.byFile.get(fk) ?? []), node]);
     if (!file || !root) {
       node.icon = file?.fileKind === 'task' ? icon('watch') : icon('file');
       node.name = path.basename(fsPath, path.extname(fsPath));
@@ -224,7 +241,7 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
 
   private indexObject(file: TcSourceFile, obj: TcObject, node: TreeNode): void {
     const key = `${fileKey(file.path)}|${obj.id}`;
-    if (!this.byObject.has(key)) this.byObject.set(key, node);
+    this.byObject.set(key, [...(this.byObject.get(key) ?? []), node]);
   }
 
   private sortTree(node: TreeNode): void {
@@ -268,12 +285,20 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
 
   // ------------------------------------------------------------------ lookups
 
+  nodesForObject(fsPath: string, objectId: string): TreeNode[] {
+    return this.byObject.get(`${fileKey(fsPath)}|${objectId}`) ?? [];
+  }
+
+  nodesForFile(fsPath: string): TreeNode[] {
+    return this.byFile.get(fileKey(fsPath)) ?? [];
+  }
+
   nodeForObject(fsPath: string, objectId: string): TreeNode | undefined {
-    return this.byObject.get(`${fileKey(fsPath)}|${objectId}`);
+    return this.nodesForObject(fsPath, objectId)[0];
   }
 
   nodeForFile(fsPath: string): TreeNode | undefined {
-    return this.byFile.get(fileKey(fsPath));
+    return this.nodesForFile(fsPath)[0];
   }
 
   node(id: string): TreeNode | undefined {

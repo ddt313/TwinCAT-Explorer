@@ -2,7 +2,7 @@
   "name": "twincat-explorer",
   "displayName": "TwinCAT Explorer",
   "description": "XAE-like TwinCAT PLC project tree, declaration/implementation notebooks and Structured Text language features",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "thanhdang",
   "private": true,
   "license": "UNLICENSED",
@@ -265,32 +265,32 @@
       "editor/title/context": [
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
           "group": "3_compare@1"
         },
         {
           "command": "twincatExplorer.revealInTree",
-          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i || resourceScheme == twincat",
+          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i || resourceScheme == twincat",
           "group": "2_files@90"
         }
       ],
       "explorer/context": [
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
           "group": "3_compare@90"
         },
         {
           "command": "twincatExplorer.revealInTree",
-          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i",
+          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i",
           "group": "navigation@90"
         }
       ],
       "scm/resourceState/context": [
         {
           "command": "twincatExplorer.openChanges",
-          "when": "scmProvider == git && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
-          "group": "navigation@90"
+          "when": "scmProvider == git && scmResourceGroup =~ /^(index|workingTree|untracked)$/",
+          "group": "7_twincat@1"
         }
       ]
     },
@@ -358,7 +358,9 @@
     "watch": "tsc -w -p .",
     "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
     "test": "npm run compile && npm run test:unit",
-    "package": "vsce package --no-dependencies --allow-missing-repository --skip-license"
+    "package": "vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "vscode:prepublish": "npm run compile",
+    "install:local": "node scripts/install.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

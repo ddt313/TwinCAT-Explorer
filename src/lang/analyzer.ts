@@ -42,7 +42,6 @@ interface Resolved {
   ty: Ty;
 }
 
-const varTypeCache = new WeakMap<object, Ty>();
 const PARAM_SECTIONS = new Set(['VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT']);
 const COMPARISON = new Set(['=', '<>', '<', '>', '<=', '>=']);
 const LITERAL_TYPES: Record<A.LiteralType, Ty> = {
@@ -127,10 +126,10 @@ export class Analyzer {
   }
 
   varType(v: VarSym): Ty {
-    let t = varTypeCache.get(v);
+    let t = this.index.typeCache.get(v);
     if (!t) {
       t = this.resolveTypeSpec(v.typeSpec, v.scope);
-      varTypeCache.set(v, t);
+      this.index.typeCache.set(v, t);
     }
     return t;
   }
@@ -148,10 +147,10 @@ export class Analyzer {
       case 'transition':
         return { k: 'callable', sym: s };
       case 'property': {
-        let t = varTypeCache.get(s);
+        let t = this.index.typeCache.get(s);
         if (!t) {
           t = this.resolveTypeSpec(s.returnType, s.scope);
-          varTypeCache.set(s, t);
+          this.index.typeCache.set(s, t);
         }
         return t;
       }
@@ -384,8 +383,10 @@ export class Analyzer {
 
   // ------------------------------------------------------------------ declarations
 
-  private declared(span: A.Span): Sym | undefined {
-    return this.index.declaredAt(this.ctx.fileKey, this.ctx.sectionKey, span.start);
+  /** Symbol declared at this identifier; the name must match because the text may be another version (diff history). */
+  private declared(id: A.Ident): Sym | undefined {
+    const s = this.index.declaredAt(this.ctx.fileKey, this.ctx.sectionKey, id.start);
+    return s && s.name.toUpperCase() === id.upper ? s : undefined;
   }
 
   private declUnit(unit: A.DeclUnit): void {

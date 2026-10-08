@@ -10,6 +10,7 @@ import { expressionBeforeDot } from '../lang/completion';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { sectionOffsetToFileOffset } from '../core/tcfile';
 import { cellMeta } from './serializers';
+import { openObjectDocument } from './openDocs';
 import {
   DIFF_NOTEBOOK, FILE_NOTEBOOK, OBJECT_NOTEBOOK, ST_LANGUAGE, objectUri, parseDiffUri, parseObjectUri,
 } from './uris';
@@ -139,6 +140,11 @@ export class LanguageFeatures implements
     return new Set(list.map(s => s.toUpperCase()));
   }
 
+  /** Drops cached analyses, e.g. after the diagnostics settings changed. */
+  clearAnalysisCache(): void {
+    this.cache.clear();
+  }
+
   analysisOf(ctx: SectionContext, text: string): Analysis {
     const key = `${ctx.fileKey}|${ctx.sectionKey}`;
     const cached = this.cache.get(key);
@@ -164,8 +170,8 @@ export class LanguageFeatures implements
   async toLocation(loc: Loc): Promise<vscode.Location | undefined> {
     const ctx = this.index.context(loc.fileKey, loc.sectionKey);
     if (!ctx) return undefined;
-    const uri = objectUri(ctx.filePath, ctx.object);
-    const nb = await vscode.workspace.openNotebookDocument(uri);
+    const nb = await openObjectDocument(ctx.filePath, ctx.object);
+    const uri = nb.uri;
     const cell = nb.getCells().find(c => cellMeta(c)?.key === loc.sectionKey);
     if (!cell) return new vscode.Location(uri, new vscode.Position(0, 0));
     const d = cell.document;
@@ -316,12 +322,15 @@ export class LanguageFeatures implements
 
   // ------------------------------------------------------------------ whole workspace check
 
-  checkWorkspace(collection: vscode.DiagnosticCollection): { files: number; problems: number } {
-    collection.clear();
+  checkWorkspace(collection: vscode.DiagnosticCollection, onlyFile?: string): { files: number; problems: number } {
+    if (onlyFile) collection.delete(vscode.Uri.file(onlyFile));
+    else collection.clear();
     const byFile = new Map<string, vscode.Diagnostic[]>();
     let problems = 0;
     const ignore = this.ignoreSet();
+    const only = onlyFile ? fileKey(onlyFile) : undefined;
     for (const ctx of this.index.allContexts()) {
+      if (only && ctx.fileKey !== only) continue;
       const file = this.ws.getFile(ctx.filePath);
       const section = file?.sections.get(ctx.sectionKey);
       if (!file || !section) continue;

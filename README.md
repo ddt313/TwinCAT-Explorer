@@ -128,6 +128,9 @@ resolved from their sources.
 - If TwinCAT XAE has the same project open, it keeps its own copy in memory and can
   overwrite changes saved from VS Code; reload the project in XAE after editing here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.
+- In VS Code 1.141, `File: Revert File` on a notebook (any notebook, Jupyter too) clears the
+  unsaved marker without restoring the cells. To drop the unsaved edits of a TwinCAT tab,
+  close it and choose "Don't Save".
 
 ## Development
 

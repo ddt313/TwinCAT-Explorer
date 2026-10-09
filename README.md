@@ -1,8 +1,8 @@
 # TwinCAT Explorer
 
 A VS Code extension that shows the TwinCAT PLC projects of the workspace the way
-TwinCAT XAE does, and opens every POU, method and property as its own editor with
-the **Declaration above the Implementation**, while the code stays in the
+TwinCAT XAE does, and opens every POU, method, property and accessor as its own editor
+with the **Declaration above the Implementation** like XAE, while the code stays in the
 `.TcPOU`/`.TcDUT`/`.TcGVL`/`.TcIO` XML files.
 
 ## Features
@@ -12,29 +12,43 @@ the **Declaration above the Implementation**, while the code stays in the
   Inside a POU it shows the folders TwinCAT keeps in the XML (`Methods > States`),
   methods, properties with `Get`/`Set`, actions and transitions. Labels follow XAE
   (`FB_X (FB)`, `MAIN (PRG)`), modified files get their git colour.
-- **One tab per object**, titled `FB_X` or `FB_X.Method`, as a notebook: one cell per
-  section (`Declaration`, `Implementation`, `Get · Declaration`, ...). Single click opens
-  a preview tab, double click (or editing) keeps it. Breadcrumbs follow the XAE path.
-- **Safe saving**: only the CDATA of the cells you edited is replaced; BOM, CRLF,
-  GUIDs and every other byte of the file stay as they were. Cells you did not touch
+- **One tab per object**, titled `FB_X`, `FB_X.Method` or `FB_X.Property.Get`, in an
+  XAE-like **split editor**: the Declaration in the upper pane, the Implementation in the
+  lower one, each with its own scroll bar, both the same height at first. Drag the bar
+  between them to change the heights (the tab remembers it); double-click the bar for
+  equal halves again. Like XAE, a property tab shows the property declaration, and its
+  `Get` and `Set` open in their own tabs; DUTs, GVLs and interfaces have one pane.
+  Single click in the tree opens a preview tab, double click (or editing) keeps it.
+  Breadcrumbs follow the XAE path. The panes are Monaco editors (the editor VS Code is
+  built on) with the VS Code font, tab and theme settings and the same colors.
+- The **notebook** (one cell per section) is still available: set
+  `twincatExplorer.editor` to `notebook`, or use `Reopen Editor With... > TwinCAT Object
+  (Notebook)` on a tab.
+- **Safe saving**: only the CDATA of the sections you edited is replaced; BOM, CRLF,
+  GUIDs and every other byte of the file stay as they were. Sections you did not touch
   are never written back, so changes made meanwhile in XAE or by git survive. If a
-  cell you edited was also changed on disk, the save is refused with a message instead
+  section you edited was also changed on disk, the save is refused with a message instead
   of overwriting it. Two tabs of the same file can be edited and saved independently.
-  Open tabs without unsaved edits reload when the file changes on disk.
+  Open tabs without unsaved edits reload when the file changes on disk. Undoing back to
+  the text on disk makes the tab clean again.
 - **Renaming is blocked**: changing the name in a declaration header
   (`METHOD OnEntry` to `METHOD OnEnter`) makes the save fail with a message; rename
   in TwinCAT XAE.
-- **Structured Text language features** in the cells, from a parser of the TwinCAT
+- **Structured Text language features** in both panes (and in notebook cells), from a parser of the TwinCAT
   dialect (`EXTENDS`, `IMPLEMENTS`, `THIS^`, `SUPER^`, properties, `REFERENCE TO`, ...):
   - Go to Definition (F12, Ctrl+click), including members through variable types and
-    inheritance (`fbValve.Open()` jumps to the `Open` method `FB_Valve` inherits).
+    inheritance (`fbValve.Open()` opens the `Open` method `FB_Valve` inherits, at the
+    method name; a local variable moves the cursor to the declaration pane).
   - Hover with the declaration, its comments and where it is declared.
   - Completion after `.` (members, inherited members, enum values) and of names in scope.
-  - Find All References (Shift+F12) across all objects.
+  - Find All References (Shift+F12 opens a peek view; other objects are shown read-only
+    there, double-click a result to open it).
   - Problems: syntax errors, unknown identifiers, unknown members, unknown named
-    parameters, while you type.
-  - Outline of the declared variables.
-- **Ctrl+T** finds POUs, methods, properties, DUTs, GVLs and global variables.
+    parameters, while you type, in the editor and in the Problems panel (a click there
+    opens the split editor at the problem).
+  - Outline of the declared variables (notebook cells).
+- **Ctrl+T** finds POUs, methods, properties, DUTs, GVLs and global variables and opens
+  the split editor at the symbol.
   **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists all objects of the workspace.
 - **Notebook diff for git**: `Open Changes as TwinCAT Notebook` (tree, Explorer,
   Source Control and editor title menus) compares a file with `HEAD` (or, in Staged
@@ -87,7 +101,8 @@ The same command can show them again.
 |---|---|---|
 | `twincatExplorer.autoReveal` | `true` | Select the active object in the tree. |
 | `twincatExplorer.foldersFirst` | `true` | Folders before objects in the tree. |
-| `twincatExplorer.diagnostics.enabled` | `true` | Report problems in open TwinCAT notebooks. |
+| `twincatExplorer.editor` | `split` | `split`: XAE-like split editor; `notebook`: one cell per section. |
+| `twincatExplorer.diagnostics.enabled` | `true` | Report problems in open TwinCAT editors. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers never reported as unknown. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files (see below). |
 | `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Ignored when searching `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |
@@ -128,9 +143,28 @@ resolved from their sources.
 - If TwinCAT XAE has the same project open, it keeps its own copy in memory and can
   overwrite changes saved from VS Code; reload the project in XAE after editing here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.
+- The split editor runs in a webview: extensions that work inside VS Code text editors
+  (GitHub Copilot inline suggestions, vim keys, git change markers) do not reach it, and
+  VS Code's Outline view stays empty for it. Inside the panes, Monaco's own key bindings
+  win: its `Ctrl+K` chords (`Ctrl+K Ctrl+C` comments the line, `Ctrl+K Ctrl+0` folds all)
+  work, and so do the common VS Code chords (`Ctrl+K S` save all, `Ctrl+K W` and
+  `Ctrl+K Ctrl+W` close editors, `Ctrl+K Ctrl+Left/Right` other group, ...), but your own
+  `Ctrl+K` key bindings do not. `F1`, `Ctrl+Shift+P` and `Ctrl+P` open the VS Code pickers.
+- The Problems panel lists the problems of open split editors per section
+  (`FB_X.Method · Implementation`), with the line numbers of that pane. Its
+  `Show Active File Only` filter and the error colour of the tab title do not apply to
+  split editors, and `F8` inside a split editor moves between the problems of that object only.
+- Opening a problem or symbol briefly opens a read-only copy of the section, which is
+  replaced by the split editor. A copy opened pinned (double click, `Ctrl+T`) is closed
+  instead, and `Reopen Closed Editor` then brings back the split editor of that object.
+- `Reopen Editor With` on a tab with unsaved changes shows the file on disk in the other
+  editor; the changes stay in the first one (a warning offers to go back to it).
+- `Compare with Saved` on a split editor tab shows the raw text the editor works on
+  (sections after marker lines). Closing that comparison while the tab has unsaved
+  changes makes VS Code ask whether to save them.
 - In VS Code 1.141, `File: Revert File` on a notebook (any notebook, Jupyter too) clears the
-  unsaved marker without restoring the cells. To drop the unsaved edits of a TwinCAT tab,
-  close it and choose "Don't Save".
+  unsaved marker without restoring the cells. To drop the unsaved edits of a TwinCAT
+  notebook tab, close it and choose "Don't Save". The split editor reverts normally.
 
 ## Development
 
@@ -140,6 +174,9 @@ npm run compile
 npm run test:unit
 npm run package
 ```
+
+`npm run compile` also type-checks `src/webview` and bundles it (Monaco, vscode-textmate,
+oniguruma) with esbuild into `out/webview`.
 
 `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check
 the parser and resolver on a whole TwinCAT repository.

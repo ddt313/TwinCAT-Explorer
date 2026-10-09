@@ -1,4 +1,5 @@
-// Opening object notebooks. A closed tab's notebook document can stay alive in
+// Opening object notebooks (the notebook alternative to the split editor of
+// objectEditor.ts). A closed tab's notebook document can stay alive in
 // the background (go to definition, references, VS Code's own caching) and then
 // stops reloading when the file changes on disk; reopening it would show stale
 // text. So an object's document is reused while it is dirty, shown in a tab, or
@@ -25,9 +26,9 @@ function nextRevision(): string {
   return `${session}.${revision}`;
 }
 
-function sameObject(uri: vscode.Uri, key: string, objectId: string): boolean {
+function sameObject(uri: vscode.Uri, key: string, objectId: string, accessor: 'Get' | 'Set' | undefined): boolean {
   const ref = parseObjectUri(uri);
-  return !!ref && ref.objectId === objectId && fileKey(ref.fsPath) === key;
+  return !!ref && ref.objectId === objectId && ref.accessor === accessor && fileKey(ref.fsPath) === key;
 }
 
 function tabUris(): { uri: vscode.Uri; active: boolean }[] {
@@ -46,6 +47,34 @@ function tabUris(): { uri: vscode.Uri; active: boolean }[] {
 export function shownInTab(uri: vscode.Uri): boolean {
   const key = uri.toString();
   return tabUris().some(t => t.uri.toString() === key);
+}
+
+/** Which kinds of tabs show a URI. */
+export function tabKinds(uri: vscode.Uri): { editor: boolean; notebook: boolean } {
+  const key = uri.toString();
+  let editor = false;
+  let notebook = false;
+  for (const g of vscode.window.tabGroups.all) {
+    for (const t of g.tabs) {
+      const input = t.input;
+      if ((input instanceof vscode.TabInputCustom || input instanceof vscode.TabInputText) && input.uri.toString() === key) editor = true;
+      if (input instanceof vscode.TabInputNotebook && input.uri.toString() === key) notebook = true;
+    }
+  }
+  return { editor, notebook };
+}
+
+/** Whether any tab (split editor, text editor or notebook) shows the URI. */
+export function anyTabShows(uri: vscode.Uri): boolean {
+  const key = uri.toString();
+  for (const g of vscode.window.tabGroups.all) {
+    for (const t of g.tabs) {
+      const input = t.input;
+      if ((input instanceof vscode.TabInputCustom || input instanceof vscode.TabInputText || input instanceof vscode.TabInputNotebook)
+        && input.uri.toString() === key) return true;
+    }
+  }
+  return shownInTab(uri);
 }
 
 /** Disk signature (mtime and size) at the last generation bump, by file. */
@@ -73,6 +102,7 @@ export function forgetDocument(uri: vscode.Uri): void {
 }
 
 export interface DiskObject extends ObjectInfo {
+  /** Sections of the view on disk (see viewSections). */
   sections: { key: string; text: string }[];
 }
 
@@ -85,22 +115,23 @@ function matchesDisk(nb: vscode.NotebookDocument, obj: DiskObject): boolean {
   });
 }
 
-/** Other tabs showing the same object (VS Code can reopen an older revision URI by itself). */
+/** Other notebook tabs showing the same object view (VS Code can reopen an older revision URI by itself). */
 export function objectTabsOf(uri: vscode.Uri): vscode.Tab[] {
   const ref = parseObjectUri(uri);
   if (!ref) return [];
   const k = fileKey(ref.fsPath);
   return vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t =>
-    t.input instanceof vscode.TabInputNotebook && t.input.uri.toString() !== uri.toString() && sameObject(t.input.uri, k, ref.objectId));
+    t.input instanceof vscode.TabInputNotebook && t.input.uri.toString() !== uri.toString() && sameObject(t.input.uri, k, ref.objectId, ref.accessor));
 }
 
-/** The URI to use for an object right now, or undefined when a fresh document is needed. */
-function reusableUri(fsPath: string, obj: DiskObject): vscode.Uri | undefined {
+/** The URI to use for an object view right now, or undefined when a fresh document is needed. */
+function reusableUri(fsPath: string, obj: DiskObject, accessor: 'Get' | 'Set' | undefined): vscode.Uri | undefined {
   const objectId = obj.id;
   const k = fileKey(fsPath);
   const gen = generation.get(k) ?? 0;
-  const docs = vscode.workspace.notebookDocuments.filter(nb => nb.notebookType === OBJECT_NOTEBOOK && sameObject(nb.uri, k, objectId));
-  const tabs = tabUris().filter(t => sameObject(t.uri, k, objectId));
+  const docs = vscode.workspace.notebookDocuments.filter(nb =>
+    nb.notebookType === OBJECT_NOTEBOOK && sameObject(nb.uri, k, objectId, accessor));
+  const tabs = tabUris().filter(t => sameObject(t.uri, k, objectId, accessor));
   const inTab = (nb: vscode.NotebookDocument) => tabs.some(t => t.uri.toString() === nb.uri.toString());
   // A background document is reused only when it still equals the disk: VS Code's revert ("Don't Save")
   // can leave discarded text in a document that stays alive for minutes after its tab closed.
@@ -112,11 +143,11 @@ function reusableUri(fsPath: string, obj: DiskObject): vscode.Uri | undefined {
   return tab?.uri;
 }
 
-export async function openObjectDocument(fsPath: string, obj: DiskObject): Promise<vscode.NotebookDocument> {
+export async function openObjectDocument(fsPath: string, obj: DiskObject, accessor?: 'Get' | 'Set'): Promise<vscode.NotebookDocument> {
   const k = fileKey(fsPath);
-  const key = `${k}|${obj.id}`;
+  const key = `${k}|${obj.id}|${accessor ?? ''}`;
   const gen = generation.get(k) ?? 0;
-  const reuse = reusableUri(fsPath, obj);
+  const reuse = reusableUri(fsPath, obj, accessor);
   if (reuse) {
     const doc = await vscode.workspace.openNotebookDocument(reuse);
     if (!openedAt.has(doc.uri.toString())) openedAt.set(doc.uri.toString(), gen);
@@ -124,7 +155,7 @@ export async function openObjectDocument(fsPath: string, obj: DiskObject): Promi
   }
   const inFlight = pending.get(key);
   if (inFlight && inFlight.gen === gen) return inFlight.doc;
-  const doc = Promise.resolve(vscode.workspace.openNotebookDocument(objectUri(fsPath, obj, nextRevision()))).then(nb => {
+  const doc = Promise.resolve(vscode.workspace.openNotebookDocument(objectUri(fsPath, obj, nextRevision(), accessor))).then(nb => {
     openedAt.set(nb.uri.toString(), gen);
     return nb;
   });

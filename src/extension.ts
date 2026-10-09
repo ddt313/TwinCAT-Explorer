@@ -1,5 +1,5 @@
-// Entry point: wires the TwinCAT workspace model, the tree, the object
-// notebooks, the language features and the git comparisons together.
+// Entry point: wires the TwinCAT workspace model, the tree, the split editor
+// and object notebooks, the language features and the git comparisons together.
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,15 +11,18 @@ import { debugLog } from './core/debugLog';
 import { LanguageIndex, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
 import { ObjectFileSystem } from './vscode/objectFs';
+import { parseObjectText, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
-import { CellLabels, FileSerializer, ObjectSerializer, cellMeta } from './vscode/serializers';
+import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
 import { TreeNode, TwinCatTree } from './vscode/tree';
-import { CellDiagnostics, LanguageFeatures, cellInfo } from './vscode/language';
+import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
 import { DiffFileSystem, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
+import { ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
+import { LocationService } from './vscode/locations';
 import {
-  DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, OBJECT_NOTEBOOK, OBJECT_SCHEME, ST_LANGUAGE, isSourcePath,
-  isTwinCatPath, parseDiffUri, parseObjectUri, realPathOf,
+  DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME, ObjectRef,
+  ST_LANGUAGE, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf, viewKey,
 } from './vscode/uris';
 
 export interface TwinCatExplorerApi {
@@ -28,8 +31,13 @@ export interface TwinCatExplorerApi {
   tree: TwinCatTree;
   treeView: vscode.TreeView<TreeNode>;
   features: LanguageFeatures;
+  objectEditors: ObjectEditorProvider;
+  locations: LocationService;
   ready: Promise<void>;
+  /** Opens an object view as a notebook. */
   openObject(fsPath: string, objectId: string, options?: OpenOptions): Promise<vscode.NotebookEditor | undefined>;
+  /** Opens an object view in the split editor and returns its document. */
+  openSplit(fsPath: string, objectId: string, options?: OpenOptions & { reveal?: RevealTarget }): Promise<vscode.TextDocument | undefined>;
 }
 
 interface OpenOptions {
@@ -68,18 +76,37 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   // User stubs are read once projects are found, so windows without TwinCAT never warn about them.
   index.setStubs(BUNDLED_STUBS);
   const log = vscode.window.createOutputChannel('TwinCAT Explorer', { log: true });
-  const objectFs = new ObjectFileSystem();
+  const objectFs = new ObjectFileSystem(context.workspaceState);
   const diffFs = new DiffFileSystem();
   const tree = new TwinCatTree(ws);
   const treeView = vscode.window.createTreeView('twincatExplorer.tree', { treeDataProvider: tree, showCollapseAll: true });
   const features = new LanguageFeatures(index, ws);
   const diagnostics = new CellDiagnostics(features);
+  const locations = new LocationService(ws, index);
+  features.splitLocator = (ctx, loc) => locations.locate(ctx, loc);
+  const objectEditors = new ObjectEditorProvider(context.extensionUri, index, features, ws, locations);
+  objectEditors.log = message => {
+    debugLog(message);
+    log.warn(message);
+  };
+  objectEditors.recordMessages = context.extensionMode === vscode.ExtensionMode.Test;
   const checkCollection = vscode.languages.createDiagnosticCollection('twincat-check');
   const fileSerializer = new FileSerializer();
   const stSelector: vscode.DocumentSelector = { language: ST_LANGUAGE };
+  /** Live problems of open notebooks and split editors. */
+  const scheduleAllDiagnostics = (delay?: number) => {
+    diagnostics.scheduleAll(delay);
+    objectEditors.scheduleAll(delay);
+  };
 
   context.subscriptions.push(
-    treeView, diagnostics, checkCollection, log, diffFs,
+    treeView, diagnostics, checkCollection, log, diffFs, objectEditors, locations,
+    vscode.window.registerCustomEditorProvider(OBJECT_EDITOR, objectEditors, {
+      // Monaco keeps its undo history and scroll positions while the tab is in the background.
+      webviewOptions: { retainContextWhenHidden: true },
+      supportsMultipleEditorsPerDocument: true,
+    }),
+    vscode.workspace.registerTextDocumentContentProvider(LOC_SCHEME, locations),
     vscode.workspace.registerFileSystemProvider(OBJECT_SCHEME, objectFs, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider(DIFF_SCHEME, diffFs, { isCaseSensitive: true, isReadonly: true }),
     vscode.workspace.registerNotebookSerializer(OBJECT_NOTEBOOK, new ObjectSerializer(), { transientOutputs: true }),
@@ -101,11 +128,19 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   // ------------------------------------------------------------------ loading and change tracking
 
-  // Unsaved edits of open notebooks are visible to the rest of the index (completion, diagnostics).
-  const overlays = new OverlaySync(index, ws, (uri, key, loadBase) => objectFs.effectiveBase(uri, key, loadBase));
+  // Unsaved edits of open editors are visible to the rest of the index (completion, diagnostics).
+  const overlays = new OverlaySync(index, ws, (uri, load, key, loadBase) => objectFs.effectiveBase(uri, load, key, loadBase));
+  /** Load id of an object document (see ObjectTextHeader.load). */
+  const loadOf = (text: string) => {
+    try {
+      return parseObjectText(text).header.load;
+    } catch {
+      return undefined;
+    }
+  };
   const refreshOverlays = (files?: Iterable<string>) => {
     if (overlays.refresh(files)) {
-      diagnostics.scheduleAll(300);
+      scheduleAllDiagnostics(300);
       scheduleCheck();
     }
   };
@@ -168,7 +203,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
           'Show Log').then(choice => { if (choice) log.show(); });
       }
       reportedErrors = errors;
-      diagnostics.scheduleAll(100);
+      scheduleAllDiagnostics(100);
     } catch (e) {
       log.error(`Loading the TwinCAT projects failed: ${(e as Error).stack ?? e}`);
       void vscode.window.showErrorMessage(`TwinCAT Explorer: loading the projects failed: ${(e as Error).message}`, 'Show Log')
@@ -189,7 +224,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     diffFs.notifyChanged(fsPath);
     tree.scheduleRebuild();
     refreshOverlays([fsPath]);
-    diagnostics.scheduleAll();
+    scheduleAllDiagnostics();
     scheduleCheck();
   };
   // A change event for the URI being saved, during its save, can leave its working copy ignoring later changes.
@@ -213,6 +248,16 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   let tabsTimer: NodeJS.Timeout | undefined;
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument(e => {
+      if (e.document.uri.scheme === OBJECT_SCHEME) {
+        // A split editor's document: edited in the webview, reverted, or reloaded from disk.
+        if (e.contentChanges.length === 0) return;
+        const ref = parseObjectUri(e.document.uri);
+        overlays.touched(e.document);
+        if (ref) refreshOverlays([ref.fsPath]);
+        objectEditors.documentChanged(e.document);
+        locations.changed(e.document.uri);
+        return;
+      }
       if (e.document.languageId !== ST_LANGUAGE || e.contentChanges.length === 0) return;
       const info = cellInfo(e.document);
       if (!info?.live) return;
@@ -237,8 +282,27 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       }
       refreshOverlays();
     }),
+    vscode.workspace.onDidOpenTextDocument(doc => {
+      // Restored by hot exit with unsaved text, without change events.
+      if (doc.uri.scheme === OBJECT_SCHEME) refreshOverlays();
+      // Renderings shown in peek views and the redirect below get Structured Text colors.
+      if (doc.uri.scheme === LOC_SCHEME && doc.languageId !== ST_LANGUAGE) void vscode.languages.setTextDocumentLanguage(doc, ST_LANGUAGE);
+    }),
     vscode.workspace.onDidCloseTextDocument(doc => {
       if (doc.uri.scheme === 'vscode-notebook-cell') diagnostics.collection.delete(doc.uri);
+      if (doc.uri.scheme === OBJECT_SCHEME) {
+        overlays.forgetCell(doc.uri);
+        // A notebook of the same object view keeps what the file system knows about the URI.
+        const notebookOpen = vscode.workspace.notebookDocuments.some(nb => nb.uri.toString() === doc.uri.toString());
+        objectFs.forget(doc.uri, loadOf(doc.getText()), !notebookOpen);
+        objectEditors.clearDiagnostics(doc.uri);
+        refreshOverlays();
+      }
+    }),
+    vscode.workspace.onDidSaveTextDocument(doc => {
+      if (doc.uri.scheme !== OBJECT_SCHEME) return;
+      refreshOverlays();
+      scheduleCheck();
     }),
     vscode.workspace.onDidSaveNotebookDocument(() => {
       refreshOverlays();
@@ -248,7 +312,9 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       diagnostics.clearNotebook(nb);
       for (const cell of nb.getCells()) overlays.forgetCell(cell.document.uri);
       if (nb.notebookType === OBJECT_NOTEBOOK) {
-        objectFs.forget(nb.uri);
+        // A split editor of the same object view keeps what the file system knows about the URI.
+        const textOpen = vscode.workspace.textDocuments.some(d => d.uri.toString() === nb.uri.toString());
+        objectFs.forget(nb.uri, (nb.metadata?.header as { load?: string } | undefined)?.load, !textOpen);
         forgetDocument(nb.uri);
       }
       refreshOverlays();
@@ -256,12 +322,29 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.window.tabGroups.onDidChangeTabs(e => {
       // One tab per object: VS Code can reopen an older revision URI by itself (Go Back, Reopen Closed
       // Editor, history). A clean duplicate is closed and the existing tab is shown instead.
+      // Reopen Editor With on a tab with unsaved edits: the other editor reads the disk, and the edits stay in a
+      // document no tab shows.
+      for (const tab of e.opened) {
+        const input = tab.input;
+        const uri = input instanceof vscode.TabInputNotebook || input instanceof vscode.TabInputCustom ? input.uri : undefined;
+        if (!uri || uri.scheme !== OBJECT_SCHEME) continue;
+        const hiddenDirty = input instanceof vscode.TabInputNotebook
+          ? vscode.workspace.textDocuments.some(d => d.isDirty && d.uri.toString() === uri.toString())
+          : vscode.workspace.notebookDocuments.some(nb => nb.isDirty && nb.uri.toString() === uri.toString());
+        if (!hiddenDirty) continue;
+        const back = input instanceof vscode.TabInputNotebook ? 'Back to Split Editor' : 'Back to Notebook';
+        void vscode.window.showWarningMessage(
+          `${tab.label} has unsaved changes in the other editor. This tab shows the file on disk; save or revert them there.`, back)
+          .then(choice => {
+            if (choice) void vscode.commands.executeCommand('vscode.openWith', uri, input instanceof vscode.TabInputNotebook ? OBJECT_EDITOR : OBJECT_NOTEBOOK);
+          });
+      }
       for (const tab of e.opened) {
         if (!(tab.input instanceof vscode.TabInputNotebook) || tab.input.notebookType !== OBJECT_NOTEBOOK || tab.isDirty) continue;
         const existing = objectTabsOf(tab.input.uri)[0];
         if (!existing || !(existing.input instanceof vscode.TabInputNotebook)) continue;
         const target = existing.input.uri;
-        void vscode.window.tabGroups.close(tab).then(() => vscode.commands.executeCommand('vscode.open', target));
+        void vscode.window.tabGroups.close(tab).then(() => vscode.commands.executeCommand('vscode.openWith', target, OBJECT_NOTEBOOK));
       }
       // Only documents shown in a tab (or dirty) feed the overlays.
       if (tabsTimer) clearTimeout(tabsTimer);
@@ -271,11 +354,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       if (e.affectsConfiguration('twincatExplorer.foldersFirst')) tree.rebuild();
       if (e.affectsConfiguration('twincatExplorer.stubFiles') && ws.tsProjects.length > 0) {
         index.setStubs([...BUNDLED_STUBS, ...userStubs()]);
-        diagnostics.scheduleAll();
+        scheduleAllDiagnostics();
       }
       if (e.affectsConfiguration('twincatExplorer.diagnostics')) {
         features.clearAnalysisCache();
-        diagnostics.scheduleAll(50);
+        scheduleAllDiagnostics(50);
       }
       if (e.affectsConfiguration('twincatExplorer.exclude')) scheduleLoad();
     }),
@@ -283,6 +366,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   // ------------------------------------------------------------------ opening objects
 
+  /** Opens an object view (an accessor of a property when options.accessor is set) as a notebook. */
   const openObject = async (fsPath: string, objectId: string, options: OpenOptions = {}) => {
     const file = ws.getFile(fsPath);
     const obj = file?.objects.get(objectId);
@@ -290,20 +374,110 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       void vscode.window.showWarningMessage(`TwinCAT object not found in ${path.basename(fsPath)}`);
       return undefined;
     }
-    const nb = await openObjectDocument(file.path, obj);
-    const editor = await vscode.window.showNotebookDocument(nb, {
+    const nb = await openObjectDocument(file.path, { ...obj, sections: viewSections(obj, options.accessor) }, options.accessor);
+    return vscode.window.showNotebookDocument(nb, {
       preview: options.preview ?? true, preserveFocus: options.preserveFocus ?? false, viewColumn: options.viewColumn,
     });
-    if (options.accessor) {
-      const idx = nb.getCells().findIndex(c => cellMeta(c)?.accessor === options.accessor);
-      if (idx >= 0) {
-        const range = new vscode.NotebookRange(idx, idx + 1);
-        editor.selections = [range];
-        editor.revealRange(range, vscode.NotebookEditorRevealType.AtTop);
+  };
+
+  /**
+   * URI of the split editor document already open for an object view: it can differ from the URI built
+   * now (opened from a notebook with a revision, or the object was renamed or moved in XAE since).
+   */
+  const openViewUri = (fsPath: string, objectId: string, accessor?: 'Get' | 'Set'): vscode.Uri | undefined => {
+    const key = viewKey({ fsPath, objectId, accessor }, fileKey);
+    const same = (u: vscode.Uri) => {
+      const r = parseObjectUri(u);
+      return !!r && viewKey(r, fileKey) === key;
+    };
+    for (const g of vscode.window.tabGroups.all) {
+      for (const t of g.tabs) {
+        if (t.input instanceof vscode.TabInputCustom && t.input.viewType === OBJECT_EDITOR && same(t.input.uri)) return t.input.uri;
       }
     }
-    return editor;
+    return vscode.workspace.textDocuments.find(d => d.uri.scheme === OBJECT_SCHEME && same(d.uri))?.uri;
   };
+
+  /** Opens an object view in the split editor, optionally at a place of one of its sections. */
+  const openSplit = async (fsPath: string, objectId: string, options: OpenOptions & { reveal?: RevealTarget } = {}) => {
+    const file = ws.getFile(fsPath);
+    const obj = file?.objects.get(objectId);
+    if (!file || !obj || (options.accessor && !obj.accessors.some(a => a.kind === options.accessor))) {
+      void vscode.window.showWarningMessage(`TwinCAT object not found in ${path.basename(fsPath)}`);
+      return undefined;
+    }
+    const uri = openViewUri(file.path, obj.id, options.accessor) ?? objectUri(file.path, obj, undefined, options.accessor);
+    await vscode.commands.executeCommand('vscode.openWith', uri, OBJECT_EDITOR, {
+      preview: options.preview ?? true, preserveFocus: options.preserveFocus ?? false, viewColumn: options.viewColumn,
+    });
+    if (options.reveal) objectEditors.reveal(uri, options.reveal);
+    if (!options.preserveFocus) void reveal(uri, false);
+    return vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
+  };
+
+  /** Opens an object view in the editor chosen by the twincatExplorer.editor setting. */
+  const openDefault = async (fsPath: string, objectId: string, options: OpenOptions = {}) => {
+    if (editorMode() === 'notebook') await openObject(fsPath, objectId, options);
+    else await openSplit(fsPath, objectId, options);
+  };
+
+  objectEditors.openView = async ({ ref, reveal: target, viewColumn }) => {
+    await openSplit(ref.fsPath, ref.objectId, { accessor: ref.accessor, reveal: target, viewColumn, preview: false });
+  };
+
+  // twincat-loc section copies are opened by VS Code in an editor tab at a position (Problems panel,
+  // workspace symbols, locations from notebook cells): show the split editor at that place instead.
+  // Peek views also show them, in embedded editors without a tab, and those are left alone.
+  const redirected = new WeakSet<vscode.TextEditor>();
+  const tabOf = (uri: vscode.Uri) => vscode.window.tabGroups.all.flatMap(g => g.tabs)
+    .find(t => t.input instanceof vscode.TabInputText && t.input.uri.toString() === uri.toString());
+  const redirectLoc = async (editor: vscode.TextEditor | undefined) => {
+    if (!editor || editor.document.uri.scheme !== LOC_SCHEME || editor.viewColumn === undefined || redirected.has(editor)) return;
+    redirected.add(editor);
+    const uri = editor.document.uri;
+    // The selection given to the open is applied right after the editor becomes visible, and the tab
+    // model follows shortly.
+    let tab: vscode.Tab | undefined;
+    for (let i = 0; i < 10 && !tab; i++) {
+      await new Promise(r => setTimeout(r, 25));
+      tab = tabOf(uri);
+    }
+    if (!tab) return;
+    // The start of the selection: VS Code selects the whole range of a problem or symbol.
+    const target = locations.targetAt(uri, editor.selection.start);
+    const end = locations.targetAt(uri, editor.selection.end);
+    debugLog(`redirect ${uri.path.split('/').pop()} at ${editor.selection.start.line}:${editor.selection.start.character} -> ${target?.key}@${target?.start}`);
+    if (!target) {
+      await vscode.window.tabGroups.close(tab, true);
+      return;
+    }
+    // A single click in the Problems panel opens a preview without focus; keep it that way.
+    const preview = tab.isPreview;
+    const docUri = openViewUri(target.ref.fsPath, target.ref.objectId, target.ref.accessor);
+    // The object's split editor shown in another group is used there, like revealIfVisible does for files.
+    const visible = docUri && vscode.window.tabGroups.all.find(g =>
+      g.activeTab?.input instanceof vscode.TabInputCustom && g.activeTab.input.uri.toString() === docUri.toString());
+    const viewColumn = visible ? visible.viewColumn : tab.group.viewColumn;
+    // A preview copy is replaced by the split editor opening as a preview in its place (a replaced editor
+    // does not go to Reopen Closed Editor); otherwise it is closed.
+    const replace = preview && !visible && !(docUri && tab.group.tabs.some(t => t.input instanceof vscode.TabInputCustom
+      && t.input.uri.toString() === docUri.toString()));
+    if (!replace) await vscode.window.tabGroups.close(tab, true);
+    await openSplit(target.ref.fsPath, target.ref.objectId, {
+      accessor: target.ref.accessor, viewColumn, preview, preserveFocus: preview,
+      reveal: {
+        key: target.key, start: target.start, end: end?.key === target.key ? end.start : target.start, focus: !preview, text: target.text,
+      },
+    });
+    const left = tabOf(uri);
+    if (left) await vscode.window.tabGroups.close(left, true);
+  };
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(e => void redirectLoc(e)),
+    vscode.window.onDidChangeVisibleTextEditors(editors => {
+      for (const e of editors) void redirectLoc(e);
+    }),
+  );
 
   let lastClick: { id: string; time: number } | undefined;
   const openNode = async (node: TreeNode | undefined, sideBySide = false) => {
@@ -311,7 +485,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     const now = Date.now();
     const doubleClick = !sideBySide && lastClick?.id === node.id && now - lastClick.time < 500;
     lastClick = { id: node.id, time: now };
-    await openObject(node.fsPath, node.objectId, {
+    await openDefault(node.fsPath, node.objectId, {
       preview: !(doubleClick || sideBySide),
       preserveFocus: !(doubleClick || sideBySide),
       viewColumn: sideBySide ? vscode.ViewColumn.Beside : undefined,
@@ -323,9 +497,13 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   /** Tree nodes showing the object or file of a URI (several when a PLC project belongs to two .tsproj files). */
   const nodesForUri = (uri: vscode.Uri, offset?: number): TreeNode[] => {
-    const o = parseObjectUri(uri);
+    const o = parseObjectUri(uri) ?? parseLocUri(uri);
     if (o) {
       const nodes = tree.nodesForObject(o.fsPath, o.objectId);
+      if (o.accessor) {
+        const accessors = nodes.flatMap(n => n.children.filter(c => c.kind === 'accessor' && c.accessor === o.accessor));
+        if (accessors.length) return accessors;
+      }
       return nodes.length ? nodes : tree.nodesForFile(o.fsPath);
     }
     const d = parseDiffUri(uri);
@@ -345,7 +523,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   };
 
   const sameTarget = (a: TreeNode, b: TreeNode) =>
-    !!a.fsPath && !!b.fsPath && fileKey(a.fsPath) === fileKey(b.fsPath) && (a.objectId ?? '') === (b.objectId ?? '');
+    !!a.fsPath && !!b.fsPath && fileKey(a.fsPath) === fileKey(b.fsPath) && (a.objectId ?? '') === (b.objectId ?? '')
+    && (a.accessor ?? '') === (b.accessor ?? '');
 
   const reveal = async (uri: vscode.Uri | undefined, explicit: boolean, offset?: number) => {
     if (!uri) return;
@@ -367,6 +546,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   };
 
   const activeUri = (): vscode.Uri | undefined => {
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    if (input instanceof vscode.TabInputCustom) return input.uri;
     const nbEditor = vscode.window.activeNotebookEditor;
     if (nbEditor) return nbEditor.notebook.uri;
     const editor = vscode.window.activeTextEditor;
@@ -392,10 +573,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       if (e.visible) void reveal(activeUri(), false);
     }),
   );
+  objectEditors.onDidActivate = uri => void reveal(uri, false);
 
   // ------------------------------------------------------------------ commands
 
-  /** Real file, object and accessor addressed by a command argument (tree node, URI, SCM resource) or the active editor. */
+  /** Real file and object addressed by a command argument (tree node, URI, SCM resource) or the active editor. */
   const target = (arg: unknown): { fsPath: string; objectId?: string } | undefined => {
     if (arg instanceof TreeNode) return arg.fsPath ? { fsPath: arg.fsPath, objectId: arg.objectId } : undefined;
     let uri: vscode.Uri | undefined;
@@ -404,7 +586,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       uri = (arg as { resourceUri: vscode.Uri }).resourceUri;
     } else uri = activeUri();
     if (!uri) return undefined;
-    const o = parseObjectUri(uri);
+    const o = parseObjectUri(uri) ?? parseLocUri(uri);
     if (o) return { fsPath: o.fsPath, objectId: o.objectId };
     const p = realPathOf(uri);
     return p ? { fsPath: p } : undefined;
@@ -484,7 +666,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       const pick = await vscode.window.showQuickPick(items, {
         title: 'Go to TwinCAT Object', matchOnDescription: true, placeHolder: 'POU, method, property, DUT or GVL name',
       });
-      if (pick) await openObject(pick.fsPath, pick.objectId, { preview: false });
+      if (pick) await openDefault(pick.fsPath, pick.objectId, { preview: false });
     }),
     vscode.commands.registerCommand('twincatExplorer.checkWorkspace', async () => {
       const result = await vscode.window.withProgress(
@@ -514,8 +696,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   const ready = loadProjects();
   return {
-    workspace: ws, index, tree, treeView, features, ready,
-    openObject,
+    workspace: ws, index, tree, treeView, features, objectEditors, locations, ready,
+    openObject, openSplit,
   };
 }
 

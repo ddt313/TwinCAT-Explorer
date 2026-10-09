@@ -1,10 +1,17 @@
-// URIs of the virtual documents: one `twincat:` notebook per TwinCAT object
-// and `twincat-diff:` snapshots of whole files for git comparisons.
+// URIs of the virtual documents: one `twincat:` document per opened TwinCAT
+// object (shown in the split editor or as a notebook), `twincat-loc:`
+// read-only renderings that point into them, and `twincat-diff:` snapshots of
+// whole files for git comparisons.
 
 import * as vscode from 'vscode';
+import { Accessor, viewLabel } from '../core/objectText';
 
 export const OBJECT_SCHEME = 'twincat';
+export const LOC_SCHEME = 'twincat-loc';
 export const DIFF_SCHEME = 'twincat-diff';
+export const OBJECT_EDITOR = 'twincatExplorer.objectEditor';
+/** Language of the `twincat:` text documents behind the split editor. */
+export const OBJECT_LANGUAGE = 'twincat-object';
 export const OBJECT_NOTEBOOK = 'twincat-object';
 export const DIFF_NOTEBOOK = 'twincat-diff';
 export const FILE_NOTEBOOK = 'twincat-file';
@@ -34,30 +41,59 @@ export interface ObjectInfo {
 
 /**
  * `twincat:/c:/.../FB_X.TcPOU/Methods/States/OnEntry.tcobj?{"label":"FB_X.OnEntry","id":"<guid>"}`:
- * the path mirrors the XAE tree (shown in breadcrumbs), the query carries the tab title and the object id.
+ * the path mirrors the XAE tree (shown in breadcrumbs), the query carries the tab title, the object id
+ * and, for the Get or Set accessor of a property, `acc`.
  */
-export function objectUri(fsPath: string, obj: ObjectInfo, rev?: string): vscode.Uri {
+export function objectUri(fsPath: string, obj: ObjectInfo, rev?: string, accessor?: Accessor, scheme = OBJECT_SCHEME): vscode.Uri {
   const filePath = vscode.Uri.file(fsPath).path;
-  const segments = [...obj.folderPath, obj.name].map(safeName).join('/');
-  // `rev` makes a fresh document when the object is opened again (see openDocs.ts); it is not part of the identity.
-  const query = rev ? { label: obj.qualifiedName, id: obj.id, rev } : { label: obj.qualifiedName, id: obj.id };
-  return vscode.Uri.from({
-    scheme: OBJECT_SCHEME,
-    path: `${filePath}/${segments}.tcobj`,
-    query: JSON.stringify(query),
-  });
+  const segments = [...obj.folderPath, obj.name, ...(accessor ? [accessor] : [])].map(safeName).join('/');
+  // `rev` makes a fresh notebook document when the object is opened again (see openDocs.ts); it is not part of the identity.
+  const query: Record<string, string> = { label: viewLabel(obj, accessor), id: obj.id };
+  if (accessor) query.acc = accessor;
+  if (rev) query.rev = rev;
+  return vscode.Uri.from({ scheme, path: `${filePath}/${segments}.tcobj`, query: JSON.stringify(query) });
+}
+
+/**
+ * Read-only copy of one section of an object view, which opens the split editor at the same place (see
+ * locations.ts): `twincat-loc:` with the path of the object and `sec` (the section key) in the query.
+ */
+export function locUri(fsPath: string, obj: ObjectInfo, accessor: Accessor | undefined, sectionKey: string, sectionLabel: string): vscode.Uri {
+  return locUriOf(objectUri(fsPath, obj, undefined, accessor), sectionKey, sectionLabel);
+}
+
+/** The twincat-loc URI of a section of the object view behind a `twincat:` URI. */
+export function locUriOf(objectDocUri: vscode.Uri, sectionKey: string, sectionLabel: string): vscode.Uri {
+  let q: Record<string, string> = {};
+  try {
+    q = JSON.parse(objectDocUri.query);
+  } catch {
+    // keep empty
+  }
+  const query: Record<string, string> = { label: `${q.label ?? ''} · ${sectionLabel}`, id: q.id ?? '' };
+  if (q.acc) query.acc = q.acc;
+  query.sec = sectionKey;
+  return objectDocUri.with({ scheme: LOC_SCHEME, query: JSON.stringify(query) });
 }
 
 export interface ObjectRef {
   fsPath: string;
   objectId: string;
+  accessor?: Accessor;
+  /** Section key, for twincat-loc URIs. */
+  section?: string;
 }
 
-export function parseObjectUri(uri: vscode.Uri): ObjectRef | undefined {
-  if (uri.scheme !== OBJECT_SCHEME) return undefined;
+export function parseObjectUri(uri: vscode.Uri, scheme = OBJECT_SCHEME): ObjectRef | undefined {
+  if (uri.scheme !== scheme) return undefined;
   let objectId: string | undefined;
+  let accessor: Accessor | undefined;
+  let section: string | undefined;
   try {
-    objectId = JSON.parse(uri.query).id;
+    const q = JSON.parse(uri.query);
+    objectId = q.id;
+    if (q.acc === 'Get' || q.acc === 'Set') accessor = q.acc;
+    if (typeof q.sec === 'string') section = q.sec;
   } catch {
     return undefined;
   }
@@ -65,7 +101,18 @@ export function parseObjectUri(uri: vscode.Uri): ObjectRef | undefined {
   const fileIndex = segments.findIndex(s => /\.(tcpou|tcdut|tcgvl|tcio)$/i.test(s));
   if (!objectId || fileIndex < 0) return undefined;
   const filePath = segments.slice(0, fileIndex + 1).join('/');
-  return { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, objectId };
+  const ref: ObjectRef = { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, objectId, accessor };
+  if (section !== undefined) ref.section = section;
+  return ref;
+}
+
+export function parseLocUri(uri: vscode.Uri): ObjectRef | undefined {
+  return parseObjectUri(uri, LOC_SCHEME);
+}
+
+/** Identity of an object view: real file, object and accessor (not the revision). */
+export function viewKey(ref: ObjectRef, fileKeyOf: (p: string) => string): string {
+  return `${fileKeyOf(ref.fsPath)}|${ref.objectId}|${ref.accessor ?? ''}`;
 }
 
 /** Git ref shown on the left of a comparison, or WORKTREE for the file on disk. */
@@ -100,5 +147,5 @@ export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string; ag
 /** Real file behind any of our URIs (or a plain file URI). */
 export function realPathOf(uri: vscode.Uri): string | undefined {
   if (uri.scheme === 'file') return uri.fsPath;
-  return parseObjectUri(uri)?.fsPath ?? parseDiffUri(uri)?.fsPath;
+  return parseObjectUri(uri)?.fsPath ?? parseLocUri(uri)?.fsPath ?? parseDiffUri(uri)?.fsPath;
 }

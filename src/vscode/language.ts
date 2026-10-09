@@ -1,6 +1,8 @@
-// Language features for Structured Text cells of TwinCAT notebooks:
-// go to definition, hover, completion, references, workspace symbols and
-// diagnostics. Locations are cells of object notebooks, opened on demand.
+// Language features for Structured Text: go to definition, hover, completion,
+// references, workspace symbols and diagnostics. The *At methods work on a
+// section and an offset and serve the split editor (objectEditor.ts); the
+// VS Code providers serve notebook cells. Locations are in the split editor
+// (through twincat-loc renderings) or in object notebooks, by setting.
 
 import * as vscode from 'vscode';
 import { LanguageIndex, SectionContext } from '../lang/index';
@@ -14,6 +16,34 @@ import { openObjectDocument } from './openDocs';
 import {
   DIFF_NOTEBOOK, FILE_NOTEBOOK, OBJECT_NOTEBOOK, ST_LANGUAGE, objectUri, parseDiffUri, parseObjectUri,
 } from './uris';
+
+/** Editor that TwinCAT objects open in: the XAE-like split editor or a notebook. */
+export function editorMode(): 'split' | 'notebook' {
+  return vscode.workspace.getConfiguration('twincatExplorer').get<string>('editor', 'split') === 'notebook' ? 'notebook' : 'split';
+}
+
+export interface CompletionEntry {
+  label: string;
+  /** Name of a vscode.CompletionItemKind member. */
+  kind: string;
+  detail?: string;
+  /** Markdown. */
+  documentation?: string;
+}
+
+export interface HoverInfo {
+  /** Markdown. */
+  markdown: string;
+  start: number;
+  end: number;
+}
+
+/** Location of a section range in the split editor, through a twincat-loc rendering. */
+export type SplitLocator = (ctx: SectionContext, loc: Loc) => vscode.Location | undefined;
+
+function codeblock(code: string): string {
+  return '\n```' + ST_LANGUAGE + '\n' + code + '\n```\n';
+}
 
 export interface CellInfo {
   notebook: vscode.NotebookDocument;
@@ -61,24 +91,26 @@ const KEYWORDS = [
   'LREAL', 'TIME', 'LTIME', 'DATE', 'TOD', 'DT',
 ];
 
-function completionKind(s: Sym): vscode.CompletionItemKind {
+type CompletionKindName = keyof typeof vscode.CompletionItemKind;
+
+function completionKind(s: Sym): CompletionKindName {
   switch (s.kind) {
-    case 'var': return s.owner.kind === 'type' ? vscode.CompletionItemKind.Field : vscode.CompletionItemKind.Variable;
-    case 'method': return vscode.CompletionItemKind.Method;
-    case 'property': return vscode.CompletionItemKind.Property;
+    case 'var': return s.owner.kind === 'type' ? 'Field' : 'Variable';
+    case 'method': return 'Method';
+    case 'property': return 'Property';
     case 'action':
     case 'transition':
-      return vscode.CompletionItemKind.Event;
+      return 'Event';
     case 'pou':
-      if (s.pouKind === 'ITF') return vscode.CompletionItemKind.Interface;
-      if (s.pouKind === 'FUN') return vscode.CompletionItemKind.Function;
-      if (s.pouKind === 'PRG') return vscode.CompletionItemKind.Module;
-      return vscode.CompletionItemKind.Class;
-    case 'type': return s.dutKind === 'enum' ? vscode.CompletionItemKind.Enum : vscode.CompletionItemKind.Struct;
-    case 'enumValue': return vscode.CompletionItemKind.EnumMember;
-    case 'gvl': return vscode.CompletionItemKind.Module;
-    case 'namespace': return vscode.CompletionItemKind.Module;
-    case 'builtin': return vscode.CompletionItemKind.Function;
+      if (s.pouKind === 'ITF') return 'Interface';
+      if (s.pouKind === 'FUN') return 'Function';
+      if (s.pouKind === 'PRG') return 'Module';
+      return 'Class';
+    case 'type': return s.dutKind === 'enum' ? 'Enum' : 'Struct';
+    case 'enumValue': return 'EnumMember';
+    case 'gvl': return 'Module';
+    case 'namespace': return 'Module';
+    case 'builtin': return 'Function';
   }
 }
 
@@ -135,6 +167,8 @@ export class LanguageFeatures implements
   vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
   private readonly cache = new Map<string, CachedAnalysis>();
   private readonly symbolLocs = new WeakMap<vscode.SymbolInformation, Loc>();
+  /** Set by the extension: where locations point when TwinCAT objects open in the split editor. */
+  splitLocator?: SplitLocator;
 
   constructor(private readonly index: LanguageIndex, private readonly ws: TcWorkspace) {}
 
@@ -169,17 +203,88 @@ export class LanguageFeatures implements
     return analysis.occurrences.find(o => o.start <= offset && offset <= o.end);
   }
 
-  /** Location of a symbol in its object notebook (opened in the background if needed). */
+  /** Location of a symbol: in the split editor, or in its object notebook (opened in the background if needed). */
   async toLocation(loc: Loc): Promise<vscode.Location | undefined> {
     const ctx = this.index.context(loc.fileKey, loc.sectionKey);
     if (!ctx) return undefined;
+    if (editorMode() === 'split' && this.splitLocator) return this.splitLocator(ctx, loc);
     const diskObject = this.ws.getFile(ctx.filePath)?.objects.get(ctx.object.id);
-    const nb = await openObjectDocument(ctx.filePath, diskObject ?? { ...ctx.object, sections: [] });
+    const sections = diskObject?.sections.filter(s => s.accessor === ctx.accessor) ?? [];
+    const nb = await openObjectDocument(ctx.filePath, { ...(diskObject ?? ctx.object), sections }, ctx.accessor);
     const uri = nb.uri;
     const cell = nb.getCells().find(c => cellMeta(c)?.key === loc.sectionKey);
     if (!cell) return new vscode.Location(uri, new vscode.Position(0, 0));
     const d = cell.document;
     return new vscode.Location(d.uri, new vscode.Range(d.positionAt(loc.start), d.positionAt(loc.end)));
+  }
+
+  // ------------------------------------------------------------------ section-level features (split editor and cells)
+
+  /** Where the symbol at an offset is declared (itself when the offset is on a declaration). */
+  definitionAt(ctx: SectionContext, text: string, offset: number): Loc | undefined {
+    const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
+    if (!o?.sym.loc) return undefined;
+    if (o.decl) return { fileKey: ctx.fileKey, sectionKey: ctx.sectionKey, start: o.start, end: o.end };
+    return o.sym.loc;
+  }
+
+  hoverAt(ctx: SectionContext, text: string, offset: number): HoverInfo | undefined {
+    const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
+    if (!o) return undefined;
+    const s = o.sym;
+    let md = codeblock(s.signature || s.name);
+    if (s.doc) md += '\n\n' + s.doc.replace(/([\\`*_{}[\]()#+\-.!|<>])/g, '\\$1').replace(/\n/g, '  \n');
+    md += `\n\n*${describeOwner(s)}*`;
+    return { markdown: md, start: o.start, end: o.end };
+  }
+
+  completionsAt(ctx: SectionContext, text: string, offset: number): CompletionEntry[] {
+    const analyzer = new Analyzer(this.index, ctx, text);
+    const exprText = expressionBeforeDot(text, offset);
+    const items: CompletionEntry[] = [];
+    const add = (s: Sym, ty: Ty) => {
+      const firstLine = (s.signature || '').split('\n')[0];
+      let doc = '';
+      if (s.signature) doc += codeblock(s.signature);
+      if (s.doc) doc += '\n\n' + s.doc.replace(/([\\`*_{}[\]()#+\-.!|<>])/g, '\\$1').replace(/\n/g, '  \n');
+      doc += `\n\n*${describeOwner(s)}*`;
+      items.push({ label: s.name, kind: completionKind(s), detail: firstLine || tyToString(ty), documentation: doc });
+    };
+    if (exprText !== undefined) {
+      let t = analyzer.typeOfText(exprText);
+      for (let i = 0; i < 4 && (t.k === 'ref' || t.k === 'ptr'); i++) t = t.to;
+      for (const r of analyzer.listMembers(t)) add(r.sym, r.ty);
+      return items;
+    }
+    for (const r of analyzer.listScope()) add(r.sym, r.ty);
+    for (const kw of KEYWORDS) items.push({ label: kw, kind: 'Keyword' });
+    return items;
+  }
+
+  /** References of the symbol at an offset, across all sections (unsaved edits included). */
+  referencesAt(ctx: SectionContext, text: string, offset: number, includeDeclaration: boolean): Loc[] {
+    const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
+    return o ? this.referenceLocs(o.sym, includeDeclaration) : [];
+  }
+
+  referenceLocs(target: Sym, includeDeclaration: boolean): Loc[] {
+    const out: Loc[] = [];
+    for (const ctx of this.index.allContexts()) {
+      const text = this.index.sectionText(ctx.fileKey, ctx.sectionKey);
+      if (text === undefined) continue;
+      const a = this.analysisOf(ctx, text);
+      for (const occ of a.occurrences) {
+        if (occ.sym.id === target.id && (includeDeclaration || !occ.decl)) {
+          out.push({ fileKey: ctx.fileKey, sectionKey: ctx.sectionKey, start: occ.start, end: occ.end });
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Problems of a section with the given text. */
+  problemsOf(ctx: SectionContext, text: string) {
+    return this.analysisOf(ctx, text).problems;
   }
 
   // ------------------------------------------------------------------ definition
@@ -200,14 +305,9 @@ export class LanguageFeatures implements
   provideHover(doc: vscode.TextDocument, pos: vscode.Position): vscode.Hover | undefined {
     const r = this.analysisForDocument(doc);
     if (!r) return undefined;
-    const o = this.occurrenceAt(r.analysis, doc.offsetAt(pos));
-    if (!o) return undefined;
-    const s = o.sym;
-    const md = new vscode.MarkdownString();
-    md.appendCodeblock(s.signature || s.name, ST_LANGUAGE);
-    if (s.doc) md.appendMarkdown('\n\n' + s.doc.replace(/([\\`*_{}[\]()#+\-.!|<>])/g, '\\$1').replace(/\n/g, '  \n'));
-    md.appendMarkdown(`\n\n*${describeOwner(s)}*`);
-    return new vscode.Hover(md, new vscode.Range(doc.positionAt(o.start), doc.positionAt(o.end)));
+    const h = this.hoverAt(r.ctx, doc.getText(), doc.offsetAt(pos));
+    if (!h) return undefined;
+    return new vscode.Hover(new vscode.MarkdownString(h.markdown), new vscode.Range(doc.positionAt(h.start), doc.positionAt(h.end)));
   }
 
   // ------------------------------------------------------------------ completion
@@ -217,31 +317,12 @@ export class LanguageFeatures implements
     if (!info) return undefined;
     const ctx = this.index.context(info.fileKey, info.sectionKey);
     if (!ctx) return undefined;
-    const text = doc.getText();
-    const offset = doc.offsetAt(pos);
-    const analyzer = new Analyzer(this.index, ctx, text);
-    const exprText = expressionBeforeDot(text, offset);
-    const items: vscode.CompletionItem[] = [];
-    const add = (s: Sym, ty: Ty) => {
-      const item = new vscode.CompletionItem(s.name, completionKind(s));
-      const firstLine = (s.signature || '').split('\n')[0];
-      item.detail = firstLine || tyToString(ty);
-      const md = new vscode.MarkdownString();
-      if (s.signature) md.appendCodeblock(s.signature, ST_LANGUAGE);
-      if (s.doc) md.appendText('\n' + s.doc);
-      md.appendMarkdown(`\n\n*${describeOwner(s)}*`);
-      item.documentation = md;
-      items.push(item);
-    };
-    if (exprText !== undefined) {
-      let t = analyzer.typeOfText(exprText);
-      for (let i = 0; i < 4 && (t.k === 'ref' || t.k === 'ptr'); i++) t = t.to;
-      for (const r of analyzer.listMembers(t)) add(r.sym, r.ty);
-      return items;
-    }
-    for (const r of analyzer.listScope()) add(r.sym, r.ty);
-    for (const kw of KEYWORDS) items.push(new vscode.CompletionItem(kw, vscode.CompletionItemKind.Keyword));
-    return items;
+    return this.completionsAt(ctx, doc.getText(), doc.offsetAt(pos)).map(e => {
+      const item = new vscode.CompletionItem(e.label, vscode.CompletionItemKind[e.kind as CompletionKindName]);
+      item.detail = e.detail;
+      if (e.documentation) item.documentation = new vscode.MarkdownString(e.documentation);
+      return item;
+    });
   }
 
   // ------------------------------------------------------------------ references
@@ -255,19 +336,10 @@ export class LanguageFeatures implements
   }
 
   async findReferences(target: Sym, includeDeclaration: boolean): Promise<vscode.Location[]> {
-    const hits: { ctx: SectionContext; occ: Occurrence }[] = [];
-    for (const ctx of this.index.allContexts()) {
-      const text = this.index.sectionText(ctx.fileKey, ctx.sectionKey);
-      if (text === undefined) continue;
-      const a = this.analysisOf(ctx, text);
-      for (const occ of a.occurrences) {
-        if (occ.sym.id === target.id && (includeDeclaration || !occ.decl)) hits.push({ ctx, occ });
-      }
-    }
     const out: vscode.Location[] = [];
-    for (const h of hits) {
-      const loc = await this.toLocation({ fileKey: h.ctx.fileKey, sectionKey: h.ctx.sectionKey, start: h.occ.start, end: h.occ.end });
-      if (loc) out.push(loc);
+    for (const loc of this.referenceLocs(target, includeDeclaration)) {
+      const l = await this.toLocation(loc);
+      if (l) out.push(l);
     }
     return out;
   }
@@ -296,11 +368,17 @@ export class LanguageFeatures implements
       return i === q.length;
     };
     const out: vscode.SymbolInformation[] = [];
+    const split = editorMode() === 'split' && this.splitLocator;
     const add = (s: Sym, container: string) => {
       if (!s.loc || !matches(s.name)) return;
       const ctx = this.index.context(s.loc.fileKey, s.loc.sectionKey);
       if (!ctx) return;
-      const uri = objectUri(ctx.filePath, ctx.object);
+      if (split) {
+        const location = this.splitLocator!(ctx, s.loc);
+        if (location) out.push(new vscode.SymbolInformation(s.name, symbolKind(s), container, location));
+        return;
+      }
+      const uri = objectUri(ctx.filePath, ctx.object, undefined, ctx.accessor);
       // Location without a range: VS Code calls resolveWorkspaceSymbol when the symbol is picked.
       const info = new vscode.SymbolInformation(s.name, symbolKind(s), container, new vscode.Location(uri, undefined as unknown as vscode.Range));
       this.symbolLocs.set(info, s.loc);
@@ -338,7 +416,7 @@ export class LanguageFeatures implements
       const file = this.ws.getFile(ctx.filePath);
       const section = file?.sections.get(ctx.sectionKey);
       if (!file || !section) continue;
-      // A section with unsaved edits is reported live in its cell; its offsets no longer match the XML.
+      // A section with unsaved edits is reported live in its editor; its offsets no longer match the XML.
       if (this.index.sectionText(ctx.fileKey, ctx.sectionKey) !== section.text) continue;
       const a = analyze(this.index, ctx, section.text, { ignore });
       if (a.problems.length === 0) continue;

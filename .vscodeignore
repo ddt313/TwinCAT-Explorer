@@ -5,3 +5,4 @@
 !syntaxes/**
 !media/**
 !out/src/**/*.js
+!out/webview/**

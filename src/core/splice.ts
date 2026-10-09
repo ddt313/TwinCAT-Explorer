@@ -58,7 +58,11 @@ export interface SpliceResult {
 
 export function applySectionEdits(file: TcSourceFile, edits: SectionEdit[]): SpliceResult {
   const replacements: { start: number; end: number; value: string; key: string }[] = [];
+  const seen = new Set<string>();
   for (const edit of edits) {
+    // Two replacements of one section would overlap and corrupt the XML.
+    if (seen.has(edit.key)) throw new SpliceError(`Section ${edit.key} is edited twice`);
+    seen.add(edit.key);
     const section = file.sections.get(edit.key);
     if (!section) throw new SpliceError(`Section ${edit.key} no longer exists in ${file.path}`);
     if (normalizeEol(edit.text) === section.text) continue;

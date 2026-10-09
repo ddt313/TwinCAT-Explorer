@@ -328,6 +328,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
         const input = tab.input;
         const uri = input instanceof vscode.TabInputNotebook || input instanceof vscode.TabInputCustom ? input.uri : undefined;
         if (!uri || uri.scheme !== OBJECT_SCHEME) continue;
+        // A second tab of the same kind (split to another group, moved) shows the same document.
+        const sameKind = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => t !== tab
+          && t.input instanceof (input instanceof vscode.TabInputNotebook ? vscode.TabInputNotebook : vscode.TabInputCustom)
+          && (t.input as { uri: vscode.Uri }).uri.toString() === uri.toString());
+        if (sameKind.length) continue;
         const hiddenDirty = input instanceof vscode.TabInputNotebook
           ? vscode.workspace.textDocuments.some(d => d.isDirty && d.uri.toString() === uri.toString())
           : vscode.workspace.notebookDocuments.some(nb => nb.isDirty && nb.uri.toString() === uri.toString());
@@ -451,7 +456,6 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       await vscode.window.tabGroups.close(tab, true);
       return;
     }
-    // A single click in the Problems panel opens a preview without focus; keep it that way.
     const preview = tab.isPreview;
     const docUri = openViewUri(target.ref.fsPath, target.ref.objectId, target.ref.accessor);
     // The object's split editor shown in another group is used there, like revealIfVisible does for files.
@@ -464,9 +468,9 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       && t.input.uri.toString() === docUri.toString()));
     if (!replace) await vscode.window.tabGroups.close(tab, true);
     await openSplit(target.ref.fsPath, target.ref.objectId, {
-      accessor: target.ref.accessor, viewColumn, preview, preserveFocus: preview,
+      accessor: target.ref.accessor, viewColumn, preview,
       reveal: {
-        key: target.key, start: target.start, end: end?.key === target.key ? end.start : target.start, focus: !preview, text: target.text,
+        key: target.key, start: target.start, end: end?.key === target.key ? end.start : target.start, focus: true, text: target.text,
       },
     });
     const left = tabOf(uri);

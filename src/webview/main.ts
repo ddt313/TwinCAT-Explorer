@@ -203,7 +203,6 @@ function targetModel(t: TargetRange): Monaco.editor.ITextModel {
   models.set(uri.toString(), { fileKey: t.ref.fileKey, sectionKey: t.ref.sectionKey, ref: t.ref });
   foreignOrder.delete(uri.toString());
   foreignOrder.add(uri.toString());
-  pruneForeign();
   let model = monaco.editor.getModel(uri);
   if (!model) {
     model = monaco.editor.createModel(t.ref.text, LANG, uri);
@@ -219,7 +218,7 @@ function targetModel(t: TargetRange): Monaco.editor.ITextModel {
   return model;
 }
 
-/** Copies of other objects' sections, oldest first; only the last ones are kept. */
+/** Copies of other objects' sections, oldest first; pruned before each new result (see pruneForeign). */
 const foreignOrder = new Set<string>();
 const MAX_FOREIGN = 60;
 
@@ -251,6 +250,7 @@ function registerProviders(): void {
     async provideDefinition(model, position) {
       const pane = ownPane(model);
       if (!pane) return null;
+      pruneForeign();
       const t = await request<TargetRange>('definition', pane.section.key, model, model.getOffsetAt(position));
       return t ? locationOf(t) : null;
     },
@@ -259,6 +259,7 @@ function registerProviders(): void {
     async provideReferences(model, position, context) {
       const pane = ownPane(model);
       if (!pane) return null;
+      pruneForeign();
       const ts = await request<TargetRange[]>('references', pane.section.key, model, model.getOffsetAt(position), context.includeDeclaration);
       return (ts ?? []).map(locationOf);
     },
@@ -299,7 +300,7 @@ function registerProviders(): void {
     registerCodeEditorOpenHandler(handler: (input: { resource: Monaco.Uri; options?: { selection?: Monaco.IRange } },
       source: Monaco.editor.ICodeEditor | null, sideBySide?: boolean) => Promise<Monaco.editor.ICodeEditor | null>): Monaco.IDisposable;
   };
-  codeEditors.registerCodeEditorOpenHandler(async (input, source) => {
+  codeEditors.registerCodeEditorOpenHandler(async (input, source, sideBySide) => {
     const resource = input.resource;
     const info = models.get(resource.toString());
     // The same model: Monaco's own handling.
@@ -312,15 +313,18 @@ function registerProviders(): void {
         pane.editor.setSelection(range);
         pane.editor.revealRangeInCenterIfOutsideViewport(range);
       }
-      // After the peek view (if any) has closed and given the focus back to where it came from.
-      setTimeout(() => pane.editor.focus(), 0);
+      // After the peek view (if any) has closed and given the focus back to where it came from, unless the
+      // peek moved into the target pane and has the focus there.
+      setTimeout(() => {
+        if (!pane.editor.hasWidgetFocus()) pane.editor.focus();
+      }, 0);
       return pane.editor;
     }
     const model = monaco.editor.getModel(resource);
     if (info.ref && model) {
       const start = range ? model.getOffsetAt(range.getStartPosition()) : 0;
       const end = range ? model.getOffsetAt(range.getEndPosition()) : start;
-      post({ type: 'open', target: { ref: info.ref, start, end } });
+      post({ type: 'open', target: { ref: info.ref, start, end }, side: !!sideBySide });
     }
     return null;
   });
@@ -531,13 +535,16 @@ function applyRemote(pane: Pane, text: string): void {
     endNew++;
   }
   applyingRemote = true;
+  // Monaco would trim the auto-indentation the user left on some line, and the text would not match.
+  const trim = model.getOptions().trimAutoWhitespace;
+  model.updateOptions({ trimAutoWhitespace: false });
   try {
     model.pushStackElement();
-    // The cursors are passed so Monaco does not trim the auto-indentation of the line the user is on.
     model.pushEditOperations(pane.editor.getSelections() ?? [], [{ range: rangeOf(model, start, endOld), text: text.slice(start, endNew) }], () => null);
     model.pushStackElement();
     if (model.getValue() !== text) model.setValue(text);
   } finally {
+    model.updateOptions({ trimAutoWhitespace: trim });
     applyingRemote = false;
   }
 }

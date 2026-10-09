@@ -89,7 +89,7 @@ export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'edit'; seq: number; key: string; changes: { offset: number; length: number; text: string }[]; text: string }
   | { type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean }
-  | { type: 'open'; target: TargetRange }
+  | { type: 'open'; target: TargetRange; side?: boolean }
   /** A VS Code command the panes cannot run themselves (see WORKBENCH_CHORDS). */
   | { type: 'command'; command: string }
   | { type: 'focus'; key: string }
@@ -138,7 +138,6 @@ export const WORKBENCH_CHORDS: { second: string; command: string }[] = [
   { second: 'Ctrl+PageDown', command: 'workbench.action.nextEditorInGroup' },
   { second: 'Ctrl+PageUp', command: 'workbench.action.previousEditorInGroup' },
   { second: 'Ctrl+Backslash', command: 'workbench.action.splitEditorOrthogonal' },
-  { second: 'Ctrl+Shift+Backslash', command: 'workbench.action.splitEditorInGroup' },
   { second: 'KeyD', command: 'workbench.files.action.compareWithSaved' },
 ];
 

@@ -10,6 +10,7 @@ import { TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex, SectionContext } from '../lang/index';
 import { Loc } from '../lang/symbols';
 import { objectViewText } from './objectFs';
+import { tabKinds } from './openDocs';
 import { LOC_SCHEME, OBJECT_SCHEME, ObjectRef, locUri, parseLocUri, parseObjectUri, viewKey } from './uris';
 
 export interface LocTarget {
@@ -54,13 +55,15 @@ export class LocationService implements vscode.TextDocumentContentProvider {
     }
   }
 
-  /** The open split editor document of an object view, if any. */
+  /** The open split editor document of an object view, if any (not one hidden behind a notebook tab). */
   private openDocument(ref: ObjectRef): ParsedObjectText | undefined {
     const key = viewKey(ref, fileKey);
     for (const doc of vscode.workspace.textDocuments) {
       if (doc.uri.scheme !== OBJECT_SCHEME) continue;
       const r = parseObjectUri(doc.uri);
       if (!r || viewKey(r, fileKey) !== key) continue;
+      const kinds = tabKinds(doc.uri);
+      if (doc.isDirty && !kinds.editor && kinds.notebook) continue;
       try {
         return parseObjectText(doc.getText());
       } catch {

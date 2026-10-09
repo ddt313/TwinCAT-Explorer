@@ -170,10 +170,13 @@ export class EditorSession implements vscode.Disposable {
       case 'ready': return this.enqueue(() => this.init());
       case 'edit': return this.enqueue(() => this.applyEdit(m));
       case 'request': return this.enqueue(() => this.answer(m));
-      case 'open': return this.enqueue(() => this.provider.navigate(m.target, this));
+      case 'open': return this.enqueue(() => this.provider.navigate(m.target, this, m.side));
       case 'command':
         if (!WEBVIEW_COMMANDS.has(m.command)) return Promise.resolve();
-        return Promise.resolve(vscode.commands.executeCommand(m.command)).then(() => undefined);
+        // After the edits typed before it (a save command must include them).
+        return this.enqueue(() => {
+          void vscode.commands.executeCommand(m.command);
+        });
       case 'focus': return Promise.resolve();
       case 'synced': return this.enqueue(() => this.confirmed(m));
       case 'resync': return this.enqueue(() => this.resync());
@@ -286,7 +289,8 @@ export class EditorSession implements vscode.Disposable {
         done();
         // applyEdit can resolve before the extension host has the new text; the next edit needs it.
         await this.untilVersion(version + 1);
-        await this.provider.afterWebviewEdit(this.document);
+        // Not awaited here: that save runs the save participant (flush), which waits for this queue.
+        setTimeout(() => void this.provider.afterWebviewEdit(this.document), 0);
         return;
       }
       if (before === undefined) this.shown.delete(m.key);
@@ -299,8 +303,11 @@ export class EditorSession implements vscode.Disposable {
     this.resync();
   }
 
-  /** Resolves once every edit the webview made so far is in the document (before a save). */
-  flush(timeout = 1000): Promise<void> {
+  /**
+   * Resolves once every edit the webview made so far is in the document (before a save). Bounded well
+   * below VS Code's 1.5 s limit for save participants, which disables a listener that is too slow.
+   */
+  flush(timeout = 600): Promise<void> {
     if (!this.ready || this.disposed) return Promise.resolve();
     const id = ++this.flushId;
     const answered = new Promise<void>(resolve => {
@@ -315,7 +322,8 @@ export class EditorSession implements vscode.Disposable {
     });
     this.post({ type: 'flush', id });
     // The edits arrive before the answer and are queued: wait for the queue after the answer.
-    return answered.then(() => this.enqueue(() => undefined));
+    const drained = answered.then(() => this.enqueue(() => undefined));
+    return Promise.race([drained, new Promise<void>(resolve => setTimeout(resolve, timeout + 400))]);
   }
 
   private untilVersion(version: number, timeout = 2000): Promise<void> {
@@ -391,7 +399,7 @@ export class EditorSession implements vscode.Disposable {
       switch (m.kind) {
         case 'definition': {
           const loc = features.definitionAt(ctx, m.text, m.offset);
-          result = loc ? this.provider.target(loc, this) : undefined;
+          result = loc ? this.provider.target(loc, this, m.key, m.text) : undefined;
           break;
         }
         case 'hover':
@@ -402,7 +410,7 @@ export class EditorSession implements vscode.Disposable {
           break;
         case 'references':
           result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
-            .map(loc => this.provider.target(loc, this)).filter(t => t !== undefined);
+            .map(loc => this.provider.target(loc, this, m.key, m.text)).filter(t => t !== undefined);
           break;
       }
     }
@@ -571,8 +579,11 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     if (parsed.sections.every(s => disk.get(s.key) === s.text)) await doc.save();
   }
 
-  /** The section range of a location, with what the webview needs to show and open it. */
-  target(loc: Loc, from?: EditorSession): TargetRange | undefined {
+  /**
+   * The section range of a location, with what the webview needs to show and open it. Offsets in the
+   * requesting section (`requestKey`) refer to the text sent with the request.
+   */
+  target(loc: Loc, from?: EditorSession, requestKey?: string, requestText?: string): TargetRange | undefined {
     const ctx = this.index.context(loc.fileKey, loc.sectionKey);
     if (!ctx) return undefined;
     const indexText = this.index.sectionText(loc.fileKey, loc.sectionKey) ?? '';
@@ -587,18 +598,19 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     // A section of the requesting tab: its pane may show another text than the index (an untouched section
     // that changed on disk while the tab had unsaved edits). The webview applies the offsets to its pane.
     const own = from && loc.fileKey === from.fileKey ? from.parse()?.sections.find(s => s.key === loc.sectionKey) : undefined;
-    if (own && own.text !== indexText) {
-      start = mapOffset(indexText, own.text, start);
-      end = Math.max(start, mapOffset(indexText, own.text, end));
-      ref.text = own.text;
+    const sourceText = own && loc.sectionKey === requestKey && requestText !== undefined ? requestText : indexText;
+    if (own && own.text !== sourceText) {
+      start = mapOffset(sourceText, own.text, start);
+      end = Math.max(start, mapOffset(sourceText, own.text, end));
     }
+    if (own) ref.text = own.text;
     return { ref, start, end };
   }
 
   /** Opens the object view of a target (go to definition into another object). */
-  async navigate(target: TargetRange, from?: EditorSession): Promise<void> {
+  async navigate(target: TargetRange, from?: EditorSession, side = false): Promise<void> {
     const v = target.ref.view;
-    const column = from?.panel.viewColumn;
+    const column = side ? vscode.ViewColumn.Beside : from?.panel.viewColumn;
     await this.openView?.({
       ref: { fsPath: v.fsPath, objectId: v.objectId, accessor: v.accessor },
       reveal: { key: target.ref.sectionKey, start: target.start, end: target.end, focus: true, text: target.ref.text },

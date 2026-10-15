@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { InnerFolder, TcObject, TcSourceFile } from '../core/tcfile';
 import { PlcProject, TsProject, resolutionLibraryName } from '../core/project';
+import { objectUri } from './uris';
 
 export type NodeKind = 'tsproj' | 'plcproj' | 'references' | 'library' | 'folder' | 'file' | 'innerFolder' | 'object' | 'accessor';
 
@@ -25,6 +26,8 @@ export class TreeNode {
   objectId?: string;
   accessor?: 'Get' | 'Set';
   icon?: vscode.ThemeIcon;
+  /** URI of the object view of a member or accessor node, which carries its git decoration (see GitChanges). */
+  resourceUri?: vscode.Uri;
   openable = false;
   /** Name used by "Copy Name". */
   name?: string;
@@ -226,6 +229,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       mn.name = m.name;
       mn.sortGroup = 2;
       mn.tooltip = `${m.qualifiedName} (${m.kind})`;
+      mn.resourceUri = objectUri(fsPath, m);
       this.indexObject(file, m, mn);
       for (const acc of m.accessors) {
         const an = this.add(new TreeNode(`acc:${prefix}|${fk}|${m.id}|${acc.kind}`, 'accessor', acc.kind, mn));
@@ -235,6 +239,8 @@ ${error ?? 'The .plcproj file does not exist.'}`;
         an.openable = true;
         an.icon = icon(acc.kind === 'Get' ? 'arrow-small-left' : 'arrow-small-right', 'symbolIcon.methodForeground');
         an.sortGroup = 2;
+        an.tooltip = `${m.qualifiedName}.${acc.kind}`;
+        an.resourceUri = objectUri(fsPath, m, undefined, acc.kind);
       }
     }
   }
@@ -266,7 +272,9 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     item.description = node.description;
     item.tooltip = node.tooltip;
     item.contextValue = node.contextValue;
+    // A file keeps its file URI (the git extension colors it); members get their object URI (GitChanges marks them).
     if (node.kind === 'file' && node.fsPath) item.resourceUri = vscode.Uri.file(node.fsPath);
+    else if (node.resourceUri) item.resourceUri = node.resourceUri;
     if (node.openable) {
       item.command = { command: 'twincatExplorer.open', title: 'Open', arguments: [node] };
     } else if (node.kind === 'file' && node.fsPath) {

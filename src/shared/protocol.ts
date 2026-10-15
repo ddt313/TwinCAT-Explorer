@@ -72,7 +72,16 @@ export type HostMessage =
     onigUri: string;
     /** Splitter position kept by the host for this document (a rebuilt webview gets it back). */
     ratio?: number;
+    /** Changes vs HEAD shown (a rebuilt webview gets it back). */
+    changes?: boolean;
   }
+  /**
+   * HEAD texts of the sections (null: not in HEAD, a new object), which the panes mark their changes
+   * against. `available` is false outside a git repository.
+   */
+  | { type: 'base'; available: boolean; sections: { key: string; text: string | null }[] }
+  /** Shows or hides the changes vs HEAD (inline diff in every pane). */
+  | { type: 'setChanges'; on: boolean }
   | { type: 'flush'; id: number }
   /** The document's section texts; `ack` is the last webview edit applied. Answered with 'synced'. */
   | { type: 'sync'; id: number; sections: { key: string; text: string }[]; ack: number }
@@ -100,6 +109,8 @@ export type WebviewMessage =
   /** Every edit made before the 'flush' with this id has been posted. */
   | { type: 'flushed'; id: number }
   | { type: 'ratio'; ratio: number }
+  /** The panes now show (or no longer show) the changes vs HEAD. */
+  | { type: 'changesMode'; on: boolean }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 
@@ -167,7 +178,11 @@ export type ProbeAction =
   | { kind: 'drag'; fromY: number; toY: number }
   | { kind: 'run'; key: string; offset: number; action: string }
   | { kind: 'undo'; key: string }
-  | { kind: 'keys'; key: string; strokes: { key: string; code: string; keyCode: number; ctrl?: boolean; shift?: boolean; alt?: boolean }[] };
+  | { kind: 'keys'; key: string; strokes: { key: string; code: string; keyCode: number; ctrl?: boolean; shift?: boolean; alt?: boolean }[] }
+  /** A click on the change marker of a line (1-based). */
+  | { kind: 'markerClick'; key: string; line: number }
+  /** Reverts the change at a line (1-based) of a pane shown as a diff, like its Revert Block button. */
+  | { kind: 'revertChange'; key: string; line: number };
 
 export interface PaneState {
   key: string;
@@ -183,6 +198,14 @@ export interface PaneState {
   focused: boolean;
   /** Selection as offsets. */
   selection: [number, number];
+  /** Changed blocks against HEAD (the change markers). */
+  changes: number;
+  /** The pane shows the inline diff against HEAD. */
+  diff: boolean;
+  /** Changed blocks the diff editor shows (-1 without a diff, or while it computes). */
+  diffChanges: number;
+  /** Text of the label shown over a pane in diff mode. */
+  label?: string;
 }
 
 export interface ProbeState {

@@ -17,6 +17,7 @@ import { LanguageFeatures } from './language';
 import { LocationService, rangeIn } from './locations';
 import { activeThemeTokens } from './theme';
 import { debugLog } from '../core/debugLog';
+import { GitChanges } from './gitChanges';
 import { ObjectRef, locUriOf, parseObjectUri } from './uris';
 import {
   EditorConfig, HostMessage, LanguageConfig, Marker, PaneSection, ProbeAction, SectionRef, TargetRange, WEBVIEW_COMMANDS, WebviewMessage,
@@ -127,6 +128,12 @@ export class EditorSession implements vscode.Disposable {
   readonly posted: HostMessage[] = [];
   readonly ref: ObjectRef;
   readonly fileKey: string;
+  /** The panes show the changes vs HEAD (as the webview reported). */
+  changesMode = false;
+  /** HEAD texts were found (false outside a git repository), once the last 'base' message was sent. */
+  baseAvailable: boolean | undefined;
+  private baseRequest = 0;
+  private baseSent: Promise<void> = Promise.resolve();
 
   constructor(private readonly provider: ObjectEditorProvider, readonly document: vscode.TextDocument, readonly panel: vscode.WebviewPanel) {
     this.ref = parseObjectUri(document.uri)!;
@@ -135,6 +142,7 @@ export class EditorSession implements vscode.Disposable {
       panel.webview.onDidReceiveMessage((m: WebviewMessage) => this.receive(m)),
       panel.onDidChangeViewState(() => {
         if (panel.active) provider.onDidActivate?.(document.uri);
+        provider.updateChangesContext();
       }),
     );
   }
@@ -189,6 +197,11 @@ export class EditorSession implements vscode.Disposable {
       case 'ratio':
         this.provider.ratios.set(this.document.uri.toString(), m.ratio);
         return Promise.resolve();
+      case 'changesMode':
+        this.changesMode = m.on;
+        this.provider.changesModes.set(this.document.uri.toString(), m.on);
+        this.provider.updateChangesContext();
+        return Promise.resolve();
       case 'probeResult': {
         const resolve = this.probes.get(m.id);
         this.probes.delete(m.id);
@@ -229,6 +242,7 @@ export class EditorSession implements vscode.Disposable {
       grammarUri: webview.asWebviewUri(vscode.Uri.joinPath(this.provider.extensionUri, 'syntaxes', 'twincat-st.tmLanguage.json')).toString(),
       onigUri: webview.asWebviewUri(vscode.Uri.joinPath(this.provider.extensionUri, 'out', 'webview', 'onig.wasm')).toString(),
       ratio: this.provider.ratios.get(this.document.uri.toString()),
+      changes: this.provider.changesModes.get(this.document.uri.toString()),
     });
     this.ready = true;
     if (this.pendingReveal) {
@@ -237,6 +251,33 @@ export class EditorSession implements vscode.Disposable {
       this.reveal(r);
     }
     this.provider.scheduleDiagnostics(this.document, 50);
+    // Not awaited: git can take a moment, and the edits queued behind this must not wait for it.
+    this.baseSent = this.sendBase();
+  }
+
+  /** Sends the HEAD texts of the sections, which the panes mark their changes against. */
+  sendBase(): Promise<void> {
+    const id = ++this.baseRequest;
+    const parsed = this.parse();
+    if (!parsed || !this.ready) return Promise.resolve();
+    const git = this.provider.git;
+    const sent = (async () => {
+      const base = git ? await git.viewBase(this.ref.fsPath, parsed.sections.map(s => s.key)) : undefined;
+      // A newer request (HEAD moved meanwhile, the webview reloaded) answers instead.
+      if (id !== this.baseRequest || this.disposed) return;
+      this.baseAvailable = !!base;
+      this.post({ type: 'base', available: !!base, sections: base?.sections ?? [] });
+    })().catch(e => this.provider.log?.(`Split editor: reading HEAD failed: ${(e as Error).stack ?? e}`));
+    this.baseSent = sent;
+    return sent;
+  }
+
+  /** Shows or hides the changes vs HEAD; false when there is no HEAD to compare with. */
+  async setChangesMode(on: boolean): Promise<boolean> {
+    await this.baseSent;
+    if (on && this.baseAvailable === false) return false;
+    this.post({ type: 'setChanges', on });
+    return true;
   }
 
   private async applyEdit(m: Extract<WebviewMessage, { type: 'edit' }>): Promise<void> {
@@ -451,10 +492,15 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
   recordMessages = false;
   /** Splitter position per document, so a rebuilt webview (tab replaced, moved) gets it back. */
   readonly ratios = new Map<string, number>();
+  /** Changes vs HEAD shown, per document, so a rebuilt webview gets it back. */
+  readonly changesModes = new Map<string, boolean>();
+  /** HEAD texts for the change markers; without it the split editor shows no changes. */
+  git?: GitChanges;
   onDidActivate?: (uri: vscode.Uri) => void;
   openView?: (request: OpenViewRequest) => Promise<void>;
   log?: (message: string) => void;
   private readonly disposables: vscode.Disposable[] = [];
+  private changesContext: boolean | undefined;
 
   constructor(
     readonly extensionUri: vscode.Uri,
@@ -504,7 +550,12 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     panel.onDidDispose(() => {
       session.dispose();
       this.sessions.delete(session);
-      if (!this.sessionsOf(document.uri).length) this.clearDiagnostics(document.uri);
+      if (!this.sessionsOf(document.uri).length) {
+        this.clearDiagnostics(document.uri);
+        // An object opened again later starts without the diff.
+        this.changesModes.delete(document.uri.toString());
+      }
+      this.updateChangesContext();
     });
     const csp = panel.webview.cspSource;
     const n = nonce();
@@ -532,6 +583,38 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
 
   allSessions(): EditorSession[] {
     return [...this.sessions];
+  }
+
+  /** The split editor of the active tab. */
+  activeSession(): EditorSession | undefined {
+    return [...this.sessions].find(s => s.panel.active);
+  }
+
+  /** Sets `twincatExplorer.changesMode`, which picks the Show/Hide Changes button of the editor title. */
+  updateChangesContext(): void {
+    const on = this.activeSession()?.changesMode ?? false;
+    if (on === this.changesContext) return;
+    this.changesContext = on;
+    void vscode.commands.executeCommand('setContext', 'twincatExplorer.changesMode', on);
+  }
+
+  /** Shows or hides the changes vs HEAD in the split editor of a document (the active one by default). */
+  async setChangesMode(uri: vscode.Uri | undefined, on: boolean): Promise<void> {
+    // The tab the button belongs to (another editor group may hold the active split editor), else the active one.
+    const sessions = uri ? this.sessionsOf(uri) : [];
+    const session = uri ? sessions.find(s => s.panel.active) ?? sessions.find(s => s.panel.visible) ?? sessions[0] : this.activeSession();
+    if (!session) {
+      void vscode.window.showInformationMessage('Changes vs HEAD are shown in the TwinCAT split editor.');
+      return;
+    }
+    if (!(await session.setChangesMode(on))) {
+      void vscode.window.showInformationMessage(`${path.basename(session.ref.fsPath)} is not in a git repository with a commit to compare with.`);
+    }
+  }
+
+  /** HEAD moved: every split editor gets the HEAD texts again. */
+  refreshBases(): void {
+    for (const s of this.sessions) if (s.ready) void s.sendBase();
   }
 
   /** Shows a place in the split editor of a document, now or once its webview is ready. */

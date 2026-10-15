@@ -50,9 +50,23 @@ with the **Declaration above the Implementation** like XAE, while the code stays
 - **Ctrl+T** finds POUs, methods, properties, DUTs, GVLs and global variables and opens
   the split editor at the symbol.
   **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists all objects of the workspace.
-- **Notebook diff for git**: `Open Changes as TwinCAT Notebook` (tree, Explorer,
-  Source Control and editor title menus) compares a file with `HEAD` (or, in Staged
-  Changes, HEAD with the index) section by section; unchanged sections are folded.
+- **Changes vs HEAD** in the tree and the split editor:
+  - The TwinCAT tree marks the methods, properties and accessors that differ from `HEAD`
+    with `M` (changed) or `A` (new), like the Explorer marks files; the tab of an object
+    view has the same mark. Only the Structured Text and the name count, not metadata
+    such as `ProductVersion`.
+  - Each pane of the split editor marks its changed lines in the gutter (green: added,
+    blue: changed, red wedge: removed), unsaved edits included. `Alt+F5` and
+    `Shift+Alt+F5` go to the next and previous change.
+  - `Show Changes vs HEAD` (editor title button, or a click on a change marker) turns
+    both panes into inline diffs against `HEAD`: unchanged lines are folded, the panes
+    stay editable, and the `Revert Block` button next to a change puts the `HEAD` text
+    back. `Hide Changes vs HEAD` returns to the normal panes. A commit, checkout or
+    rebase updates the comparison.
+- **Notebook diff for git**: `Open Changes as TwinCAT Notebook` (tree, Explorer and
+  Source Control menus, the `...` menu of a split editor tab) compares a whole file with
+  `HEAD` (or, in Staged Changes, HEAD with the index) section by section; unchanged
+  sections are folded.
   Staged renames are followed, and an open comparison refreshes after a commit,
   checkout or stage. The Source Control menu cannot filter by file type, so the entry
   shows on every changed file and answers with a message for other files.
@@ -144,8 +158,9 @@ resolved from their sources.
   overwrite changes saved from VS Code; reload the project in XAE after editing here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.
 - The split editor runs in a webview: extensions that work inside VS Code text editors
-  (GitHub Copilot inline suggestions, vim keys, git change markers) do not reach it, and
-  VS Code's Outline view stays empty for it. Inside the panes, Monaco's own key bindings
+  (GitHub Copilot inline suggestions, vim keys, GitLens) do not reach it, and VS Code's
+  Outline view stays empty for it. Its change markers are its own and compare with
+  `HEAD` only (not with the index). Inside the panes, Monaco's own key bindings
   win: its `Ctrl+K` chords (`Ctrl+K Ctrl+C` comments the line, `Ctrl+K Ctrl+0` folds all)
   work, and so do the common VS Code chords (`Ctrl+K S` save all, `Ctrl+K W` and
   `Ctrl+K Ctrl+W` close editors, `Ctrl+K Ctrl+Left/Right` other group, ...), but your own

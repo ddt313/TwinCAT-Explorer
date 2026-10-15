@@ -177,6 +177,18 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.showChanges",
+        "title": "Show Changes vs HEAD",
+        "category": "TwinCAT",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "twincatExplorer.hideChanges",
+        "title": "Hide Changes vs HEAD",
+        "category": "TwinCAT",
+        "icon": "$(eye-closed)"
+      },
+      {
         "command": "twincatExplorer.goToObject",
         "title": "Go to Object...",
         "category": "TwinCAT"
@@ -222,6 +234,14 @@
         {
           "command": "twincatExplorer.compareWithRef",
           "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
+        },
+        {
+          "command": "twincatExplorer.showChanges",
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode"
+        },
+        {
+          "command": "twincatExplorer.hideChanges",
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode"
         },
         {
           "command": "twincatExplorer.revealInTree",
@@ -274,9 +294,24 @@
           "group": "navigation@90"
         },
         {
-          "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == twincat",
+          "command": "twincatExplorer.showChanges",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode",
           "group": "navigation@91"
+        },
+        {
+          "command": "twincatExplorer.hideChanges",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode",
+          "group": "navigation@91"
+        },
+        {
+          "command": "twincatExplorer.openChanges",
+          "when": "resourceScheme == twincat && activeCustomEditorId != twincatExplorer.objectEditor",
+          "group": "navigation@91"
+        },
+        {
+          "command": "twincatExplorer.openChanges",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
+          "group": "1_twincat@1"
         }
       ],
       "editor/title/context": [

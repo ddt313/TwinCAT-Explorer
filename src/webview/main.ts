@@ -18,14 +18,29 @@ import { TextMateHighlighter, parseColor, toHex } from './textmate';
 import { StandaloneServices } from 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js';
 // @ts-ignore: no type declarations for internal modules
 import { ICodeEditorService } from 'monaco-editor/esm/vs/editor/browser/services/codeEditorService.js';
+// The line diff of Monaco's diff editor, for the change markers of the panes (Monaco has no public API for it).
+// @ts-ignore: no type declarations for internal modules
+import { linesDiffComputers } from 'monaco-editor/esm/vs/editor/common/diff/linesDiffComputers.js';
 
 const monaco = monacoAll as typeof Monaco;
+
+interface LineRange {
+  startLineNumber: number;
+  endLineNumberExclusive: number;
+}
+
+const diffComputer = (linesDiffComputers as {
+  getDefault(): {
+    computeDiff(original: string[], modified: string[], options: { ignoreTrimWhitespace: boolean; maxComputationTimeMs: number; computeMoves: boolean }):
+      { changes: { original: LineRange; modified: LineRange }[] };
+  };
+}).getDefault();
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): unknown; setState(state: unknown): void };
 declare global {
   interface Window {
     TWINCAT_WORKER_URL: string;
-    MonacoEnvironment?: { getWorker(workerId: string, label: string): Worker };
+    MonacoEnvironment?: { getWorker(workerId: string, label: string): Worker | Promise<Worker> };
   }
 }
 
@@ -39,10 +54,17 @@ const reportError = (message: string) => {
 window.addEventListener('error', e => reportError(String(e.message)));
 window.addEventListener('unhandledrejection', e => reportError(String((e.reason as Error)?.stack ?? e.reason)));
 
+// The worker runs from a blob made of the script's text: a blob worker that imports the script from the
+// webview's resource URL never answers (its request does not go through the webview), and the diff editor
+// computes its diffs in this worker.
+let workerSource: Promise<string> | undefined;
 window.MonacoEnvironment = {
   getWorker() {
-    const blob = new Blob([`importScripts(${JSON.stringify(window.TWINCAT_WORKER_URL)});`], { type: 'application/javascript' });
-    return new Worker(URL.createObjectURL(blob));
+    workerSource ??= fetch(window.TWINCAT_WORKER_URL).then(r => {
+      if (!r.ok) throw new Error(`editor worker: ${r.status}`);
+      return r.text();
+    });
+    return workerSource.then(source => new Worker(URL.createObjectURL(new Blob([source], { type: 'application/javascript' }))));
   },
 };
 
@@ -52,12 +74,33 @@ const SASH = 4;
 const MIN_PANE = 40;
 monaco.languages.register({ id: LANG });
 
+/** A changed block against HEAD: lines of the HEAD text replaced by lines of the pane (1-based, end exclusive). */
+interface Change {
+  original: LineRange;
+  modified: LineRange;
+}
+
 interface Pane {
   section: PaneSection;
   model: Monaco.editor.ITextModel;
-  editor: Monaco.editor.IStandaloneCodeEditor;
+  /** The pane's own editor. */
+  standalone: Monaco.editor.IStandaloneCodeEditor;
+  /** The editor the pane shows: its own one, or the modified side of the inline diff against HEAD. */
+  editor: Monaco.editor.ICodeEditor;
   element: HTMLElement;
+  /** Holds the pane's own editor (hidden while the diff is shown). */
+  host: HTMLElement;
   markers: number;
+  /** HEAD text of the section (empty for a section that is not in HEAD). */
+  base?: Monaco.editor.ITextModel;
+  /** The section is not in HEAD: every line is new. */
+  baseNew: boolean;
+  changes: Change[];
+  changeMarks: Monaco.editor.IEditorDecorationsCollection;
+  changeTimer?: number;
+  diff?: { editor: Monaco.editor.IStandaloneDiffEditor; host: HTMLElement; collapsed: boolean };
+  /** "2 changes vs HEAD", shown over the pane while the changes are shown. */
+  label: HTMLElement;
 }
 
 interface ModelInfo {
@@ -88,6 +131,12 @@ let highlighterReady: Promise<void> | undefined;
 let requestId = 0;
 let providersRegistered = false;
 const pending = new Map<number, (result: unknown) => void>();
+/** HEAD texts: not received yet, received, or none (not in a git repository). */
+let baseState: 'pending' | 'available' | 'unavailable' = 'pending';
+/** The panes show their changes vs HEAD as inline diffs. */
+let changesMode = false;
+/** Changes vs HEAD were asked for (they show once the HEAD texts are there). */
+let wantChanges = false;
 
 function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextModel, offset: number, includeDeclaration?: boolean): Promise<T | null> {
   const id = ++requestId;
@@ -101,10 +150,11 @@ function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextMo
 
 interface SavedState {
   ratio?: number;
+  changes?: boolean;
 }
 
 function saveState(): void {
-  vscodeApi.setState({ ratio } satisfies SavedState);
+  vscodeApi.setState({ ratio, changes: wantChanges } satisfies SavedState);
   // Also kept by the host: a webview that is rebuilt (its tab replaced, moved) gets it back.
   post({ type: 'ratio', ratio });
 }
@@ -349,7 +399,10 @@ function layout(): void {
     panes[1].element.style.top = `${top + SASH}px`;
     panes[1].element.style.height = `${usable - top}px`;
   }
-  for (const p of panes) p.editor.layout();
+  for (const p of panes) {
+    if (p.diff) p.diff.editor.layout();
+    else p.standalone.layout();
+  }
 }
 
 function setRatio(r: number): void {
@@ -411,6 +464,29 @@ function editorOptions(section: PaneSection): Monaco.editor.IStandaloneEditorCon
   } as Monaco.editor.IStandaloneEditorConstructionOptions;
 }
 
+/** Options of the inline diff a pane shows against HEAD: the pane's text editable, HEAD's read-only. */
+function diffOptions(section: PaneSection, collapsed: boolean): Monaco.editor.IStandaloneDiffEditorConstructionOptions {
+  return {
+    ...(config?.options ?? {}),
+    theme: THEME,
+    readOnly: !section.editable,
+    originalEditable: false,
+    renderSideBySide: false,
+    useInlineViewWhenSpaceIsLimited: true,
+    automaticLayout: false,
+    fixedOverflowWidgets: true,
+    ignoreTrimWhitespace: false,
+    renderOverviewRuler: true,
+    renderIndicators: true,
+    // The Revert Block button in the gutter of each change.
+    renderGutterMenu: true,
+    diffAlgorithm: 'advanced',
+    // Without changes nothing would be left to show.
+    hideUnchangedRegions: { enabled: collapsed, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
+    ariaLabel: `${section.label}, changes vs HEAD`,
+  } as Monaco.editor.IStandaloneDiffEditorConstructionOptions;
+}
+
 function applyIndentation(model: Monaco.editor.ITextModel): void {
   if (!config) return;
   if (config.detectIndentation) model.detectIndentation(config.insertSpaces, config.tabSize);
@@ -421,15 +497,26 @@ function createPane(section: PaneSection): Pane {
   const element = document.createElement('div');
   element.className = `pane ${section.role}`;
   root.appendChild(element);
+  const host = document.createElement('div');
+  host.className = 'editor-host';
+  element.appendChild(host);
+  const label = document.createElement('div');
+  label.className = 'changes-label';
+  label.style.display = 'none';
+  element.appendChild(label);
   const uri = modelUri({ fileKey, sectionKey: section.key, role: section.role, title: document.title || section.label });
   monaco.editor.getModel(uri)?.dispose();
   const model = monaco.editor.createModel(section.text, LANG, uri);
   model.setEOL(monaco.editor.EndOfLineSequence.LF);
   applyIndentation(model);
   models.set(uri.toString(), { fileKey, sectionKey: section.key });
-  const editor = monaco.editor.create(element, { ...editorOptions(section), model });
-  const pane: Pane = { section, model, editor, element, markers: 0 };
+  const editor = monaco.editor.create(host, { ...editorOptions(section), model });
+  const pane: Pane = {
+    section, model, standalone: editor, editor, element, host, markers: 0, baseNew: false, changes: [],
+    changeMarks: editor.createDecorationsCollection(), label,
+  };
   model.onDidChangeContent(e => {
+    scheduleChanges(pane);
     if (applyingRemote) return;
     seq++;
     lastSeqOf.set(section.key, seq);
@@ -439,11 +526,216 @@ function createPane(section: PaneSection): Pane {
       text: model.getValue(),
     });
   });
-  editor.onDidFocusEditorText(() => {
-    lastFocused = section.key;
-    post({ type: 'focus', key: section.key });
+  editor.onDidFocusEditorText(() => focused(pane));
+  // A left click on a change marker shows the changes, at that change. The folding arrows share the column,
+  // so only a click on the bar itself counts (like VS Code's change markers).
+  editor.onMouseDown(e => {
+    const line = e.target.position?.lineNumber;
+    if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS || !line || !e.event.leftButton) return;
+    const bar = e.target.element;
+    if (!bar?.classList.contains('tc-change')) return;
+    const offset = (e.target.detail as { offsetX?: number }).offsetX;
+    if (offset !== undefined && (offset < bar.offsetLeft - 3 || offset > bar.offsetLeft + 6)) return;
+    if (!changeAt(pane, line)) return;
+    setChangesMode(true, { pane, line });
   });
   return pane;
+}
+
+function focused(pane: Pane): void {
+  lastFocused = pane.section.key;
+  post({ type: 'focus', key: pane.section.key });
+}
+
+// ------------------------------------------------------------------ changes vs HEAD
+
+function baseUri(pane: Pane): Monaco.Uri {
+  return pane.model.uri.with({ scheme: 'twincat-head' });
+}
+
+/** Line a change is marked at: its first line, or for removed lines the line above them. */
+function markLine(c: Change): number {
+  return c.modified.endLineNumberExclusive > c.modified.startLineNumber ? c.modified.startLineNumber : Math.max(1, c.modified.startLineNumber - 1);
+}
+
+function changeAt(pane: Pane, line: number): Change | undefined {
+  return pane.changes.find(c => markLine(c) === line
+    || (line >= c.modified.startLineNumber && line < c.modified.endLineNumberExclusive));
+}
+
+function scheduleChanges(pane: Pane): void {
+  window.clearTimeout(pane.changeTimer);
+  pane.changeTimer = window.setTimeout(() => computeChanges(pane), 150);
+}
+
+/** Compares a pane with its HEAD text and marks the changed lines in the gutter, like VS Code's change markers. */
+function computeChanges(pane: Pane): void {
+  window.clearTimeout(pane.changeTimer);
+  pane.changeTimer = undefined;
+  const lines = pane.model.getLineCount();
+  if (!pane.base) pane.changes = [];
+  else if (pane.baseNew) {
+    // Not in HEAD: all of it is new (an empty section has nothing to mark).
+    pane.changes = pane.model.getValueLength() > 0
+      ? [{ original: { startLineNumber: 1, endLineNumberExclusive: 1 }, modified: { startLineNumber: 1, endLineNumberExclusive: lines + 1 } }]
+      : [];
+  } else {
+    pane.changes = diffComputer.computeDiff(pane.base.getLinesContent(), pane.model.getLinesContent(),
+      { ignoreTrimWhitespace: false, maxComputationTimeMs: 200, computeMoves: false }).changes;
+  }
+  pane.changeMarks.set(pane.changes.map(c => {
+    const added = c.original.endLineNumberExclusive === c.original.startLineNumber;
+    const removed = c.modified.endLineNumberExclusive === c.modified.startLineNumber;
+    const kind = added ? 'added' : removed ? 'deleted' : 'modified';
+    const start = markLine(c);
+    const end = removed ? start : c.modified.endLineNumberExclusive - 1;
+    // Lines removed above the first line are marked at the top of line 1.
+    const top = removed && c.modified.startLineNumber === 1;
+    // VS Code's colors of the change markers in the overview ruler (part of the theme the panes use).
+    const color: Monaco.editor.ThemeColor = { id: `editorOverviewRuler.${kind}Foreground` };
+    return {
+      range: new monaco.Range(start, 1, end, 1),
+      options: {
+        isWholeLine: true,
+        linesDecorationsClassName: `tc-change tc-change-${kind}${top ? ' tc-change-top' : ''}`,
+        overviewRuler: { color, position: monaco.editor.OverviewRulerLane.Left },
+        minimap: { color, position: monaco.editor.MinimapPosition.Gutter },
+      },
+    };
+  }));
+  if (pane.diff) {
+    // Collapsing unchanged lines of a pane without changes would leave nothing to see.
+    const collapse = pane.changes.length > 0;
+    if (collapse !== pane.diff.collapsed) {
+      pane.diff.collapsed = collapse;
+      pane.diff.editor.updateOptions({ hideUnchangedRegions: { enabled: collapse } });
+    }
+  }
+  updateLabel(pane);
+}
+
+function updateLabel(pane: Pane): void {
+  const n = pane.changes.length;
+  pane.label.textContent = !pane.base ? ''
+    : pane.baseNew ? 'New, not in HEAD'
+      : n === 0 ? 'No changes vs HEAD' : `${n} change${n === 1 ? '' : 's'} vs HEAD`;
+  pane.label.style.display = changesMode && pane.base ? '' : 'none';
+}
+
+/** HEAD texts from the host (again after a commit or checkout). */
+function applyBase(m: Extract<HostMessage, { type: 'base' }>): void {
+  baseState = m.available ? 'available' : 'unavailable';
+  const texts = new Map(m.sections.map(s => [s.key, s.text]));
+  for (const p of panes) {
+    if (!m.available) {
+      leaveDiff(p);
+      p.base?.dispose();
+      p.base = undefined;
+      computeChanges(p);
+      continue;
+    }
+    const text = texts.get(p.section.key) ?? null;
+    p.baseNew = text === null;
+    if (!p.base) {
+      monaco.editor.getModel(baseUri(p))?.dispose();
+      p.base = monaco.editor.createModel(text ?? '', LANG, baseUri(p));
+      p.base.setEOL(monaco.editor.EndOfLineSequence.LF);
+    } else if (p.base.getValue() !== (text ?? '')) {
+      p.base.setValue(text ?? '');
+    }
+    computeChanges(p);
+    // A section that is (no longer) in HEAD has no diff to show, only its marks.
+    if (changesMode) {
+      if (p.baseNew) leaveDiff(p);
+      else enterDiff(p);
+    }
+  }
+  if (!m.available) {
+    if (changesMode || wantChanges) setChangesMode(false);
+  } else if (wantChanges && !changesMode) {
+    setChangesMode(true);
+  }
+  layout();
+}
+
+/** Shows the pane as an inline diff against HEAD, on the same model (edits go on as before). */
+function enterDiff(pane: Pane): void {
+  if (pane.diff || !pane.base || pane.baseNew) return;
+  const host = document.createElement('div');
+  host.className = 'editor-host';
+  pane.element.insertBefore(host, pane.label);
+  const state = pane.standalone.saveViewState();
+  const hadFocus = pane.standalone.hasTextFocus();
+  pane.host.style.display = 'none';
+  const collapsed = pane.changes.length > 0;
+  const editor = monaco.editor.createDiffEditor(host, diffOptions(pane.section, collapsed));
+  editor.setModel({ original: pane.base, modified: pane.model });
+  pane.diff = { editor, host, collapsed };
+  const modified = editor.getModifiedEditor();
+  modified.onDidFocusEditorText(() => focused(pane));
+  pane.editor = modified;
+  editor.layout();
+  if (state) modified.restoreViewState(state);
+  if (hadFocus) modified.focus();
+}
+
+/** Back to the pane's own editor, where the diff left the cursor and scroll position. */
+function leaveDiff(pane: Pane): void {
+  if (!pane.diff) return;
+  const state = pane.editor.saveViewState();
+  const hadFocus = pane.editor.hasTextFocus();
+  pane.diff.editor.dispose();
+  pane.diff.host.remove();
+  pane.diff = undefined;
+  pane.editor = pane.standalone;
+  pane.host.style.display = '';
+  pane.standalone.layout();
+  if (state) pane.standalone.restoreViewState(state);
+  if (hadFocus) pane.standalone.focus();
+}
+
+/** Shows or hides the changes vs HEAD in every pane, optionally at a change of one pane. */
+function setChangesMode(on: boolean, at?: { pane: Pane; line: number }): void {
+  wantChanges = on;
+  saveState();
+  if (on && baseState !== 'available') {
+    // Shown once the HEAD texts arrive; never outside a repository.
+    if (baseState === 'unavailable') {
+      wantChanges = false;
+      saveState();
+      post({ type: 'changesMode', on: false });
+    }
+    return;
+  }
+  if (on !== changesMode) {
+    changesMode = on;
+    for (const p of panes) {
+      if (on) enterDiff(p);
+      else leaveDiff(p);
+      updateLabel(p);
+    }
+    layout();
+  }
+  post({ type: 'changesMode', on: changesMode });
+  if (at) {
+    const editor = at.pane.editor;
+    editor.setPosition({ lineNumber: at.line, column: 1 });
+    editor.revealLineInCenter(at.line);
+    editor.focus();
+  }
+}
+
+/** Alt+F5 / Shift+Alt+F5: the next or previous change of the focused pane, as in VS Code's editors. */
+function goToChange(forward: boolean): void {
+  const pane = panes.find(p => p.editor.hasTextFocus()) ?? panes.find(p => p.section.key === lastFocused);
+  if (!pane || pane.changes.length === 0) return;
+  const current = pane.editor.getPosition()?.lineNumber ?? 1;
+  const lines = [...new Set(pane.changes.map(markLine))].sort((a, b) => a - b);
+  const target = forward
+    ? lines.find(l => l > current) ?? lines[0]
+    : [...lines].reverse().find(l => l < current) ?? lines[lines.length - 1];
+  pane.editor.setPosition({ lineNumber: target, column: 1 });
+  pane.editor.revealLineInCenter(target);
 }
 
 /** Key bindings shared by all panes: VS Code's command palette and the workbench Ctrl+K chords. */
@@ -451,7 +743,13 @@ function registerKeybindings(): void {
   monaco.editor.registerCommand('twincat.showCommands', () => post({ type: 'command', command: 'workbench.action.showCommands' }));
   // Monaco's own palette (context menu entry) is replaced by VS Code's.
   monaco.editor.registerCommand('editor.action.quickCommand', () => post({ type: 'command', command: 'workbench.action.showCommands' }));
-  const rules: Monaco.editor.IKeybindingRule[] = [{ keybinding: monaco.KeyCode.F1, command: 'twincat.showCommands' }];
+  monaco.editor.registerCommand('twincat.nextChange', () => goToChange(true));
+  monaco.editor.registerCommand('twincat.previousChange', () => goToChange(false));
+  const rules: Monaco.editor.IKeybindingRule[] = [
+    { keybinding: monaco.KeyCode.F1, command: 'twincat.showCommands' },
+    { keybinding: monaco.KeyMod.Alt | monaco.KeyCode.F5, command: 'twincat.nextChange' },
+    { keybinding: monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.F5, command: 'twincat.previousChange' },
+  ];
   const keys = monaco.KeyCode as unknown as Record<string, number>;
   for (const chord of WORKBENCH_CHORDS) {
     const parts = chord.second.split('+');
@@ -497,8 +795,17 @@ function init(m: Extract<HostMessage, { type: 'init' }>): void {
     registerKeybindings();
   }
   providersRegistered = true;
-  for (const p of panes) p.editor.dispose();
+  for (const p of panes) {
+    window.clearTimeout(p.changeTimer);
+    p.diff?.editor.dispose();
+    p.standalone.dispose();
+    p.base?.dispose();
+  }
   root.textContent = '';
+  // The HEAD texts follow this message; the changes shown before come back with them.
+  baseState = 'pending';
+  changesMode = false;
+  wantChanges = saved.changes ?? m.changes ?? wantChanges;
   panes = m.sections.map(createPane);
   if (panes.length >= 2) {
     sash = createSash();
@@ -573,9 +880,14 @@ function selectionOffsets(p: Pane): [number, number] {
 function focusForTest(pane: Pane): void {
   pane.editor.focus();
   for (const p of panes) {
-    if (p !== pane && p.editor.hasTextFocus()) p.element.querySelector('.native-edit-context, textarea')?.dispatchEvent(new FocusEvent('blur'));
+    if (p !== pane && p.editor.hasTextFocus()) inputOf(p)?.dispatchEvent(new FocusEvent('blur'));
   }
-  if (!pane.editor.hasTextFocus()) pane.element.querySelector('.native-edit-context, textarea')?.dispatchEvent(new FocusEvent('focus'));
+  if (!pane.editor.hasTextFocus()) inputOf(pane)?.dispatchEvent(new FocusEvent('focus'));
+}
+
+/** The element that takes the keyboard input of the editor a pane shows. */
+function inputOf(pane: Pane): HTMLElement | null {
+  return pane.editor.getDomNode()?.querySelector('.native-edit-context, textarea') ?? null;
 }
 
 function probe(action: ProbeAction): unknown {
@@ -598,6 +910,10 @@ function probe(action: ProbeAction): unknown {
           tokenClasses: new Set([...p.element.querySelectorAll('.view-line span[class*="mtk"]')].map(s => s.className)).size,
           focused: p.editor.hasTextFocus(),
           selection: selectionOffsets(p),
+          changes: p.changes.length,
+          diff: !!p.diff,
+          diffChanges: p.diff?.editor.getLineChanges()?.length ?? -1,
+          label: p.label.style.display === 'none' ? undefined : p.label.textContent ?? undefined,
         })),
         foreignModels: [...models.values()].filter(i => i.ref).map(i => i.ref!.view.label),
         errors,
@@ -641,7 +957,7 @@ function probe(action: ProbeAction): unknown {
       const pane = panes.find(p => p.section.key === action.key);
       if (!pane) return false;
       focusForTest(pane);
-      const target = (pane.element.querySelector('.native-edit-context, textarea') as HTMLElement | null) ?? pane.element;
+      const target = inputOf(pane) ?? pane.element;
       for (const k of action.strokes) {
         target.dispatchEvent(new KeyboardEvent('keydown', {
           key: k.key, code: k.code, keyCode: k.keyCode, ctrlKey: !!k.ctrl, shiftKey: !!k.shift, altKey: !!k.alt, bubbles: true, cancelable: true,
@@ -654,6 +970,23 @@ function probe(action: ProbeAction): unknown {
       if (!pane) return false;
       focusForTest(pane);
       pane.editor.trigger('keyboard', 'undo', null);
+      return true;
+    }
+    case 'markerClick': {
+      const pane = panes.find(p => p.section.key === action.key);
+      if (!pane) return false;
+      computeChanges(pane);
+      if (!changeAt(pane, action.line)) return false;
+      setChangesMode(true, { pane, line: action.line });
+      return true;
+    }
+    case 'revertChange': {
+      const pane = panes.find(p => p.section.key === action.key);
+      if (!pane?.diff) return false;
+      pane.editor.setPosition({ lineNumber: action.line, column: 1 });
+      focusForTest(pane);
+      // What the Revert Block button and the diffEditor.revert command run for the change at the cursor.
+      (pane.diff.editor as unknown as { revertFocusedRangeMappings(): void }).revertFocusedRangeMappings();
       return true;
     }
   }
@@ -714,10 +1047,17 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       case 'config':
         config = m.config;
         for (const p of panes) {
-          p.editor.updateOptions(editorOptions(p.section));
+          p.standalone.updateOptions(editorOptions(p.section));
+          p.diff?.editor.updateOptions(diffOptions(p.section, p.diff.collapsed));
           applyIndentation(p.model);
         }
         layout();
+        break;
+      case 'base':
+        applyBase(m);
+        break;
+      case 'setChanges':
+        setChangesMode(m.on);
         break;
       case 'response': {
         const resolve = pending.get(m.id);
@@ -760,6 +1100,17 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   background: var(--vscode-editorGroup-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35))); }
 .sash.hover, .sash.active { background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder)); }
 .sash.hover::before, .sash.active::before { display: none; }
+.editor-host { position: absolute; inset: 0; }
+/* Change markers against HEAD, drawn like VS Code's (bar for added and changed lines, wedge for removed ones). */
+.monaco-editor .tc-change { margin-left: 3px; z-index: 5; cursor: pointer; box-sizing: border-box; width: 3px !important; }
+.monaco-editor .tc-change-added { border-left: 3px solid var(--vscode-editorGutter-addedBackground, #2ea043); }
+.monaco-editor .tc-change-modified { border-left: 3px solid var(--vscode-editorGutter-modifiedBackground, #0078d4); }
+.monaco-editor .tc-change-deleted::after { content: ''; position: absolute; left: 0; bottom: -4px; box-sizing: border-box; width: 4px; height: 0;
+  z-index: 9; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  border-left: 4px solid var(--vscode-editorGutter-deletedBackground, #f85149); }
+.monaco-editor .tc-change-deleted.tc-change-top::after { bottom: auto; top: -4px; }
+.changes-label { position: absolute; top: 3px; right: 24px; z-index: 20; pointer-events: none; padding: 1px 6px; border-radius: 2px;
+  font: 11px var(--vscode-font-family); color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); opacity: 0.9; }
 `;
 document.head.appendChild(style);
 

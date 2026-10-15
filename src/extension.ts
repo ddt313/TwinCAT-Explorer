@@ -17,7 +17,8 @@ import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
 import { TreeNode, TwinCatTree } from './vscode/tree';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
-import { DiffFileSystem, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
+import { DiffFileSystem, GitDirWatcher, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
+import { GitChanges } from './vscode/gitChanges';
 import { ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
 import {
@@ -33,6 +34,7 @@ export interface TwinCatExplorerApi {
   features: LanguageFeatures;
   objectEditors: ObjectEditorProvider;
   locations: LocationService;
+  git: GitChanges;
   ready: Promise<void>;
   /** Opens an object view as a notebook. */
   openObject(fsPath: string, objectId: string, options?: OpenOptions): Promise<vscode.NotebookEditor | undefined>;
@@ -77,7 +79,9 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   index.setStubs(BUNDLED_STUBS);
   const log = vscode.window.createOutputChannel('TwinCAT Explorer', { log: true });
   const objectFs = new ObjectFileSystem(context.workspaceState);
-  const diffFs = new DiffFileSystem();
+  const gitDirs = new GitDirWatcher();
+  const diffFs = new DiffFileSystem(gitDirs);
+  const gitChanges = new GitChanges(ws, gitDirs);
   const tree = new TwinCatTree(ws);
   const treeView = vscode.window.createTreeView('twincatExplorer.tree', { treeDataProvider: tree, showCollapseAll: true });
   const features = new LanguageFeatures(index, ws);
@@ -90,6 +94,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     log.warn(message);
   };
   objectEditors.recordMessages = context.extensionMode === vscode.ExtensionMode.Test;
+  objectEditors.git = gitChanges;
+  gitChanges.log = message => log.warn(message);
   const checkCollection = vscode.languages.createDiagnosticCollection('twincat-check');
   const fileSerializer = new FileSerializer();
   const stSelector: vscode.DocumentSelector = { language: ST_LANGUAGE };
@@ -100,7 +106,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   };
 
   context.subscriptions.push(
-    treeView, diagnostics, checkCollection, log, diffFs, objectEditors, locations,
+    treeView, diagnostics, checkCollection, log, diffFs, gitChanges, gitDirs, objectEditors, locations,
+    // M/A badges of changed objects in the TwinCAT tree and on object tabs.
+    vscode.window.registerFileDecorationProvider(gitChanges),
+    gitChanges.onDidChangeHead(() => objectEditors.refreshBases()),
     vscode.window.registerCustomEditorProvider(OBJECT_EDITOR, objectEditors, {
       // Monaco keeps its undo history and scroll positions while the tab is in the background.
       webviewOptions: { retainContextWhenHidden: true },
@@ -163,7 +172,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const startProjectServices = () => {
     if (projectServicesStarted) return;
     projectServicesStarted = true;
-    void watchRepositories(() => diffFs.notifyRefsChanged()).then(d => context.subscriptions.push(d));
+    void watchRepositories(() => {
+      diffFs.notifyRefsChanged();
+      gitChanges.headMayHaveChanged();
+    }).then(d => context.subscriptions.push(d));
     // Tabs restored at start-up may have missed changes made before the watchers ran.
     objectFs.notifyAllWatched();
   };
@@ -188,6 +200,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       index.invalidateAll();
       refreshOverlays();
       tree.rebuild();
+      if (hasProjects) void gitChanges.refreshAll();
       checkCollection.clear();
       checkHasResults = false;
       await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', hasProjects);
@@ -222,6 +235,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     index.invalidateFile(fsPath);
     objectFs.notifyRealFileChanged(fsPath, except);
     diffFs.notifyChanged(fsPath);
+    gitChanges.fileChanged(fsPath);
     tree.scheduleRebuild();
     refreshOverlays([fsPath]);
     scheduleAllDiagnostics();
@@ -635,6 +649,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       if (groupType === 1) await openNotebookDiff(t.fsPath, 'HEAD', INDEX);
       else await openNotebookDiff(t.fsPath, 'HEAD');
     }),
+    vscode.commands.registerCommand('twincatExplorer.showChanges', (uri?: unknown) =>
+      objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, true)),
+    vscode.commands.registerCommand('twincatExplorer.hideChanges', (uri?: unknown) =>
+      objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, false)),
     vscode.commands.registerCommand('twincatExplorer.compareWithRef', async (arg?: unknown) => {
       const t = target(arg);
       if (!t || !isSourcePath(t.fsPath)) return;
@@ -700,7 +718,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   const ready = loadProjects();
   return {
-    workspace: ws, index, tree, treeView, features, objectEditors, locations, ready,
+    workspace: ws, index, tree, treeView, features, objectEditors, locations, git: gitChanges, ready,
     openObject, openSplit,
   };
 }

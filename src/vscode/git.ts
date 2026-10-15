@@ -1,12 +1,13 @@
 // Git comparisons shown as notebook diffs: `twincat-diff:` URIs serve a file
 // either from disk (working tree) or from a git ref or the index, read-only.
+// Also the git plumbing the change markers use (repository root, HEAD, changed files).
 
 import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { fileKey } from '../core/workspace';
-import { INDEX, WORKTREE, diffUri, parseDiffUri } from './uris';
+import { INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri } from './uris';
 
 function git(args: string[], cwd: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -150,21 +151,75 @@ export async function originalPath(fsPath: string, ref: string, staged: boolean)
   return (await renamedFrom(fsPath, ref, staged)) ?? (await sameObjectDeleted(fsPath, ref, staged));
 }
 
-export class DiffFileSystem implements vscode.FileSystemProvider {
-  private readonly emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
-  readonly onDidChangeFile = this.emitter.event;
-  /** Incremented when a repository changes (commit, checkout, stage) so the ref sides are re-read. */
-  private refVersion = 1;
-  private readonly served = new Map<string, vscode.Uri>();
-  private readonly gitDirWatchers = new Map<string, vscode.Disposable>();
-  private readonly probedDirs = new Set<string>();
-  /** Path at the ref of a renamed file, per served URI and ref version. */
-  private readonly origCache = new Map<string, { version: number; orig: string | undefined }>();
-  private refTimer: NodeJS.Timeout | undefined;
+/** A folder to run git in for a file or folder: the folder itself, or the nearest existing folder of the file. */
+function folderOf(fsPath: string): string {
+  try {
+    if (fs.statSync(fsPath).isDirectory()) return fsPath;
+  } catch {
+    // a deleted file
+  }
+  return existingDir(fsPath);
+}
 
-  /** Watches HEAD, the index and the refs of the repository of a file, so ref sides refresh after commit/checkout/stage. */
-  private async watchGitDir(fsPath: string): Promise<void> {
-    const cwd = existingDir(fsPath);
+/**
+ * Root folder of the repository a file or folder is in, or undefined outside a repository (or without git).
+ * It is spelled like the given path: git's own top level can differ (long instead of 8.3 short names), and
+ * file paths joined to it would then not match the workspace's.
+ */
+export async function repositoryRoot(fsPath: string): Promise<string | undefined> {
+  const cwd = folderOf(fsPath);
+  try {
+    const up = (await git(['rev-parse', '--show-cdup'], cwd)).toString('utf8').trim();
+    return path.resolve(cwd, up);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Commit of HEAD, or '' in a repository without commits. */
+export async function headCommit(root: string): Promise<string> {
+  try {
+    return (await git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], root)).toString('utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * TwinCAT source files of a repository that differ from HEAD: changed (staged or not), added, untracked,
+ * renamed. Deleted files are left out (there is nothing to show for them).
+ */
+export async function changedSourceFiles(root: string): Promise<string[]> {
+  // No optional locks: this runs after HEAD changes and must not rewrite the index, which is watched.
+  const args = ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--',
+    ...SOURCE_EXTENSIONS.map(e => `:(icase)*${e}`)];
+  const tokens = (await git(args, root)).toString('utf8').split('\0');
+  const out: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const entry = tokens[i];
+    if (entry.length < 4) continue;
+    const xy = entry.slice(0, 2);
+    // A rename or copy is followed by the path it came from.
+    if (/[RC]/.test(xy)) i++;
+    if (xy.includes('D')) continue;
+    out.push(path.join(root, entry.slice(3)));
+  }
+  return out;
+}
+
+/**
+ * Watches HEAD, the index and the refs of the repositories of the files it is given and fires, debounced,
+ * after a commit, checkout, stage or rebase.
+ */
+export class GitDirWatcher implements vscode.Disposable {
+  private readonly emitter = new vscode.EventEmitter<void>();
+  readonly onDidChange = this.emitter.event;
+  private readonly watchers = new Map<string, vscode.Disposable>();
+  private readonly probedDirs = new Set<string>();
+  private timer: NodeJS.Timeout | undefined;
+
+  async watch(fsPath: string): Promise<void> {
+    const cwd = folderOf(fsPath);
     const probe = fileKey(cwd);
     if (this.probedDirs.has(probe)) return;
     this.probedDirs.add(probe);
@@ -178,7 +233,7 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
     }
     for (const dir of new Set(dirs)) {
       const key = fileKey(dir);
-      if (this.gitDirWatchers.has(key)) continue;
+      if (this.watchers.has(key)) continue;
       // Node's watcher, not a VS Code FileSystemWatcher: a VS Code watcher rooted in .git stopped the
       // workspace watcher from reporting changes of the source files (tabs no longer reloaded).
       let watcher: fs.FSWatcher;
@@ -186,21 +241,42 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
         watcher = fs.watch(dir, { recursive: true, persistent: false }, (_event, name) => {
           const n = String(name ?? '').replace(/\\/g, '/');
           if (!/^(HEAD|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD|index|packed-refs|COMMIT_EDITMSG|refs\/)/.test(n)) return;
-          if (this.refTimer) clearTimeout(this.refTimer);
-          this.refTimer = setTimeout(() => this.notifyRefsChanged(), 300);
+          if (this.timer) clearTimeout(this.timer);
+          this.timer = setTimeout(() => this.emitter.fire(), 300);
         });
       } catch {
         continue;
       }
       watcher.on('error', () => watcher.close());
-      this.gitDirWatchers.set(key, new vscode.Disposable(() => watcher.close()));
+      this.watchers.set(key, new vscode.Disposable(() => watcher.close()));
     }
   }
 
   dispose(): void {
-    if (this.refTimer) clearTimeout(this.refTimer);
-    this.gitDirWatchers.forEach(w => w.dispose());
-    this.gitDirWatchers.clear();
+    if (this.timer) clearTimeout(this.timer);
+    this.watchers.forEach(w => w.dispose());
+    this.watchers.clear();
+    this.emitter.dispose();
+  }
+}
+
+export class DiffFileSystem implements vscode.FileSystemProvider {
+  private readonly emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+  readonly onDidChangeFile = this.emitter.event;
+  /** Incremented when a repository changes (commit, checkout, stage) so the ref sides are re-read. */
+  private refVersion = 1;
+  private readonly served = new Map<string, vscode.Uri>();
+  /** Path at the ref of a renamed file, per served URI and ref version. */
+  private readonly origCache = new Map<string, { version: number; orig: string | undefined }>();
+  private readonly subscription: vscode.Disposable;
+
+  /** `gitDirs` reports commits, checkouts and stages, after which the ref sides are re-read. */
+  constructor(private readonly gitDirs: GitDirWatcher) {
+    this.subscription = gitDirs.onDidChange(() => this.notifyRefsChanged());
+  }
+
+  dispose(): void {
+    this.subscription.dispose();
   }
 
   async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
@@ -228,7 +304,7 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
         return new Uint8Array();
       }
     }
-    void this.watchGitDir(ref.fsPath);
+    void this.gitDirs.watch(ref.fsPath);
     // Resolved at every read, so a rename committed later still shows the right file.
     const cached = this.origCache.get(uri.toString());
     let orig = cached?.version === this.refVersion ? cached.orig : undefined;

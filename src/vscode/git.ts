@@ -207,6 +207,67 @@ export async function changedSourceFiles(root: string): Promise<string[]> {
   return out;
 }
 
+/** A file that differs between a commit and the working tree. */
+export interface PathChange {
+  /** Changed, added (also untracked), deleted, or renamed (staged renames only). */
+  status: 'M' | 'A' | 'D' | 'R';
+  /** Path in the working tree; for a deleted file, where it was. */
+  fsPath: string;
+  /** Repository-relative path at the commit, for a renamed file. */
+  from?: string;
+}
+
+/**
+ * Files with the given extensions that differ between `base` (a commit) and the working tree, staged or
+ * not, plus the untracked ones.
+ */
+export async function changesSince(root: string, base: string, extensions: string[]): Promise<PathChange[]> {
+  const specs = extensions.map(e => `:(icase)*${e}`);
+  const byPath = new Map<string, PathChange>();
+  const add = (c: PathChange) => {
+    const key = fileKey(c.fsPath);
+    const known = byPath.get(key);
+    // Deleted from the index but on disk (git rm --cached, or made again): the file differs from the base.
+    if (known && known.status !== c.status && (known.status === 'D' || c.status === 'D')) byPath.set(key, { status: 'M', fsPath: c.fsPath });
+    else if (!known) byPath.set(key, c);
+  };
+  const tokens = (await git(['--no-optional-locks', 'diff', '--name-status', '-z', '-M', base, '--', ...specs], root))
+    .toString('utf8').split('\0');
+  for (let i = 0; i < tokens.length && tokens[i];) {
+    const status = tokens[i][0];
+    if (status === 'R' || status === 'C') {
+      const from = tokens[i + 1];
+      const to = tokens[i + 2];
+      i += 3;
+      add(status === 'R' ? { status: 'R', fsPath: path.join(root, to), from } : { status: 'A', fsPath: path.join(root, to) });
+      continue;
+    }
+    const p = tokens[i + 1];
+    i += 2;
+    // Type changes and unmerged files count as changed.
+    add({ status: status === 'A' || status === 'D' ? status : 'M', fsPath: path.join(root, p) });
+  }
+  const untracked = (await git(['--no-optional-locks', 'ls-files', '--others', '--exclude-standard', '-z', '--', ...specs], root))
+    .toString('utf8').split('\0').filter(Boolean);
+  for (const p of untracked) add({ status: 'A', fsPath: path.join(root, p) });
+  return [...byPath.values()];
+}
+
+/** The commit where HEAD's branch left `ref` (what a merge request of this branch into `ref` compares with). */
+export async function mergeBase(root: string, ref: string): Promise<string | undefined> {
+  try {
+    return (await git(['merge-base', ref, 'HEAD'], root)).toString('utf8').trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Puts the HEAD version of a tracked file back in the working tree and the index, like Discard Changes. */
+export async function restoreFromHead(fsPath: string): Promise<void> {
+  const cwd = existingDir(fsPath);
+  await git(['restore', '--source=HEAD', '--staged', '--worktree', '--', relFrom(cwd, fsPath)], cwd);
+}
+
 /**
  * Watches HEAD, the index and the refs of the repositories of the files it is given and fires, debounced,
  * after a commit, checkout, stage or rebase.

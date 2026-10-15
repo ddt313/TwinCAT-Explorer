@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { ObjectChange, changeKey, objectChanges } from '../core/objectChanges';
 import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
-import { GitDirWatcher, changedSourceFiles, headCommit, originalPath, repositoryRoot, showAtRef } from './git';
+import { GitDirWatcher, changedSourceFiles, headCommit, mergeBase, originalPath, repositoryRoot, showAtRef } from './git';
 import { isSourcePath, parseObjectUri } from './uris';
 
 /** HEAD text of each section of an object view; null for a section that is not in HEAD (a new object). */
@@ -19,6 +19,14 @@ interface HeadFile {
   head: string;
   /** Undefined when the file is not in HEAD (new or untracked). */
   file: TcSourceFile | undefined;
+}
+
+/** A source file read at a commit. */
+export interface CommitFile {
+  /** The file; undefined when it is not in that commit. */
+  file?: TcSourceFile;
+  /** Why it could not be read (git failed, the XML does not parse): then nothing is known about it. */
+  error?: string;
 }
 
 export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposable {
@@ -34,7 +42,9 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
   /** First HEAD lookup of a root, shared by the callers that ask meanwhile. */
   private readonly headLookups = new Map<string, Promise<string>>();
   /** HEAD version per file (fileKey), for the HEAD commit it was read at. */
-  private readonly headFiles = new Map<string, Promise<HeadFile>>();
+  private readonly headFiles = new Map<string, Promise<HeadFile | undefined>>();
+  /** Files at a commit (they never change), the oldest dropped first. */
+  private readonly commitFiles = new Map<string, Promise<CommitFile>>();
   /** Changed objects per file (fileKey), keyed by changeKey. */
   private readonly changes = new Map<string, { fsPath: string; objects: Map<string, ObjectChange> }>();
   /** Files changed on disk since the last recompute, by fileKey. */
@@ -78,29 +88,42 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
     return lookup;
   }
 
-  /** The file as committed in HEAD; undefined outside a repository. */
+  /**
+   * The file as committed in HEAD; undefined outside a repository, or when HEAD's version cannot be read
+   * (nothing is known then: no marks, no change markers).
+   */
   private async headFile(fsPath: string): Promise<HeadFile | undefined> {
     const root = await this.rootOf(fsPath);
     if (!root) return undefined;
     const head = await this.headOf(root);
     const key = fileKey(fsPath);
     const cached = this.headFiles.get(key);
-    if (cached && (await cached).head === head) return cached;
-    const read = (async (): Promise<HeadFile> => {
+    if (cached && (await cached)?.head === head) return cached;
+    const read = (async (): Promise<HeadFile | undefined> => {
       if (!head) return { head, file: undefined };
-      try {
-        // A file renamed since HEAD is compared with its old path (or with the file that held the same object).
-        const orig = await originalPath(fsPath, 'HEAD', false);
-        const bytes = await showAtRef(fsPath, 'HEAD', orig);
-        const file = bytes.length ? parseTcFile(fsPath, bytes) : undefined;
-        return { head, file: file && !file.error ? file : undefined };
-      } catch (e) {
-        this.log?.(`Reading ${path.basename(fsPath)} at HEAD failed: ${(e as Error).message}`);
-        return { head, file: undefined };
-      }
+      const r = await this.readAt(fsPath, 'HEAD');
+      if (r.error) this.log?.(`Reading ${path.basename(fsPath)} at HEAD failed: ${r.error}`);
+      return r.error ? undefined : { head, file: r.file };
     })();
     this.headFiles.set(key, read);
+    // A failed read is tried again the next time.
+    void read.then(r => {
+      if (!r && this.headFiles.get(key) === read) this.headFiles.delete(key);
+    });
     return read;
+  }
+
+  /** A source file at a ref (followed through renames since, or at `from`, its repository-relative path there). */
+  private async readAt(fsPath: string, ref: string, from?: string): Promise<CommitFile> {
+    try {
+      const orig = from ?? (await originalPath(fsPath, ref, false));
+      const bytes = await showAtRef(fsPath, ref, orig);
+      if (!bytes.length) return {};
+      const file = parseTcFile(fsPath, bytes);
+      return file.error ? { error: `${path.basename(fsPath)} does not parse at ${ref.slice(0, 7)}: ${file.error}` } : { file };
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
   }
 
   /** True when the HEAD version of a file is already read for the current HEAD (comparing it needs no git). */
@@ -110,7 +133,7 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
     const root = await this.rootOf(fsPath);
     if (!root) return true;
     const known = this.heads.get(fileKey(root));
-    return !!known && (await cached).head === known.head;
+    return !!known && (await cached)?.head === known.head;
   }
 
   /** Runs the refreshes one after the other, so git runs never pile up. */
@@ -246,12 +269,58 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
 
   // ------------------------------------------------------------------ split editor
 
-  /** HEAD texts of sections of a file; undefined when the file is not in a repository. */
-  async viewBase(fsPath: string, sectionKeys: string[]): Promise<ViewBase | undefined> {
-    const head = await this.headFile(fsPath);
-    if (!head) return undefined;
+  /**
+   * Texts of sections of a file at HEAD, at a commit, or at the merge base of HEAD with a branch (the base of
+   * a comparison); undefined when that version cannot be read (no repository, no such branch).
+   */
+  async viewBase(fsPath: string, sectionKeys: string[], base: { ref: string; mergeBase?: boolean } = { ref: 'HEAD' }): Promise<ViewBase | undefined> {
+    let file: TcSourceFile | undefined;
+    if (base.ref === 'HEAD' && !base.mergeBase) {
+      const head = await this.headFile(fsPath);
+      if (!head) return undefined;
+      file = head.file;
+    } else {
+      const root = await this.rootOf(fsPath);
+      if (!root) return undefined;
+      // Taken again each time: a rebase moves the merge base.
+      const commit = base.mergeBase ? await mergeBase(root, base.ref) : base.ref;
+      if (!commit) return undefined;
+      const read = await this.fileAtCommit(fsPath, commit);
+      if (read.error) return undefined;
+      file = read.file;
+    }
     void this.gitDirs.watch(fsPath);
-    return { sections: sectionKeys.map(key => ({ key, text: head.file?.sections.get(key)?.text ?? null })) };
+    return { sections: sectionKeys.map(key => ({ key, text: file?.sections.get(key)?.text ?? null })) };
+  }
+
+  /**
+   * A source file as it is in a commit (followed through renames since, or at `from`, its repository-relative
+   * path there). Failed reads are not kept, the next call tries again.
+   */
+  fileAtCommit(fsPath: string, commit: string, from?: string): Promise<CommitFile> {
+    const key = `${commit}|${from ?? fileKey(fsPath)}`;
+    let read = this.commitFiles.get(key);
+    if (!read) {
+      const reading = this.readAt(fsPath, commit, from);
+      read = reading;
+      this.commitFiles.set(key, reading);
+      void reading.then(r => {
+        if (r.error && this.commitFiles.get(key) === reading) this.commitFiles.delete(key);
+      });
+      if (this.commitFiles.size > 400) this.commitFiles.delete(this.commitFiles.keys().next().value!);
+    }
+    return read;
+  }
+
+  /** Repository roots of the workspace's PLC projects, also of those that did not load (merge conflicts). */
+  async repositories(): Promise<string[]> {
+    const roots = new Map<string, string>();
+    const plcPaths = new Set(this.ws.tsProjects.flatMap(t => t.plcProjects.map(r => r.plcprojPath)));
+    for (const p of plcPaths) {
+      const root = await this.rootOf(p);
+      if (root) roots.set(fileKey(root), root);
+    }
+    return [...roots.values()];
   }
 
   dispose(): void {

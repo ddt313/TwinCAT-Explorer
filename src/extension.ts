@@ -19,6 +19,7 @@ import { TreeNode, TwinCatTree } from './vscode/tree';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
 import { DiffFileSystem, GitDirWatcher, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
 import { GitChanges } from './vscode/gitChanges';
+import { BASE_SCHEME, ChangeNode, ChangesView } from './vscode/changesView';
 import { ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
 import {
@@ -35,6 +36,8 @@ export interface TwinCatExplorerApi {
   objectEditors: ObjectEditorProvider;
   locations: LocationService;
   git: GitChanges;
+  changes: ChangesView;
+  changesView: vscode.TreeView<ChangeNode>;
   ready: Promise<void>;
   /** Opens an object view as a notebook. */
   openObject(fsPath: string, objectId: string, options?: OpenOptions): Promise<vscode.NotebookEditor | undefined>;
@@ -96,6 +99,9 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   objectEditors.recordMessages = context.extensionMode === vscode.ExtensionMode.Test;
   objectEditors.git = gitChanges;
   gitChanges.log = message => log.warn(message);
+  const changesView = new ChangesView(ws, gitChanges, context.workspaceState);
+  changesView.log = message => log.warn(message);
+  const changesTree = vscode.window.createTreeView('twincatExplorer.changes', { treeDataProvider: changesView, showCollapseAll: true });
   const checkCollection = vscode.languages.createDiagnosticCollection('twincat-check');
   const fileSerializer = new FileSerializer();
   const stSelector: vscode.DocumentSelector = { language: ST_LANGUAGE };
@@ -109,7 +115,19 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     treeView, diagnostics, checkCollection, log, diffFs, gitChanges, gitDirs, objectEditors, locations,
     // M/A badges of changed objects in the TwinCAT tree and on object tabs.
     vscode.window.registerFileDecorationProvider(gitChanges),
-    gitChanges.onDidChangeHead(() => objectEditors.refreshBases()),
+    gitChanges.onDidChangeHead(() => {
+      objectEditors.refreshBases();
+      changesView.schedule();
+    }),
+    // The TwinCAT Changes view in the Source Control sidebar.
+    changesView, changesTree, changesView.attach(changesTree),
+    vscode.window.registerFileDecorationProvider(changesView),
+    vscode.workspace.registerTextDocumentContentProvider(BASE_SCHEME, changesView),
+    gitChanges.onDidChangeFileDecorations(() => changesView.schedule()),
+    // A fetch can move the branch compared with.
+    gitDirs.onDidChange(() => {
+      if (changesView.scope.kind === 'branch') changesView.schedule(1000);
+    }),
     vscode.window.registerCustomEditorProvider(OBJECT_EDITOR, objectEditors, {
       // Monaco keeps its undo history and scroll positions while the tab is in the background.
       webviewOptions: { retainContextWhenHidden: true },
@@ -201,6 +219,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       refreshOverlays();
       tree.rebuild();
       if (hasProjects) void gitChanges.refreshAll();
+      changesView.schedule(0);
       checkCollection.clear();
       checkHasResults = false;
       await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', hasProjects);
@@ -236,6 +255,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     objectFs.notifyRealFileChanged(fsPath, except);
     diffFs.notifyChanged(fsPath);
     gitChanges.fileChanged(fsPath);
+    changesView.schedule();
     tree.scheduleRebuild();
     refreshOverlays([fsPath]);
     scheduleAllDiagnostics();
@@ -444,6 +464,15 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     await openSplit(ref.fsPath, ref.objectId, { accessor: ref.accessor, reveal: target, viewColumn, preview: false });
   };
 
+  // An object of the TwinCAT Changes view: its split editor (whatever twincatExplorer.editor says, the diff is
+  // shown there) with the changes against the base of the view.
+  changesView.openChanges = async (fsPath, objectId, accessor, base) => {
+    const doc = await openSplit(fsPath, objectId, { accessor, preview: true });
+    if (doc && !(await objectEditors.showChangesAgainst(doc.uri, base))) {
+      void vscode.window.showInformationMessage(`${path.basename(fsPath)} cannot be compared with ${base.label}.`);
+    }
+  };
+
   // twincat-loc section copies are opened by VS Code in an editor tab at a position (Problems panel,
   // workspace symbols, locations from notebook cells): show the split editor at that place instead.
   // Peek views also show them, in embedded editors without a tab, and those are left alone.
@@ -555,7 +584,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     const selected = treeView.selection[0];
     // Keep the selection when it already shows this object: the other copy of a shared PLC project, or a Get/Set node.
     if (!explicit && selected && candidates.some(c => sameTarget(selected, c))) return;
-    const node = (selected && candidates.find(c => c.root === selected.root)) ?? candidates[0];
+    // The node just opened from the tree wins: its selection can reach this extension after the editor opens.
+    const clicked = candidates.find(c => c.id === lastClick?.id);
+    if (!explicit && clicked && selected?.id === clicked.id) return;
+    const node = clicked ?? (selected && candidates.find(c => c.root === selected.root)) ?? candidates[0];
     try {
       await treeView.reveal(node, { select: true, focus: explicit, expand: false });
     } catch {
@@ -649,6 +681,26 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       if (groupType === 1) await openNotebookDiff(t.fsPath, 'HEAD', INDEX);
       else await openNotebookDiff(t.fsPath, 'HEAD');
     }),
+    vscode.commands.registerCommand('twincatExplorer.changes.open', (node?: ChangeNode) => node && changesView.open(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.discard', (node?: ChangeNode) => node && changesView.discard(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.openNotebook', (node?: ChangeNode) => node && changesView.openNotebook(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.refresh', () => changesView.refresh()),
+    vscode.commands.registerCommand('twincatExplorer.changes.showUncommitted', () => changesView.setScope({ kind: 'head' })),
+    vscode.commands.registerCommand('twincatExplorer.changes.showBranch', () =>
+      changesView.setScope({ kind: 'branch', ref: context.workspaceState.get<string>(lastRefKey, 'origin/develop') })),
+    vscode.commands.registerCommand('twincatExplorer.changes.compareBranchWith', async () => {
+      const probe = ws.plcProjects[0]?.path;
+      if (!probe) return;
+      const ref = await vscode.window.showInputBox({
+        title: 'Compare the branch with',
+        prompt: 'Branch, tag or commit: the view shows what changed since HEAD left it, uncommitted changes included',
+        value: context.workspaceState.get<string>(lastRefKey, 'origin/develop'),
+        validateInput: async v => (v.trim() && (await verifyRef(probe, v.trim())) ? undefined : `'${v}' is not a commit in this repository`),
+      });
+      if (!ref) return;
+      await context.workspaceState.update(lastRefKey, ref.trim());
+      await changesView.setScope({ kind: 'branch', ref: ref.trim() });
+    }),
     vscode.commands.registerCommand('twincatExplorer.showChanges', (uri?: unknown) =>
       objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, true)),
     vscode.commands.registerCommand('twincatExplorer.hideChanges', (uri?: unknown) =>
@@ -718,7 +770,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   const ready = loadProjects();
   return {
-    workspace: ws, index, tree, treeView, features, objectEditors, locations, git: gitChanges, ready,
+    workspace: ws, index, tree, treeView, features, objectEditors, locations, git: gitChanges,
+    changes: changesView, changesView: changesTree, ready,
     openObject, openSplit,
   };
 }

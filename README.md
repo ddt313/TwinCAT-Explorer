@@ -63,6 +63,21 @@ with the **Declaration above the Implementation** like XAE, while the code stays
     stay editable, and the `Revert Block` button next to a change puts the `HEAD` text
     back. `Hide Changes vs HEAD` returns to the normal panes. A commit, checkout or
     rebase updates the comparison.
+- **TwinCAT Changes** view in the Source Control sidebar:
+  - Lists the objects that differ (POU, methods, properties, accessors), grouped by POU and
+    marked `M`, `A` or `D`. Two scopes, switched in the view's title bar: uncommitted
+    changes (vs `HEAD`), or branch changes since the merge base with another branch, what
+    a merge request shows (`origin/develop` by default, `Compare Branch With...` picks
+    another one), uncommitted changes included.
+  - A click opens the object in the split editor with the diff against that base, at its
+    first change. A deleted object opens as read-only text of its old version.
+  - `Discard Changes` (uncommitted scope): the code of an object goes back to `HEAD`, a new
+    method, property, action or accessor is removed, a whole file goes back to `HEAD` (in
+    the working tree and the index). Refused while an editor has unsaved edits of the file.
+  - `Build output (no code changes)` gathers files whose change is only XAE metadata: a
+    `.tsproj` with only new `TmcHash` values, a source file with only a new
+    `ProductVersion`. They can be discarded too. Other `.tsproj`/`.plcproj` changes are
+    under `Project files`; a click shows their XML diff.
 - **Notebook diff for git**: `Open Changes as TwinCAT Notebook` (tree, Explorer and
   Source Control menus, the `...` menu of a split editor tab) compares a whole file with
   `HEAD` (or, in Staged Changes, HEAD with the index) section by section; unchanged

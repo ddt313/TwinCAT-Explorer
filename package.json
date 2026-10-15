@@ -123,6 +123,15 @@
           "contextualTitle": "TwinCAT Explorer",
           "when": "twincatExplorer.hasProjects"
         }
+      ],
+      "scm": [
+        {
+          "id": "twincatExplorer.changes",
+          "name": "TwinCAT Changes",
+          "icon": "media/twincat.svg",
+          "contextualTitle": "TwinCAT",
+          "when": "twincatExplorer.hasProjects"
+        }
       ]
     },
     "viewsWelcome": [
@@ -189,6 +198,47 @@
         "icon": "$(eye-closed)"
       },
       {
+        "command": "twincatExplorer.changes.refresh",
+        "title": "Refresh",
+        "category": "TwinCAT Changes",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "twincatExplorer.changes.showUncommitted",
+        "title": "Show Uncommitted Changes (vs HEAD)",
+        "category": "TwinCAT Changes",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "twincatExplorer.changes.showBranch",
+        "title": "Show Branch Changes (vs Merge Base)",
+        "category": "TwinCAT Changes",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "twincatExplorer.changes.compareBranchWith",
+        "title": "Compare Branch With...",
+        "category": "TwinCAT Changes",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "twincatExplorer.changes.open",
+        "title": "Open Changes",
+        "category": "TwinCAT Changes"
+      },
+      {
+        "command": "twincatExplorer.changes.discard",
+        "title": "Discard Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "twincatExplorer.changes.openNotebook",
+        "title": "Open Changes as TwinCAT Notebook",
+        "category": "TwinCAT Changes",
+        "icon": "$(notebook)"
+      },
+      {
         "command": "twincatExplorer.goToObject",
         "title": "Go to Object...",
         "category": "TwinCAT"
@@ -246,6 +296,34 @@
         {
           "command": "twincatExplorer.revealInTree",
           "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.changes.open",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.discard",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.openNotebook",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.refresh",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.changes.showUncommitted",
+          "when": "twincatExplorer.hasProjects && twincatExplorer.changesScope == branch"
+        },
+        {
+          "command": "twincatExplorer.changes.showBranch",
+          "when": "twincatExplorer.hasProjects && twincatExplorer.changesScope != branch"
+        },
+        {
+          "command": "twincatExplorer.changes.compareBranchWith",
+          "when": "twincatExplorer.hasProjects"
         }
       ],
       "view/title": [
@@ -258,6 +336,26 @@
           "command": "twincatExplorer.refresh",
           "when": "view == twincatExplorer.tree",
           "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.changes.showBranch",
+          "when": "view == twincatExplorer.changes && twincatExplorer.changesScope != branch",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.changes.showUncommitted",
+          "when": "view == twincatExplorer.changes && twincatExplorer.changesScope == branch",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.changes.compareBranchWith",
+          "when": "view == twincatExplorer.changes",
+          "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.changes.refresh",
+          "when": "view == twincatExplorer.changes",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -285,6 +383,26 @@
           "command": "twincatExplorer.copyName",
           "when": "view == twincatExplorer.tree && viewItem =~ /named/",
           "group": "9_copy@1"
+        },
+        {
+          "command": "twincatExplorer.changes.openNotebook",
+          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/",
+          "group": "inline@1"
+        },
+        {
+          "command": "twincatExplorer.changes.discard",
+          "when": "view == twincatExplorer.changes && viewItem =~ /discard-/",
+          "group": "inline@2"
+        },
+        {
+          "command": "twincatExplorer.changes.openNotebook",
+          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.changes.discard",
+          "when": "view == twincatExplorer.changes && viewItem =~ /discard-/",
+          "group": "1_modification@1"
         }
       ],
       "editor/title": [

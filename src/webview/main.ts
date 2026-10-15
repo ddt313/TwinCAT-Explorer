@@ -131,12 +131,16 @@ let highlighterReady: Promise<void> | undefined;
 let requestId = 0;
 let providersRegistered = false;
 const pending = new Map<number, (result: unknown) => void>();
-/** HEAD texts: not received yet, received, or none (not in a git repository). */
+/** Base texts: not received yet, received, or none (not in a git repository). */
 let baseState: 'pending' | 'available' | 'unavailable' = 'pending';
-/** The panes show their changes vs HEAD as inline diffs. */
+/** Name of what the panes compare with (HEAD, or a branch chosen in the TwinCAT Changes view). */
+let baseLabel = 'HEAD';
+/** The panes show their changes as inline diffs. */
 let changesMode = false;
-/** Changes vs HEAD were asked for (they show once the HEAD texts are there). */
+/** The changes were asked for (they show once the base texts are there). */
 let wantChanges = false;
+/** Go to the first change once the diffs show. */
+let wantFirst = false;
 
 function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextModel, offset: number, includeDeclaration?: boolean): Promise<T | null> {
   const id = ++requestId;
@@ -483,7 +487,7 @@ function diffOptions(section: PaneSection, collapsed: boolean): Monaco.editor.IS
     diffAlgorithm: 'advanced',
     // Without changes nothing would be left to show.
     hideUnchangedRegions: { enabled: collapsed, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
-    ariaLabel: `${section.label}, changes vs HEAD`,
+    ariaLabel: `${section.label}, changes vs ${baseLabel}`,
   } as Monaco.editor.IStandaloneDiffEditorConstructionOptions;
 }
 
@@ -617,14 +621,28 @@ function computeChanges(pane: Pane): void {
 function updateLabel(pane: Pane): void {
   const n = pane.changes.length;
   pane.label.textContent = !pane.base ? ''
-    : pane.baseNew ? 'New, not in HEAD'
-      : n === 0 ? 'No changes vs HEAD' : `${n} change${n === 1 ? '' : 's'} vs HEAD`;
+    : pane.baseNew ? `New, not in ${baseLabel}`
+      : n === 0 ? `No changes vs ${baseLabel}` : `${n} change${n === 1 ? '' : 's'} vs ${baseLabel}`;
   pane.label.style.display = changesMode && pane.base ? '' : 'none';
 }
 
-/** HEAD texts from the host (again after a commit or checkout). */
+/** Each pane goes to its first change; the focus goes to the first pane with changes. */
+function revealFirstChange(): void {
+  let target: Pane | undefined;
+  for (const p of panes) {
+    if (p.changes.length === 0) continue;
+    const line = markLine(p.changes[0]);
+    p.editor.setPosition({ lineNumber: line, column: 1 });
+    p.editor.revealLineInCenter(line);
+    target ??= p;
+  }
+  target?.editor.focus();
+}
+
+/** Base texts from the host (again after a commit or checkout, or for another base). */
 function applyBase(m: Extract<HostMessage, { type: 'base' }>): void {
   baseState = m.available ? 'available' : 'unavailable';
+  baseLabel = m.label;
   const texts = new Map(m.sections.map(s => [s.key, s.text]));
   for (const p of panes) {
     if (!m.available) {
@@ -653,7 +671,9 @@ function applyBase(m: Extract<HostMessage, { type: 'base' }>): void {
   if (!m.available) {
     if (changesMode || wantChanges) setChangesMode(false);
   } else if (wantChanges && !changesMode) {
-    setChangesMode(true);
+    setChangesMode(true, undefined, wantFirst);
+  } else {
+    for (const p of panes) updateLabel(p);
   }
   layout();
 }
@@ -694,19 +714,22 @@ function leaveDiff(pane: Pane): void {
   if (hadFocus) pane.standalone.focus();
 }
 
-/** Shows or hides the changes vs HEAD in every pane, optionally at a change of one pane. */
-function setChangesMode(on: boolean, at?: { pane: Pane; line: number }): void {
+/** Shows or hides the changes in every pane, optionally at a change of one pane or at the first changes. */
+function setChangesMode(on: boolean, at?: { pane: Pane; line: number }, first = false): void {
   wantChanges = on;
+  wantFirst = on && first;
   saveState();
   if (on && baseState !== 'available') {
-    // Shown once the HEAD texts arrive; never outside a repository.
+    // Shown once the base texts arrive; never outside a repository.
     if (baseState === 'unavailable') {
       wantChanges = false;
+      wantFirst = false;
       saveState();
       post({ type: 'changesMode', on: false });
     }
     return;
   }
+  wantFirst = false;
   if (on !== changesMode) {
     changesMode = on;
     for (const p of panes) {
@@ -722,6 +745,8 @@ function setChangesMode(on: boolean, at?: { pane: Pane; line: number }): void {
     editor.setPosition({ lineNumber: at.line, column: 1 });
     editor.revealLineInCenter(at.line);
     editor.focus();
+  } else if (on && first) {
+    revealFirstChange();
   }
 }
 
@@ -805,7 +830,9 @@ function init(m: Extract<HostMessage, { type: 'init' }>): void {
   // The HEAD texts follow this message; the changes shown before come back with them.
   baseState = 'pending';
   changesMode = false;
-  wantChanges = saved.changes ?? m.changes ?? wantChanges;
+  // The host's request (TwinCAT Changes view, a rebuilt webview) before what this webview saved.
+  wantChanges = m.changes ?? saved.changes ?? wantChanges;
+  wantFirst = wantChanges && !!m.first;
   panes = m.sections.map(createPane);
   if (panes.length >= 2) {
     sash = createSash();
@@ -1057,7 +1084,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
         applyBase(m);
         break;
       case 'setChanges':
-        setChangesMode(m.on);
+        setChangesMode(m.on, undefined, m.first);
         break;
       case 'response': {
         const resolve = pending.get(m.id);

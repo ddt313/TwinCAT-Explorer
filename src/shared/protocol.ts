@@ -74,14 +74,16 @@ export type HostMessage =
     ratio?: number;
     /** Changes vs HEAD shown (a rebuilt webview gets it back). */
     changes?: boolean;
+    /** Go to the first change once the diffs show (opened from the TwinCAT Changes view). */
+    first?: boolean;
   }
   /**
-   * HEAD texts of the sections (null: not in HEAD, a new object), which the panes mark their changes
-   * against. `available` is false outside a git repository.
+   * Base texts of the sections (null: not in the base, a new object), which the panes mark their changes
+   * against; `label` names the base (HEAD, origin/develop). `available` is false outside a git repository.
    */
-  | { type: 'base'; available: boolean; sections: { key: string; text: string | null }[] }
-  /** Shows or hides the changes vs HEAD (inline diff in every pane). */
-  | { type: 'setChanges'; on: boolean }
+  | { type: 'base'; available: boolean; label: string; sections: { key: string; text: string | null }[] }
+  /** Shows or hides the changes (inline diff in every pane), at the first change when `first`. */
+  | { type: 'setChanges'; on: boolean; first?: boolean }
   | { type: 'flush'; id: number }
   /** The document's section texts; `ack` is the last webview edit applied. Answered with 'synced'. */
   | { type: 'sync'; id: number; sections: { key: string; text: string }[]; ack: number }

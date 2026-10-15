@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { parseTcText } from '../../src/core/tcfile';
-import { changeKey, objectChanges } from '../../src/core/objectChanges';
+import { changeKey, metadataChange, objectChanges, onlyTmcHashChanged, viewChanges } from '../../src/core/objectChanges';
+import { SpliceError, removeMember, restoreView } from '../../src/core/splice';
 
 const FB = '{11111111-1111-1111-1111-111111111111}';
 const RUN = '{22222222-2222-2222-2222-222222222222}';
@@ -96,4 +97,55 @@ test('every object of a new file is added', () => {
   assert.equal(changes.get(id(PROP)), 'added');
   assert.equal(changes.get(changeKey(id(PROP), 'Get')), 'added');
   assert.equal(changes.get(changeKey(id(PROP), 'Set')), 'added');
+});
+
+const views = (before: string | undefined, now: string | undefined) =>
+  viewChanges(before === undefined ? undefined : parse(before), now === undefined ? undefined : parse(now))
+    .map(v => `${v.label} ${v.change}${v.renamedFrom ? ` from ${v.renamedFrom}` : ''}`);
+
+test('views: changed, renamed, added and deleted methods', () => {
+  assert.deepEqual(views(pou(), pou({ version: '3.1.4026.21' })), []);
+  assert.deepEqual(views(pou(), pou({ run: 'nCount := 0;' })), ['FB_Test.Run modified']);
+  assert.deepEqual(views(pou(), pou({ runName: 'Execute' })), ['FB_Test.Execute modified from Run']);
+  assert.deepEqual(views(pou(), pou({ stop: true })), ['FB_Test.Stop added']);
+  assert.deepEqual(views(pou({ stop: true }), pou()), ['FB_Test.Stop deleted']);
+});
+
+test('views: an accessor is its own view, the property view is its declaration', () => {
+  assert.deepEqual(views(pou(), pou({ get: 'Count := 0;' })), ['FB_Test.Count.Get modified']);
+  assert.deepEqual(views(pou(), pou({ set: true })), ['FB_Test.Count.Set added']);
+  assert.deepEqual(views(pou({ set: true }), pou()), ['FB_Test.Count.Set deleted']);
+});
+
+test('views: a new file is all new, a deleted file lists its objects once', () => {
+  assert.deepEqual(views(undefined, pou({ set: true })),
+    ['FB_Test added', 'FB_Test.Run added', 'FB_Test.Count added', 'FB_Test.Count.Get added', 'FB_Test.Count.Set added']);
+  assert.deepEqual(views(pou({ set: true }), undefined), ['FB_Test deleted', 'FB_Test.Run deleted', 'FB_Test.Count deleted']);
+});
+
+test('removing a new method or accessor gives back the file without it', () => {
+  assert.equal(removeMember(parse(pou({ stop: true })), id(STOP)), pou());
+  assert.equal(removeMember(parse(pou({ set: true })), id(PROP), 'Set'), pou());
+  assert.equal(removeMember(parse(pou({ stop: true }).replace(/\n/g, '\r\n')), id(STOP)), pou().replace(/\n/g, '\r\n'));
+  assert.throws(() => removeMember(parse(pou()), id(FB)), SpliceError);
+  assert.throws(() => removeMember(parse(pou()), id(PROP), 'Set'), SpliceError);
+});
+
+test('restoring a view puts back the code of its own sections only', () => {
+  assert.equal(restoreView(parse(pou({ run: 'nCount := 0;' })), parse(pou()), id(RUN)), pou());
+  // The POU body changed too and stays.
+  assert.equal(restoreView(parse(pou({ run: 'nCount := 0;', body: 'Run();' })), parse(pou()), id(RUN)), pou({ body: 'Run();' }));
+  assert.equal(restoreView(parse(pou({ get: 'Count := 0;' })), parse(pou()), id(PROP), 'Get'), pou());
+  // A rename and a changed set of sections are refused.
+  assert.throws(() => restoreView(parse(pou({ runName: 'Execute' })), parse(pou()), id(RUN)), SpliceError);
+  assert.throws(() => restoreView(parse(pou({ set: true })), parse(pou()), id(PROP), 'Set'), SpliceError);
+});
+
+test('build output: TmcHash-only project changes and ProductVersion-only sources', () => {
+  const tsproj = (hash: string, extra = '') => `<Project>\r\n<Instance TmcHash="{${hash}}" TmcPath="x.tmc">${extra}</Instance>\r\n</Project>`;
+  assert.equal(onlyTmcHashChanged(tsproj('AAAA-1'), tsproj('BBBB-2')), true);
+  assert.equal(onlyTmcHashChanged(tsproj('AAAA-1'), tsproj('BBBB-2', '<Var/>')), false);
+  assert.equal(onlyTmcHashChanged(tsproj('AAAA-1'), tsproj('AAAA-1')), false);
+  assert.equal(metadataChange(pou(), pou({ version: '3.1.4026.21' })), 'ProductVersion 3.1.4026.13 → 3.1.4026.21');
+  assert.equal(metadataChange(pou(), pou().replace('SpecialFunc="None"', 'SpecialFunc="None" X="1"')), 'XML only, no code');
 });

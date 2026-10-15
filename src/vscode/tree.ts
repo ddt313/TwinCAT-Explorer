@@ -49,7 +49,7 @@ function icon(id: string, color?: string): vscode.ThemeIcon {
   return new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined);
 }
 
-function objectIcon(obj: TcObject): vscode.ThemeIcon {
+export function objectIcon(obj: TcObject): vscode.ThemeIcon {
   switch (obj.kind) {
     case 'pou':
       if (obj.pouKind === 'PRG') return icon('symbol-module', 'symbolIcon.moduleForeground');

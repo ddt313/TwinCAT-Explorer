@@ -131,6 +131,13 @@
           "icon": "media/twincat.svg",
           "contextualTitle": "TwinCAT",
           "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "id": "twincatExplorer.commits",
+          "name": "TwinCAT Commits",
+          "icon": "media/twincat.svg",
+          "contextualTitle": "TwinCAT",
+          "when": "twincatExplorer.hasProjects"
         }
       ]
     },
@@ -239,6 +246,49 @@
         "icon": "$(notebook)"
       },
       {
+        "command": "twincatExplorer.commits.refresh",
+        "title": "Refresh",
+        "category": "TwinCAT Commits",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "twincatExplorer.commits.open",
+        "title": "Open Changes",
+        "category": "TwinCAT Commits"
+      },
+      {
+        "command": "twincatExplorer.commits.openText",
+        "title": "Open Changes",
+        "category": "TwinCAT Commits"
+      },
+      {
+        "command": "twincatExplorer.commits.openNotebook",
+        "title": "Open Changes as TwinCAT Notebook",
+        "category": "TwinCAT Commits",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "twincatExplorer.commits.loadMore",
+        "title": "Load More Commits",
+        "category": "TwinCAT Commits"
+      },
+      {
+        "command": "twincatExplorer.commits.copySha",
+        "title": "Copy Commit SHA",
+        "category": "TwinCAT Commits"
+      },
+      {
+        "command": "twincatExplorer.commits.copyMessage",
+        "title": "Copy Commit Message",
+        "category": "TwinCAT Commits"
+      },
+      {
+        "command": "twincatExplorer.commitDiff.openCurrent",
+        "title": "Open Current Version",
+        "category": "TwinCAT",
+        "icon": "$(go-to-file)"
+      },
+      {
         "command": "twincatExplorer.goToObject",
         "title": "Go to Object...",
         "category": "TwinCAT"
@@ -324,6 +374,38 @@
         {
           "command": "twincatExplorer.changes.compareBranchWith",
           "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.commits.open",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.commits.openText",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.commits.openNotebook",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.commits.loadMore",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.commits.copySha",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.commits.copyMessage",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.commits.refresh",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.commitDiff.openCurrent",
+          "when": "activeWebviewPanelId == twincatExplorer.commitDiff"
         }
       ],
       "view/title": [
@@ -356,6 +438,11 @@
           "command": "twincatExplorer.changes.refresh",
           "when": "view == twincatExplorer.changes",
           "group": "navigation@3"
+        },
+        {
+          "command": "twincatExplorer.commits.refresh",
+          "when": "view == twincatExplorer.commits",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -403,6 +490,26 @@
           "command": "twincatExplorer.changes.discard",
           "when": "view == twincatExplorer.changes && viewItem =~ /discard-/",
           "group": "1_modification@1"
+        },
+        {
+          "command": "twincatExplorer.commits.openNotebook",
+          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/",
+          "group": "inline@1"
+        },
+        {
+          "command": "twincatExplorer.commits.openNotebook",
+          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.commits.copySha",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/",
+          "group": "9_copy@1"
+        },
+        {
+          "command": "twincatExplorer.commits.copyMessage",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/",
+          "group": "9_copy@2"
         }
       ],
       "editor/title": [
@@ -430,6 +537,11 @@
           "command": "twincatExplorer.openChanges",
           "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
           "group": "1_twincat@1"
+        },
+        {
+          "command": "twincatExplorer.commitDiff.openCurrent",
+          "when": "activeWebviewPanelId == twincatExplorer.commitDiff",
+          "group": "navigation@1"
         }
       ],
       "editor/title/context": [

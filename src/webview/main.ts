@@ -825,6 +825,9 @@ function init(m: Extract<HostMessage, { type: 'init' }>): void {
     p.diff?.editor.dispose();
     p.standalone.dispose();
     p.base?.dispose();
+    // A reused page (the commit diff panel) shows other sections next: their models go too.
+    models.delete(p.model.uri.toString());
+    p.model.dispose();
   }
   root.textContent = '';
   // The HEAD texts follow this message; the changes shown before come back with them.

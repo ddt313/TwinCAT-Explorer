@@ -20,6 +20,8 @@ import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscod
 import { DiffFileSystem, GitDirWatcher, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
 import { GitChanges } from './vscode/gitChanges';
 import { BASE_SCHEME, ChangeNode, ChangesView } from './vscode/changesView';
+import { CommitNode, CommitsView } from './vscode/commitsView';
+import { CommitDiffPanel } from './vscode/commitDiff';
 import { ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
 import {
@@ -38,6 +40,9 @@ export interface TwinCatExplorerApi {
   git: GitChanges;
   changes: ChangesView;
   changesView: vscode.TreeView<ChangeNode>;
+  commits: CommitsView;
+  commitsView: vscode.TreeView<CommitNode>;
+  commitDiff: CommitDiffPanel;
   ready: Promise<void>;
   /** Opens an object view as a notebook. */
   openObject(fsPath: string, objectId: string, options?: OpenOptions): Promise<vscode.NotebookEditor | undefined>;
@@ -102,6 +107,16 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const changesView = new ChangesView(ws, gitChanges, context.workspaceState);
   changesView.log = message => log.warn(message);
   const changesTree = vscode.window.createTreeView('twincatExplorer.changes', { treeDataProvider: changesView, showCollapseAll: true });
+  const commitDiff = new CommitDiffPanel(objectEditors, gitChanges);
+  // TwinCAT keeps an object's GUID when its POU moves to another folder: found there.
+  commitDiff.locate = (objectId, preferred) => {
+    if (ws.getFile(preferred)?.objects.has(objectId)) return preferred;
+    return ws.sourceEntries.find(e => ws.getFile(e.path)?.objects.has(objectId))?.path;
+  };
+  const commitsView = new CommitsView(ws, gitChanges);
+  commitsView.log = message => log.warn(message);
+  commitsView.openObject = item => commitDiff.show(item);
+  const commitsTree = vscode.window.createTreeView('twincatExplorer.commits', { treeDataProvider: commitsView, showCollapseAll: true });
   const checkCollection = vscode.languages.createDiagnosticCollection('twincat-check');
   const fileSerializer = new FileSerializer();
   const stSelector: vscode.DocumentSelector = { language: ST_LANGUAGE };
@@ -118,15 +133,19 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     gitChanges.onDidChangeHead(() => {
       objectEditors.refreshBases();
       changesView.schedule();
+      commitsView.schedule();
     }),
+    // The TwinCAT Commits view and its diff panel.
+    commitsView, commitsTree, commitsView.attach(commitsTree), commitDiff,
     // The TwinCAT Changes view in the Source Control sidebar.
     changesView, changesTree, changesView.attach(changesTree),
     vscode.window.registerFileDecorationProvider(changesView),
     vscode.workspace.registerTextDocumentContentProvider(BASE_SCHEME, changesView),
     gitChanges.onDidChangeFileDecorations(() => changesView.schedule()),
-    // A fetch can move the branch compared with.
+    // A fetch can move the branch compared with; a push changes which commits are not pushed yet.
     gitDirs.onDidChange(() => {
       if (changesView.scope.kind === 'branch') changesView.schedule(1000);
+      commitsView.schedule(1500);
     }),
     vscode.window.registerCustomEditorProvider(OBJECT_EDITOR, objectEditors, {
       // Monaco keeps its undo history and scroll positions while the tab is in the background.
@@ -220,6 +239,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       tree.rebuild();
       if (hasProjects) void gitChanges.refreshAll();
       changesView.schedule(0);
+      commitsView.schedule(0);
       checkCollection.clear();
       checkHasResults = false;
       await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', hasProjects);
@@ -681,6 +701,28 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       if (groupType === 1) await openNotebookDiff(t.fsPath, 'HEAD', INDEX);
       else await openNotebookDiff(t.fsPath, 'HEAD');
     }),
+    vscode.commands.registerCommand('twincatExplorer.commits.open', (node?: CommitNode) => node && commitsView.open(node)),
+    vscode.commands.registerCommand('twincatExplorer.commits.openText', (node?: CommitNode) => node && commitsView.openText(node)),
+    vscode.commands.registerCommand('twincatExplorer.commits.openNotebook', (node?: CommitNode) => node && commitsView.openNotebook(node)),
+    vscode.commands.registerCommand('twincatExplorer.commits.loadMore', () => commitsView.loadMore()),
+    vscode.commands.registerCommand('twincatExplorer.commits.refresh', () => commitsView.refresh()),
+    vscode.commands.registerCommand('twincatExplorer.commits.copySha', async (node?: CommitNode) => {
+      if (node?.commit) await vscode.env.clipboard.writeText(node.commit.sha);
+    }),
+    vscode.commands.registerCommand('twincatExplorer.commits.copyMessage', async (node?: CommitNode) => {
+      if (node?.commit) await vscode.env.clipboard.writeText(node.commit.body ? `${node.commit.subject}\n\n${node.commit.body}` : node.commit.subject);
+    }),
+    // The object of the commit diff panel as it is now, in the split editor.
+    vscode.commands.registerCommand('twincatExplorer.commitDiff.openCurrent', async () => {
+      const shown = commitDiff.shown;
+      if (!shown) return;
+      const fsPath = commitDiff.locate?.(shown.objectId, path.join(shown.root, shown.path));
+      if (!fsPath) {
+        void vscode.window.showInformationMessage('The object is not in the working tree any more.');
+        return;
+      }
+      await openSplit(fsPath, shown.objectId, { accessor: shown.accessor, preview: false });
+    }),
     vscode.commands.registerCommand('twincatExplorer.changes.open', (node?: ChangeNode) => node && changesView.open(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.discard', (node?: ChangeNode) => node && changesView.discard(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.openNotebook', (node?: ChangeNode) => node && changesView.openNotebook(node)),
@@ -771,7 +813,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const ready = loadProjects();
   return {
     workspace: ws, index, tree, treeView, features, objectEditors, locations, git: gitChanges,
-    changes: changesView, changesView: changesTree, ready,
+    changes: changesView, changesView: changesTree, commits: commitsView, commitsView: commitsTree, commitDiff, ready,
     openObject, openSplit,
   };
 }

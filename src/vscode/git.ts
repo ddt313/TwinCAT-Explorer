@@ -52,7 +52,9 @@ export async function showAtRef(fsPath: string, ref: string, orig?: string): Pro
   const cwd = existingDir(fsPath);
   const spec = specOf(ref, orig ?? relFrom(cwd, fsPath));
   try {
-    return await git(['show', spec], cwd);
+    // `--`: otherwise git also checks that no file is named like the argument, and on Windows that check
+    // fails ("Filename too long") once the folder plus a repository-relative path pass 260 characters.
+    return await git(['show', spec, '--'], cwd);
   } catch (e) {
     const message = (e as Error).message;
     // A file that does not exist at that ref (added since) is compared with an empty file;
@@ -136,7 +138,7 @@ async function sameObjectDeleted(fsPath: string, ref: string, staged: boolean): 
     args.push(ref, '--');
     const deleted = (await git(args, cwd)).toString('utf8').split('\0').filter(p => p && path.extname(p).toLowerCase() === ext);
     for (const candidate of deleted.slice(0, 100)) {
-      const text = (await git(['show', `${ref}:${candidate}`], cwd)).toString('utf8');
+      const text = (await git(['show', `${ref}:${candidate}`, '--'], cwd)).toString('utf8');
       if (ROOT_ID.exec(text)?.[1]?.toLowerCase() === id) return candidate;
     }
   } catch {
@@ -268,6 +270,121 @@ export async function restoreFromHead(fsPath: string): Promise<void> {
   await git(['restore', '--source=HEAD', '--staged', '--worktree', '--', relFrom(cwd, fsPath)], cwd);
 }
 
+export interface CommitInfo {
+  sha: string;
+  /** Parent commits; the first one is what the commit's changes are shown against. */
+  parents: string[];
+  author: string;
+  email: string;
+  /** Author date, seconds since 1970. */
+  date: number;
+  subject: string;
+  body: string;
+}
+
+/**
+ * Commits reachable from HEAD that change files with the given extensions, newest first: `count` of them
+ * after skipping `skip`.
+ */
+export async function commitLog(root: string, extensions: string[], count: number, skip = 0): Promise<CommitInfo[]> {
+  const specs = extensions.map(e => `:(icase)*${e}`);
+  const out = await git(['--no-optional-locks', 'log', `-n${count}`, `--skip=${skip}`,
+    '--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b%x1e', 'HEAD', '--', ...specs], root);
+  return out.toString('utf8').split('\x1e').map(r => r.replace(/^\s+/, '')).filter(Boolean).map(r => {
+    const [sha, parents, author, email, date, subject, body] = r.split('\x1f');
+    return { sha, parents: parents ? parents.split(' ') : [], author, email, date: Number(date), subject, body: (body ?? '').trim() };
+  });
+}
+
+/**
+ * Files with the given extensions that a commit changed against `parent` (its first parent; none for the
+ * first commit of a repository).
+ */
+export async function commitChanges(root: string, commit: string, parent: string | undefined, extensions: string[]): Promise<PathChange[]> {
+  const specs = extensions.map(e => `:(icase)*${e}`);
+  const args = ['diff-tree', '-r', '-M', '--name-status', '-z', '--no-commit-id', ...(parent ? [parent, commit] : ['--root', commit]), '--', ...specs];
+  const tokens = (await git(args, root)).toString('utf8').split('\0');
+  const out: PathChange[] = [];
+  for (let i = 0; i < tokens.length && tokens[i];) {
+    const status = tokens[i][0];
+    if (status === 'R' || status === 'C') {
+      out.push(status === 'R'
+        ? { status: 'R', fsPath: path.join(root, tokens[i + 2]), from: tokens[i + 1] }
+        : { status: 'A', fsPath: path.join(root, tokens[i + 2]) });
+      i += 3;
+      continue;
+    }
+    out.push({ status: status === 'A' || status === 'D' ? status : 'M', fsPath: path.join(root, tokens[i + 1]) });
+    i += 2;
+  }
+  return out;
+}
+
+/**
+ * Contents of several `<commit>:<path>` blobs read by one git process (a commit with a hundred files would
+ * otherwise start two hundred); undefined for one that does not exist.
+ */
+export function readBlobs(root: string, specs: string[]): Promise<(Buffer | undefined)[]> {
+  if (specs.length === 0) return Promise.resolve([]);
+  return new Promise((resolve, reject) => {
+    const env = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' };
+    const child = cp.spawn('git', ['cat-file', '--batch'], { cwd: root, env, windowsHide: true });
+    const chunks: Buffer[] = [];
+    let stderr = '';
+    child.stdout.on('data', (d: Buffer) => chunks.push(d));
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `git cat-file exited with ${code}`));
+        return;
+      }
+      // Per object: `<id> <type> <size>\n<content>\n`, or `<name> missing\n`.
+      const out = Buffer.concat(chunks);
+      const result: (Buffer | undefined)[] = [];
+      let pos = 0;
+      for (let i = 0; i < specs.length; i++) {
+        const nl = out.indexOf(0x0a, pos);
+        if (nl < 0) {
+          reject(new Error('git cat-file: the output ended early'));
+          return;
+        }
+        const header = out.toString('utf8', pos, nl);
+        pos = nl + 1;
+        const m = /^[0-9a-f]+ (\S+) (\d+)$/.exec(header);
+        if (!m) {
+          result.push(undefined);
+          continue;
+        }
+        const size = Number(m[2]);
+        result.push(m[1] === 'blob' ? out.subarray(pos, pos + size) : undefined);
+        pos += size + 1;
+      }
+      resolve(result);
+    });
+    child.stdin.end(specs.join('\n') + '\n');
+  });
+}
+
+/** Commits of HEAD that no remote-tracking branch has (not pushed yet). */
+export async function localOnlyCommits(root: string): Promise<Set<string>> {
+  try {
+    const out = await git(['rev-list', '-n500', 'HEAD', '--not', '--remotes'], root);
+    return new Set(out.toString('utf8').split(/\s+/).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/** The configured user.email of a repository ('' when none). */
+export async function userEmail(root: string): Promise<string> {
+  try {
+    return (await git(['config', 'user.email'], root)).toString('utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Watches HEAD, the index and the refs of the repositories of the files it is given and fires, debounced,
  * after a commit, checkout, stage or rebase.
@@ -366,6 +483,8 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
       }
     }
     void this.gitDirs.watch(ref.fsPath);
+    // A commit's file comes with its path there.
+    if (ref.at) return showAtRef(ref.fsPath, ref.ref, ref.at);
     // Resolved at every read, so a rename committed later still shows the right file.
     const cached = this.origCache.get(uri.toString());
     let orig = cached?.version === this.refVersion ? cached.orig : undefined;
@@ -415,8 +534,12 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
   /** A repository changed (commit, checkout, rebase, stage): refresh every ref and index side. */
   notifyRefsChanged(): void {
     this.refVersion++;
+    // A side at a commit (a full SHA) never changes.
     const events = [...this.served.values()]
-      .filter(u => parseDiffUri(u)?.ref !== WORKTREE)
+      .filter(u => {
+        const ref = parseDiffUri(u)?.ref;
+        return ref !== undefined && ref !== WORKTREE && !/^[0-9a-f]{40}$/i.test(ref);
+      })
       .map(uri => ({ type: vscode.FileChangeType.Changed, uri }));
     if (events.length) this.emitter.fire(events);
   }
@@ -424,16 +547,20 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
 
 function refLabel(ref: string): string {
   if (ref === INDEX) return 'Index';
-  return ref;
+  return /^[0-9a-f]{40}$/i.test(ref) ? ref.slice(0, 7) : ref;
 }
 
-/** Opens a notebook diff of a TwinCAT source file: `ref` on the left, working tree (or `right`) on the right. */
-export async function openNotebookDiff(fsPath: string, ref: string, right: string = WORKTREE): Promise<void> {
+/**
+ * Opens a notebook diff of a TwinCAT source file: `ref` on the left, working tree (or `right`) on the right.
+ * `paths` gives the repository-relative paths of the file at both refs when they are known (a commit and
+ * its parent), instead of looking renames up against the working tree.
+ */
+export async function openNotebookDiff(fsPath: string, ref: string, right: string = WORKTREE, paths?: { left: string; right: string }): Promise<void> {
   const base = path.basename(fsPath);
-  const orig = await originalPath(fsPath, ref, right === INDEX);
+  const orig = paths ? (paths.left !== paths.right ? paths.left : undefined) : await originalPath(fsPath, ref, right === INDEX);
   const leftName = orig ? path.posix.basename(orig) : base;
-  const left = diffUri(fsPath, ref, `${leftName} (${refLabel(ref)})`, right);
-  const rightUri = diffUri(fsPath, right, right === WORKTREE ? base : `${base} (${refLabel(right)})`);
+  const left = diffUri(fsPath, ref, `${leftName} (${refLabel(ref)})`, right, paths?.left);
+  const rightUri = diffUri(fsPath, right, right === WORKTREE ? base : `${base} (${refLabel(right)})`, undefined, paths?.right);
   const title = `${orig ? `${leftName} → ` : ''}${base} (${refLabel(ref)} ↔ ${right === WORKTREE ? 'Working Tree' : refLabel(right)})`;
   await vscode.commands.executeCommand('vscode.diff', left, rightUri, title, { preview: true });
 }

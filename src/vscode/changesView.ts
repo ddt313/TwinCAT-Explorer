@@ -61,8 +61,9 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
   private roots: ChangeNode[] = [];
   private view: vscode.TreeView<ChangeNode> | undefined;
   private timer: NodeJS.Timeout | undefined;
-  private running = false;
-  private again = false;
+  /** The computation running, and the one queued behind it (shared by every request made meanwhile). */
+  private running: Promise<void> | undefined;
+  private queued: Promise<void> | undefined;
   /** Something changed while the view was hidden: it is computed again when it shows. */
   private stale = true;
   private disposed = false;
@@ -110,25 +111,31 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
     }, delay);
   }
 
-  /** Recomputes the view; a request during a computation runs once it is done. */
-  async refresh(): Promise<void> {
+  /**
+   * Recomputes the view; resolves once a computation that started after the call is done. Asked during a
+   * computation (what changed meanwhile may be missing from it), it runs one more after it, one for all who
+   * ask meanwhile.
+   */
+  refresh(): Promise<void> {
     if (this.running) {
-      this.again = true;
-      return;
+      this.queued ??= this.running.then(() => {
+        this.queued = undefined;
+        return this.refresh();
+      });
+      return this.queued;
     }
-    this.running = true;
     this.stale = false;
-    try {
-      await this.compute();
-    } catch (e) {
-      this.log?.(`TwinCAT Changes: ${(e as Error).stack ?? e}`);
-    } finally {
-      this.running = false;
-      if (this.again) {
-        this.again = false;
-        this.schedule(0);
+    const running = (async () => {
+      try {
+        await this.compute();
+      } catch (e) {
+        this.log?.(`TwinCAT Changes: ${(e as Error).stack ?? e}`);
+      } finally {
+        this.running = undefined;
       }
-    }
+    })();
+    this.running = running;
+    return running;
   }
 
   private async compute(): Promise<void> {
@@ -516,12 +523,12 @@ function uniqueIds(nodes: ChangeNode[], seen = new Set<string>()): ChangeNode[] 
   return out;
 }
 
-interface GitApi {
+export interface GitApi {
   toGitUri(uri: vscode.Uri, ref: string): vscode.Uri;
 }
 
 /** The git extension's API (for VS Code's own text diffs of files at a commit). */
-async function gitApi(): Promise<GitApi | undefined> {
+export async function gitApi(): Promise<GitApi | undefined> {
   try {
     const ext = vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git');
     if (!ext) return undefined;

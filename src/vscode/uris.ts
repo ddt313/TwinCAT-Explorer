@@ -121,27 +121,33 @@ export const INDEX = 'INDEX';
 
 /**
  * `twincat-diff:/c:/.../FB_X.TcPOU.tcfile?{"ref":"HEAD","label":"...","against":"INDEX"}`.
- * `against` is the other side of the comparison (decides whether renames are looked up in the index).
+ * `against` is the other side of the comparison (decides whether renames are looked up in the index);
+ * `at` is the repository-relative path of the file at `ref` when it is known (a commit's file), so no
+ * rename has to be looked up.
  */
-export function diffUri(fsPath: string, ref: string, label: string, against?: string): vscode.Uri {
+export function diffUri(fsPath: string, ref: string, label: string, against?: string, at?: string): vscode.Uri {
   const filePath = vscode.Uri.file(fsPath).path;
-  const query = against ? { ref, label, against } : { ref, label };
+  const query: Record<string, string> = { ref, label };
+  if (against) query.against = against;
+  if (at) query.at = at;
   return vscode.Uri.from({ scheme: DIFF_SCHEME, path: `${filePath}.tcfile`, query: JSON.stringify(query) });
 }
 
-export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string; against?: string } | undefined {
+export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string; against?: string; at?: string } | undefined {
   if (uri.scheme !== DIFF_SCHEME) return undefined;
   let ref = WORKTREE;
   let against: string | undefined;
+  let at: string | undefined;
   try {
     const q = JSON.parse(uri.query);
     ref = q.ref ?? WORKTREE;
     against = q.against;
+    if (typeof q.at === 'string') at = q.at;
   } catch {
     // keep defaults
   }
   const filePath = uri.path.replace(/\.tcfile$/, '');
-  return { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, ref, against };
+  return { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, ref, against, at };
 }
 
 /** Real file behind any of our URIs (or a plain file URI). */

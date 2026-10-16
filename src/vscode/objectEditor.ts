@@ -119,6 +119,48 @@ function nonce(): string {
   return s;
 }
 
+/** Options of a webview that runs the split editor's page (the split editor, the commit diff panel). */
+export function editorWebviewOptions(extensionUri: vscode.Uri): vscode.WebviewOptions {
+  return {
+    enableScripts: true,
+    localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'out', 'webview'), vscode.Uri.joinPath(extensionUri, 'syntaxes')],
+  };
+}
+
+/** The split editor's page: Monaco panes, filled by the host through 'init', 'base' and 'sync' messages. */
+export function editorWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+  const webviewRoot = vscode.Uri.joinPath(extensionUri, 'out', 'webview');
+  const csp = webview.cspSource;
+  const n = nonce();
+  const asset = (name: string) => webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, name)).toString();
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} data:; style-src ${csp} 'unsafe-inline'; font-src ${csp} data:; script-src 'nonce-${n}' ${csp} 'wasm-unsafe-eval'; worker-src blob: ${csp}; connect-src ${csp};">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="${asset('editor.css')}">
+</head>
+<body>
+<div id="root"></div>
+<script nonce="${n}">window.TWINCAT_WORKER_URL = ${JSON.stringify(asset('editor.worker.js'))};</script>
+<script nonce="${n}" src="${asset('editor.js')}"></script>
+</body>
+</html>`;
+}
+
+/** The first message of the split editor's page, apart from its sections. */
+export function editorInit(webview: vscode.Webview, extensionUri: vscode.Uri): Pick<Extract<HostMessage, { type: 'init' }>,
+  'config' | 'language' | 'theme' | 'grammarUri' | 'onigUri'> {
+  return {
+    config: editorConfig(),
+    language: languageConfig(extensionUri.fsPath),
+    theme: activeThemeTokens().rules,
+    grammarUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'syntaxes', 'twincat-st.tmLanguage.json')).toString(),
+    onigUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'onig.wasm')).toString(),
+  };
+}
+
 export class EditorSession implements vscode.Disposable {
   ready = false;
   /** Last webview edit applied to the document (or refused); syncs acknowledge it. */
@@ -249,17 +291,12 @@ export class EditorSession implements vscode.Disposable {
     this.syncs.clear();
     this.shown.clear();
     for (const s of sections) this.shown.set(s.key, s.text);
-    const webview = this.panel.webview;
     this.post({
       type: 'init',
       fileKey: this.fileKey,
       title: parsed.header.label,
       sections,
-      config: editorConfig(),
-      language: languageConfig(this.provider.extensionUri.fsPath),
-      theme: activeThemeTokens().rules,
-      grammarUri: webview.asWebviewUri(vscode.Uri.joinPath(this.provider.extensionUri, 'syntaxes', 'twincat-st.tmLanguage.json')).toString(),
-      onigUri: webview.asWebviewUri(vscode.Uri.joinPath(this.provider.extensionUri, 'out', 'webview', 'onig.wasm')).toString(),
+      ...editorInit(this.panel.webview, this.provider.extensionUri),
       ratio: this.provider.ratios.get(this.document.uri.toString()),
       changes: this.provider.changesModes.get(this.document.uri.toString()),
       first: this.provider.firstChange.delete(this.document.uri.toString()) || undefined,
@@ -560,17 +597,13 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
   }
 
   resolveCustomTextEditor(document: vscode.TextDocument, panel: vscode.WebviewPanel): void {
-    const webviewRoot = vscode.Uri.joinPath(this.extensionUri, 'out', 'webview');
     if (!parseObjectUri(document.uri)) {
       // Not an object document (another scheme with a .tcobj name): say so instead of failing to load.
       panel.webview.html = `<!DOCTYPE html><html><body style="font-family: var(--vscode-font-family); color: var(--vscode-foreground);
         padding: 16px">This TwinCAT view only shows objects opened from the TwinCAT tree. Use Reopen Editor With to open it as text.</body></html>`;
       return;
     }
-    panel.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [webviewRoot, vscode.Uri.joinPath(this.extensionUri, 'syntaxes')],
-    };
+    panel.webview.options = editorWebviewOptions(this.extensionUri);
     const session = new EditorSession(this, document, panel);
     this.sessions.add(session);
     const base = this.pendingBases.get(document.uri.toString());
@@ -596,23 +629,7 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
       }
       this.updateChangesContext();
     });
-    const csp = panel.webview.cspSource;
-    const n = nonce();
-    const asset = (name: string) => panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, name)).toString();
-    panel.webview.html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} data:; style-src ${csp} 'unsafe-inline'; font-src ${csp} data:; script-src 'nonce-${n}' ${csp} 'wasm-unsafe-eval'; worker-src blob: ${csp}; connect-src ${csp};">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="${asset('editor.css')}">
-</head>
-<body>
-<div id="root"></div>
-<script nonce="${n}">window.TWINCAT_WORKER_URL = ${JSON.stringify(asset('editor.worker.js'))};</script>
-<script nonce="${n}" src="${asset('editor.js')}"></script>
-</body>
-</html>`;
+    panel.webview.html = editorWebviewHtml(panel.webview, this.extensionUri);
   }
 
   sessionsOf(uri: vscode.Uri): EditorSession[] {

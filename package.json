@@ -2,7 +2,7 @@
   "name": "twincat-explorer",
   "displayName": "TwinCAT Explorer",
   "description": "XAE-like TwinCAT PLC project tree, an XAE-like declaration/implementation split editor and Structured Text language features",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "thanhdang",
   "private": true,
   "license": "UNLICENSED",

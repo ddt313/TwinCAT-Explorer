@@ -318,6 +318,34 @@ export function sectionOffsetToFileOffset(file: TcSourceFile, section: Section, 
   return segments[segments.length - 1].contentEnd;
 }
 
+/**
+ * Line of the file (1-based, counted like git: by LF) on which each line of a section starts: line `i` of
+ * `section.text` is on line `result[i]` of the file.
+ */
+export function sectionFileLines(file: TcSourceFile, section: Section): number[] {
+  const text = file.text;
+  const segments = section.element.cdata;
+  let pos = segments.length ? segments[0].contentStart : section.element.contentStart;
+  let line = 1;
+  for (let i = 0; i < pos; i++) if (text.charCodeAt(i) === 10) line++;
+  const out = [line];
+  for (const seg of segments) {
+    // Between two CDATA sections (TwinCAT splits `]]>` across them) the section text goes on.
+    for (; pos < seg.contentStart; pos++) if (text.charCodeAt(pos) === 10) line++;
+    for (; pos < seg.contentEnd; pos++) {
+      const c = text.charCodeAt(pos);
+      if (c === 10) {
+        line++;
+        out.push(line);
+      } else if (c === 13 && text.charCodeAt(pos + 1) !== 10) {
+        // A lone CR ends a line of the section (see normalizeEol), not one of git.
+        out.push(line);
+      }
+    }
+  }
+  return out;
+}
+
 /** Object containing the given file offset (deepest member first). */
 export function objectAtOffset(file: TcSourceFile, offset: number): TcObject | undefined {
   let best: TcObject | undefined;

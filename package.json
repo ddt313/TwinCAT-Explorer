@@ -138,6 +138,13 @@
           "icon": "media/twincat.svg",
           "contextualTitle": "TwinCAT",
           "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "id": "twincatExplorer.history",
+          "name": "TwinCAT History",
+          "icon": "media/twincat.svg",
+          "contextualTitle": "TwinCAT",
+          "when": "twincatExplorer.hasProjects"
         }
       ]
     },
@@ -289,6 +296,56 @@
         "icon": "$(go-to-file)"
       },
       {
+        "command": "twincatExplorer.history.show",
+        "title": "Show History",
+        "category": "TwinCAT",
+        "icon": "$(history)"
+      },
+      {
+        "command": "twincatExplorer.history.refresh",
+        "title": "Refresh",
+        "category": "TwinCAT History",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "twincatExplorer.history.pin",
+        "title": "Pin to This Object",
+        "category": "TwinCAT History",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "twincatExplorer.history.unpin",
+        "title": "Unpin (Follow the Active Editor)",
+        "category": "TwinCAT History",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "twincatExplorer.history.open",
+        "title": "Open Changes",
+        "category": "TwinCAT History"
+      },
+      {
+        "command": "twincatExplorer.history.openWorking",
+        "title": "Open Changes",
+        "category": "TwinCAT History"
+      },
+      {
+        "command": "twincatExplorer.history.compareWithWorking",
+        "title": "Compare with Working Version",
+        "category": "TwinCAT History",
+        "icon": "$(compare-changes)"
+      },
+      {
+        "command": "twincatExplorer.history.loadMore",
+        "title": "Load More",
+        "category": "TwinCAT History"
+      },
+      {
+        "command": "twincatExplorer.toggleBlame",
+        "title": "Toggle Line Blame",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.goToObject",
         "title": "Go to Object...",
         "category": "TwinCAT"
@@ -406,6 +463,42 @@
         {
           "command": "twincatExplorer.commitDiff.openCurrent",
           "when": "activeWebviewPanelId == twincatExplorer.commitDiff"
+        },
+        {
+          "command": "twincatExplorer.history.show",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.history.refresh",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.history.pin",
+          "when": "twincatExplorer.hasProjects && !twincatExplorer.historyPinned"
+        },
+        {
+          "command": "twincatExplorer.history.unpin",
+          "when": "twincatExplorer.hasProjects && twincatExplorer.historyPinned"
+        },
+        {
+          "command": "twincatExplorer.history.open",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.history.openWorking",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.history.compareWithWorking",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.history.loadMore",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.toggleBlame",
+          "when": "twincatExplorer.hasProjects"
         }
       ],
       "view/title": [
@@ -443,6 +536,21 @@
           "command": "twincatExplorer.commits.refresh",
           "when": "view == twincatExplorer.commits",
           "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.history.pin",
+          "when": "view == twincatExplorer.history && !twincatExplorer.historyPinned",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.history.unpin",
+          "when": "view == twincatExplorer.history && twincatExplorer.historyPinned",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.history.refresh",
+          "when": "view == twincatExplorer.history",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -465,6 +573,11 @@
           "command": "twincatExplorer.compareWithRef",
           "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
           "group": "navigation@4"
+        },
+        {
+          "command": "twincatExplorer.history.show",
+          "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
+          "group": "navigation@5"
         },
         {
           "command": "twincatExplorer.copyName",
@@ -510,6 +623,41 @@
           "command": "twincatExplorer.commits.copyMessage",
           "when": "view == twincatExplorer.commits && viewItem =~ /^commit/",
           "group": "9_copy@2"
+        },
+        {
+          "command": "twincatExplorer.history.show",
+          "when": "view == twincatExplorer.changes && viewItem =~ /^view/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.history.show",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^view/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.history.compareWithWorking",
+          "when": "view == twincatExplorer.history && viewItem =~ /compare/",
+          "group": "inline@1"
+        },
+        {
+          "command": "twincatExplorer.history.compareWithWorking",
+          "when": "view == twincatExplorer.history && viewItem =~ /compare/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.history.show",
+          "when": "view == twincatExplorer.history && viewItem =~ /^view/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.commits.copySha",
+          "when": "view == twincatExplorer.history && viewItem =~ /^commit/",
+          "group": "9_copy@1"
+        },
+        {
+          "command": "twincatExplorer.commits.copyMessage",
+          "when": "view == twincatExplorer.history && viewItem =~ /^commit/",
+          "group": "9_copy@2"
         }
       ],
       "editor/title": [
@@ -534,6 +682,11 @@
           "group": "navigation@91"
         },
         {
+          "command": "twincatExplorer.history.show",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
+          "group": "navigation@92"
+        },
+        {
           "command": "twincatExplorer.openChanges",
           "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
           "group": "1_twincat@1"
@@ -542,6 +695,11 @@
           "command": "twincatExplorer.commitDiff.openCurrent",
           "when": "activeWebviewPanelId == twincatExplorer.commitDiff",
           "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.history.show",
+          "when": "activeWebviewPanelId == twincatExplorer.commitDiff",
+          "group": "navigation@2"
         }
       ],
       "editor/title/context": [
@@ -634,6 +792,11 @@
           "type": "string",
           "default": "**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**",
           "description": "Glob of folders ignored when searching for .tsproj files. Folders whose name starts with a dot (for example .claude/worktrees) are always ignored."
+        },
+        "twincatExplorer.blame.currentLine": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show at the end of the current line of the split editor who last changed it, when, and the commit message (like GitLens' current line blame). A click shows the commit's changes of the object."
         }
       }
     },

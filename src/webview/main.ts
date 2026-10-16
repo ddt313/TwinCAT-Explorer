@@ -8,9 +8,10 @@
 import * as monacoAll from 'monaco-editor/esm/vs/editor/edcore.main.js';
 import type * as Monaco from 'monaco-editor';
 import {
-  CompletionResult, EditorConfig, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction, ProbeState,
-  RequestKind, SectionRef, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
+  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
+  ProbeState, RequestKind, SectionBlame, SectionRef, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
+import { relativeTime } from '../shared/time';
 import { TextMateHighlighter, parseColor, toHex } from './textmate';
 // Internal Monaco services: the public registerEditorOpener can only answer with the source editor, which
 // makes Monaco highlight, reveal and move peek views in the wrong pane.
@@ -101,6 +102,17 @@ interface Pane {
   diff?: { editor: Monaco.editor.IStandaloneDiffEditor; host: HTMLElement; collapsed: boolean };
   /** "2 changes vs HEAD", shown over the pane while the changes are shown. */
   label: HTMLElement;
+  /** Line blame of the section as it is on disk: the text it was computed on, and the commit of each line. */
+  blame?: SectionBlame;
+  /** Line changes from the blamed text to the pane's text, for the model version they were computed on. */
+  blameDiff?: { version: number; changes: Change[] };
+  /** The blame annotation of the current line, on the editor it was put on. */
+  blameMarks?: Monaco.editor.IEditorDecorationsCollection;
+  blameEditor?: Monaco.editor.ICodeEditor;
+  blameShown?: { line: number; commit: BlameCommitInfo };
+  blameTimer?: number;
+  /** Time of the last change of the text: the annotation comes back once typing pauses. */
+  typedAt: number;
 }
 
 interface ModelInfo {
@@ -141,6 +153,16 @@ let changesMode = false;
 let wantChanges = false;
 /** Go to the first change once the diffs show. */
 let wantFirst = false;
+/** The blame annotation of the current line is turned on (and the blame came). */
+let blameOn = false;
+/** Commits of the line blame, which SectionBlame.lines index. */
+let blameCommits: BlameCommitInfo[] = [];
+/** The pointer is over a blame annotation: the language hover keeps away from it. */
+let pointerOnBlame = false;
+/** A line changed since the file was blamed (not saved yet, or saved and about to be blamed again). */
+const NOT_COMMITTED: BlameCommitInfo = { sha: '', author: '', you: true, time: 0, summary: 'Uncommitted changes', uncommitted: true };
+/** Wait after the last keystroke before the annotation shows again. */
+const TYPING_PAUSE = 800;
 
 function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextModel, offset: number, includeDeclaration?: boolean): Promise<T | null> {
   const id = ++requestId;
@@ -321,7 +343,8 @@ function registerProviders(): void {
   monaco.languages.registerHoverProvider(LANG, {
     async provideHover(model, position) {
       const pane = ownPane(model);
-      if (!pane) return null;
+      // Over the blame annotation the hover is the commit's (its decoration's), not the word's at the line end.
+      if (!pane || pointerOnBlame) return null;
       const h = await request<HoverResult>('hover', pane.section.key, model, model.getOffsetAt(position));
       if (!h) return null;
       return { contents: [{ value: h.markdown }], range: rangeOf(model, h.start, h.end) };
@@ -517,10 +540,15 @@ function createPane(section: PaneSection): Pane {
   const editor = monaco.editor.create(host, { ...editorOptions(section), model });
   const pane: Pane = {
     section, model, standalone: editor, editor, element, host, markers: 0, baseNew: false, changes: [],
-    changeMarks: editor.createDecorationsCollection(), label,
+    changeMarks: editor.createDecorationsCollection(), label, typedAt: 0,
   };
   model.onDidChangeContent(e => {
     scheduleChanges(pane);
+    // The annotation does not ride along while the line is typed in.
+    pane.typedAt = Date.now();
+    pane.blameMarks?.clear();
+    pane.blameShown = undefined;
+    scheduleBlame(pane);
     if (applyingRemote) return;
     seq++;
     lastSeqOf.set(section.key, seq);
@@ -530,7 +558,7 @@ function createPane(section: PaneSection): Pane {
       text: model.getValue(),
     });
   });
-  editor.onDidFocusEditorText(() => focused(pane));
+  wireEditor(pane, editor);
   // A left click on a change marker shows the changes, at that change. The folding arrows share the column,
   // so only a click on the bar itself counts (like VS Code's change markers).
   editor.onMouseDown(e => {
@@ -546,9 +574,145 @@ function createPane(section: PaneSection): Pane {
   return pane;
 }
 
+/** Focus, cursor and mouse handling of an editor a pane shows (its own one, or the modified side of its diff). */
+function wireEditor(pane: Pane, editor: Monaco.editor.ICodeEditor): void {
+  editor.onDidFocusEditorText(() => focused(pane));
+  editor.onDidChangeCursorPosition(() => scheduleBlame(pane));
+  editor.onMouseMove(e => {
+    pointerOnBlame = isBlameElement(e.event.browserEvent.target);
+  });
+  editor.onMouseLeave(() => {
+    pointerOnBlame = false;
+  });
+  // A click on the blame annotation shows what its commit changed in this object.
+  editor.onMouseDown(e => {
+    if (e.event.leftButton && isBlameElement(e.event.browserEvent.target)) openBlame(pane);
+  });
+}
+
 function focused(pane: Pane): void {
+  const before = lastFocused;
   lastFocused = pane.section.key;
   post({ type: 'focus', key: pane.section.key });
+  // The annotation moves to the pane edited now.
+  if (before !== lastFocused) for (const p of panes) scheduleBlame(p, p === pane ? 0 : undefined);
+}
+
+// ------------------------------------------------------------------ line blame
+
+function isBlameElement(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest('.tc-blame');
+}
+
+function escapeMarkdown(text: string): string {
+  return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, m => `\\${m}`);
+}
+
+/** The commit that last changed a line (1-based) of a pane as the pane shows it now; undefined when unknown. */
+function blameAt(pane: Pane, line: number): BlameCommitInfo | undefined {
+  const b = pane.blame;
+  if (!b) return undefined;
+  let blamedLine = line;
+  if (pane.model.getValue() !== b.text) {
+    // Edited since the file was blamed: lines in changed blocks are not committed, the others moved with them.
+    const version = pane.model.getVersionId();
+    if (pane.blameDiff?.version !== version) {
+      const changes = diffComputer.computeDiff(b.text.split('\n'), pane.model.getLinesContent(),
+        { ignoreTrimWhitespace: false, maxComputationTimeMs: 200, computeMoves: false }).changes;
+      pane.blameDiff = { version, changes };
+    }
+    let delta = 0;
+    for (const c of pane.blameDiff!.changes) {
+      if (line < c.modified.startLineNumber) break;
+      if (line < c.modified.endLineNumberExclusive) return NOT_COMMITTED;
+      delta = c.original.endLineNumberExclusive - c.modified.endLineNumberExclusive;
+    }
+    blamedLine = line + delta;
+  }
+  const index = b.lines[blamedLine - 1];
+  return index === undefined || index < 0 ? undefined : blameCommits[index];
+}
+
+/** `You, 2 days ago • Fix the purge timer`, like GitLens' current line blame. */
+function blameText(c: BlameCommitInfo): string {
+  if (c.uncommitted) return 'You • Uncommitted changes';
+  const summary = c.summary.length > 60 ? `${c.summary.slice(0, 59)}…` : c.summary;
+  return `${c.you ? 'You' : c.author}, ${relativeTime(c.time)} • ${summary}`;
+}
+
+/** The commands the links of the blame hover may run (commit messages are escaped, and only these run anyway). */
+const BLAME_LINKS = { enabledCommands: ['twincat.blame.open', 'twincat.blame.history', 'twincat.blame.showChanges'] };
+
+function blameHover(c: BlameCommitInfo): Monaco.IMarkdownString {
+  if (c.uncommitted) {
+    const show = baseState === 'available' ? `\n\n[Show Changes](command:twincat.blame.showChanges "Show the changes vs ${escapeMarkdown(baseLabel)}")` : '';
+    return { value: `**Uncommitted changes**\n\nThis line is not committed yet.${show}`, isTrusted: BLAME_LINKS };
+  }
+  const date = new Date(c.time * 1000).toLocaleString();
+  const args = encodeURIComponent(JSON.stringify([c.sha]));
+  return {
+    value: `**${escapeMarkdown(c.author)}**${c.you ? ' (you)' : ''}, ${relativeTime(c.time)} (${escapeMarkdown(date)})\n\n`
+      + `${escapeMarkdown(c.summary)}\n\n`
+      + `\`${c.sha.slice(0, 7)}\` · [Open Changes](command:twincat.blame.open?${args} "Show what this commit changed in this object")`
+      + ` · [Show History](command:twincat.blame.history "Show the commits that changed this object")`,
+    isTrusted: BLAME_LINKS,
+  };
+}
+
+function scheduleBlame(pane: Pane, delay = 120): void {
+  window.clearTimeout(pane.blameTimer);
+  const wait = Math.max(delay, pane.typedAt + TYPING_PAUSE - Date.now());
+  pane.blameTimer = window.setTimeout(() => updateBlame(pane), wait);
+}
+
+/** Shows the blame of the cursor's line at the end of that line, in the pane edited last only. */
+function updateBlame(pane: Pane): void {
+  window.clearTimeout(pane.blameTimer);
+  pane.blameTimer = undefined;
+  if (pane.blameEditor !== pane.editor) {
+    // The pane switched between its own editor and its diff: the annotation goes to the one shown.
+    pane.blameMarks?.clear();
+    pane.blameMarks = pane.editor.createDecorationsCollection();
+    pane.blameEditor = pane.editor;
+  }
+  const position = pane.editor.getPosition();
+  const commit = blameOn && position && pane.section.key === lastFocused ? blameAt(pane, position.lineNumber) : undefined;
+  if (!commit || !position) {
+    pane.blameMarks!.clear();
+    pane.blameShown = undefined;
+    return;
+  }
+  const line = position.lineNumber;
+  const column = pane.model.getLineMaxColumn(line);
+  pane.blameMarks!.set([{
+    range: new monaco.Range(line, column, line, column),
+    options: {
+      showIfCollapsed: true,
+      hoverMessage: blameHover(commit),
+      after: { content: blameText(commit), inlineClassName: 'tc-blame', cursorStops: monaco.editor.InjectedTextCursorStops.None },
+    },
+  }]);
+  pane.blameShown = { line, commit };
+}
+
+/** The click on an annotation: what its commit changed in this object, or the uncommitted changes. */
+function openBlame(pane: Pane): void {
+  const shown = pane.blameShown;
+  if (!shown) return;
+  if (!shown.commit.uncommitted) post({ type: 'blameOpen', sha: shown.commit.sha });
+  else if (baseState === 'available') setChangesMode(true, { pane, line: shown.line });
+}
+
+/** Line blame from the host (when the split editor opens, after the file changed on disk, after a commit). */
+function applyBlame(m: Extract<HostMessage, { type: 'blame' }>): void {
+  blameOn = m.enabled;
+  blameCommits = m.commits;
+  const byKey = new Map(m.sections.map(s => [s.key, s]));
+  for (const p of panes) {
+    p.blame = byKey.get(p.section.key);
+    p.blameDiff = undefined;
+    updateBlame(p);
+  }
 }
 
 // ------------------------------------------------------------------ changes vs HEAD
@@ -692,11 +856,12 @@ function enterDiff(pane: Pane): void {
   editor.setModel({ original: pane.base, modified: pane.model });
   pane.diff = { editor, host, collapsed };
   const modified = editor.getModifiedEditor();
-  modified.onDidFocusEditorText(() => focused(pane));
+  wireEditor(pane, modified);
   pane.editor = modified;
   editor.layout();
   if (state) modified.restoreViewState(state);
   if (hadFocus) modified.focus();
+  updateBlame(pane);
 }
 
 /** Back to the pane's own editor, where the diff left the cursor and scroll position. */
@@ -712,6 +877,7 @@ function leaveDiff(pane: Pane): void {
   pane.standalone.layout();
   if (state) pane.standalone.restoreViewState(state);
   if (hadFocus) pane.standalone.focus();
+  updateBlame(pane);
 }
 
 /** Shows or hides the changes in every pane, optionally at a change of one pane or at the first changes. */
@@ -770,6 +936,15 @@ function registerKeybindings(): void {
   monaco.editor.registerCommand('editor.action.quickCommand', () => post({ type: 'command', command: 'workbench.action.showCommands' }));
   monaco.editor.registerCommand('twincat.nextChange', () => goToChange(true));
   monaco.editor.registerCommand('twincat.previousChange', () => goToChange(false));
+  // Links of the blame hover.
+  monaco.editor.registerCommand('twincat.blame.open', (_accessor: unknown, sha: unknown) => {
+    if (typeof sha === 'string') post({ type: 'blameOpen', sha });
+  });
+  monaco.editor.registerCommand('twincat.blame.history', () => post({ type: 'showHistory' }));
+  monaco.editor.registerCommand('twincat.blame.showChanges', () => {
+    const pane = panes.find(p => p.section.key === lastFocused);
+    setChangesMode(true, pane?.blameShown ? { pane, line: pane.blameShown.line } : undefined);
+  });
   const rules: Monaco.editor.IKeybindingRule[] = [
     { keybinding: monaco.KeyCode.F1, command: 'twincat.showCommands' },
     { keybinding: monaco.KeyMod.Alt | monaco.KeyCode.F5, command: 'twincat.nextChange' },
@@ -822,6 +997,7 @@ function init(m: Extract<HostMessage, { type: 'init' }>): void {
   providersRegistered = true;
   for (const p of panes) {
     window.clearTimeout(p.changeTimer);
+    window.clearTimeout(p.blameTimer);
     p.diff?.editor.dispose();
     p.standalone.dispose();
     p.base?.dispose();
@@ -833,6 +1009,10 @@ function init(m: Extract<HostMessage, { type: 'init' }>): void {
   // The HEAD texts follow this message; the changes shown before come back with them.
   baseState = 'pending';
   changesMode = false;
+  // So does the line blame (the split editor's; the commit diff panel has none).
+  blameOn = false;
+  blameCommits = [];
+  pointerOnBlame = false;
   // The host's request (TwinCAT Changes view, a rebuilt webview) before what this webview saved.
   wantChanges = m.changes ?? saved.changes ?? wantChanges;
   wantFirst = wantChanges && !!m.first;
@@ -915,6 +1095,28 @@ function focusForTest(pane: Pane): void {
   if (!pane.editor.hasTextFocus()) inputOf(pane)?.dispatchEvent(new FocusEvent('focus'));
 }
 
+/** Clicks the rendered blame annotation of a pane the way the mouse does; false when it is not rendered. */
+async function clickBlame(pane: Pane): Promise<boolean> {
+  let el: HTMLElement | null = null;
+  // Decorations render at the next animation frame.
+  for (let i = 0; i < 40 && !el; i++) {
+    el = pane.editor.getDomNode()?.querySelector<HTMLElement>('.tc-blame') ?? null;
+    if (!el) await new Promise(r => setTimeout(r, 50));
+  }
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  const init: PointerEventInit = {
+    bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+    button: 0, buttons: 1, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+  };
+  // What a mouse click sends; Monaco's desktop mouse handler acts on mousedown.
+  el.dispatchEvent(new PointerEvent('pointerdown', init));
+  el.dispatchEvent(new MouseEvent('mousedown', init));
+  el.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+  el.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
+  return true;
+}
+
 /** The element that takes the keyboard input of the editor a pane shows. */
 function inputOf(pane: Pane): HTMLElement | null {
   return pane.editor.getDomNode()?.querySelector('.native-edit-context, textarea') ?? null;
@@ -944,6 +1146,7 @@ function probe(action: ProbeAction): unknown {
           diff: !!p.diff,
           diffChanges: p.diff?.editor.getLineChanges()?.length ?? -1,
           label: p.label.style.display === 'none' ? undefined : p.label.textContent ?? undefined,
+          blame: p.blameShown ? blameText(p.blameShown.commit) : undefined,
         })),
         foreignModels: [...models.values()].filter(i => i.ref).map(i => i.ref!.view.label),
         errors,
@@ -1019,6 +1222,24 @@ function probe(action: ProbeAction): unknown {
       (pane.diff.editor as unknown as { revertFocusedRangeMappings(): void }).revertFocusedRangeMappings();
       return true;
     }
+    case 'blame':
+    case 'blameClick': {
+      const pane = panes.find(p => p.section.key === action.key);
+      if (!pane) return null;
+      pane.editor.setPosition({ lineNumber: action.line, column: 1 });
+      focusForTest(pane);
+      // The browser may not report the focus to a window without the OS focus.
+      lastFocused = pane.section.key;
+      for (const p of panes) updateBlame(p);
+      const shown = pane.blameShown;
+      const result: BlameProbe = {
+        text: shown ? blameText(shown.commit) : null,
+        sha: shown?.commit.sha || null,
+        hover: shown ? blameHover(shown.commit).value : null,
+      };
+      if (action.kind === 'blame') return result;
+      return clickBlame(pane).then(clicked => ({ ...result, clicked }));
+    }
   }
 }
 
@@ -1086,6 +1307,9 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       case 'base':
         applyBase(m);
         break;
+      case 'blame':
+        applyBlame(m);
+        break;
       case 'setChanges':
         setChangesMode(m.on, undefined, m.first);
         break;
@@ -1141,6 +1365,9 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 .monaco-editor .tc-change-deleted.tc-change-top::after { bottom: auto; top: -4px; }
 .changes-label { position: absolute; top: 3px; right: 24px; z-index: 20; pointer-events: none; padding: 1px 6px; border-radius: 2px;
   font: 11px var(--vscode-font-family); color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); opacity: 0.9; }
+/* Blame of the current line, after its end (like GitLens' current line blame). */
+.monaco-editor .view-line .tc-blame { color: var(--vscode-editorCodeLens-foreground, #999999) !important; opacity: 0.8; font-style: italic;
+  margin-left: 3em; cursor: pointer; }
 `;
 document.head.appendChild(style);
 

@@ -6,17 +6,40 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { BlameCommit, CommitInfo, FileLogEntry, blameArgs, fileLogArgs, parseBlame, parseFileLog } from '../core/gitLog';
 import { fileKey } from '../core/workspace';
 import { INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri } from './uris';
 
+export type { CommitInfo } from '../core/gitLog';
+
+// English messages: errors are recognised by their text (like the built-in git extension does).
+const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' };
+
 function git(args: string[], cwd: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    // English messages: errors are recognised by their text (like the built-in git extension does).
-    const env = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' };
-    cp.execFile('git', args, { cwd, env, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+    cp.execFile('git', args, { cwd, env: GIT_ENV, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       if (err) reject(new Error(Buffer.from(stderr).toString('utf8').trim() || err.message));
       else resolve(stdout);
     });
+  });
+}
+
+/** Runs git with `input` on its standard input. */
+function gitWithInput(args: string[], cwd: string, input: Buffer | string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = cp.spawn('git', args, { cwd, env: GIT_ENV, windowsHide: true });
+    const chunks: Buffer[] = [];
+    let stderr = '';
+    child.stdout.on('data', (d: Buffer) => chunks.push(d));
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve(Buffer.concat(chunks));
+      else reject(new Error(stderr.trim() || `git ${args.find(a => !a.startsWith('-'))} exited with ${code}`));
+    });
+    // git may stop reading early (an unknown path): the write then fails, and the exit code tells why.
+    child.stdin.on('error', () => undefined);
+    child.stdin.end(input);
   });
 }
 
@@ -73,7 +96,8 @@ export async function verifyRef(fsPath: string, ref: string): Promise<boolean> {
   }
 }
 
-async function existsAt(fsPath: string, ref: string): Promise<boolean> {
+/** True when the file is in that commit (at its current path). */
+export async function existsAt(fsPath: string, ref: string): Promise<boolean> {
   const cwd = existingDir(fsPath);
   try {
     await git(['cat-file', '-e', specOf(ref, relFrom(cwd, fsPath))], cwd);
@@ -270,18 +294,6 @@ export async function restoreFromHead(fsPath: string): Promise<void> {
   await git(['restore', '--source=HEAD', '--staged', '--worktree', '--', relFrom(cwd, fsPath)], cwd);
 }
 
-export interface CommitInfo {
-  sha: string;
-  /** Parent commits; the first one is what the commit's changes are shown against. */
-  parents: string[];
-  author: string;
-  email: string;
-  /** Author date, seconds since 1970. */
-  date: number;
-  subject: string;
-  body: string;
-}
-
 /**
  * Commits reachable from HEAD that change files with the given extensions, newest first: `count` of them
  * after skipping `skip`.
@@ -324,46 +336,61 @@ export async function commitChanges(root: string, commit: string, parent: string
  * Contents of several `<commit>:<path>` blobs read by one git process (a commit with a hundred files would
  * otherwise start two hundred); undefined for one that does not exist.
  */
-export function readBlobs(root: string, specs: string[]): Promise<(Buffer | undefined)[]> {
-  if (specs.length === 0) return Promise.resolve([]);
-  return new Promise((resolve, reject) => {
-    const env = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' };
-    const child = cp.spawn('git', ['cat-file', '--batch'], { cwd: root, env, windowsHide: true });
-    const chunks: Buffer[] = [];
-    let stderr = '';
-    child.stdout.on('data', (d: Buffer) => chunks.push(d));
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
-    child.on('error', reject);
-    child.on('close', code => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `git cat-file exited with ${code}`));
-        return;
-      }
-      // Per object: `<id> <type> <size>\n<content>\n`, or `<name> missing\n`.
-      const out = Buffer.concat(chunks);
-      const result: (Buffer | undefined)[] = [];
-      let pos = 0;
-      for (let i = 0; i < specs.length; i++) {
-        const nl = out.indexOf(0x0a, pos);
-        if (nl < 0) {
-          reject(new Error('git cat-file: the output ended early'));
-          return;
-        }
-        const header = out.toString('utf8', pos, nl);
-        pos = nl + 1;
-        const m = /^[0-9a-f]+ (\S+) (\d+)$/.exec(header);
-        if (!m) {
-          result.push(undefined);
-          continue;
-        }
-        const size = Number(m[2]);
-        result.push(m[1] === 'blob' ? out.subarray(pos, pos + size) : undefined);
-        pos += size + 1;
-      }
-      resolve(result);
-    });
-    child.stdin.end(specs.join('\n') + '\n');
-  });
+export async function readBlobs(root: string, specs: string[]): Promise<(Buffer | undefined)[]> {
+  if (specs.length === 0) return [];
+  const out = await gitWithInput(['cat-file', '--batch'], root, specs.join('\n') + '\n');
+  // Per object: `<id> <type> <size>\n<content>\n`, or `<name> missing\n`.
+  const result: (Buffer | undefined)[] = [];
+  let pos = 0;
+  for (let i = 0; i < specs.length; i++) {
+    const nl = out.indexOf(0x0a, pos);
+    if (nl < 0) throw new Error('git cat-file: the output ended early');
+    const header = out.toString('utf8', pos, nl);
+    pos = nl + 1;
+    const m = /^[0-9a-f]+ (\S+) (\d+)$/.exec(header);
+    if (!m) {
+      result.push(undefined);
+      continue;
+    }
+    const size = Number(m[2]);
+    result.push(m[1] === 'blob' ? out.subarray(pos, pos + size) : undefined);
+    pos += size + 1;
+  }
+  return result;
+}
+
+/** The commits of HEAD that changed a file (repository-relative path), newest first (see fileLogArgs). */
+export async function fileLog(root: string, relPath: string): Promise<FileLogEntry[]> {
+  return parseFileLog((await git(fileLogArgs(relPath), root)).toString('utf8'));
+}
+
+/** The first parent of a commit; undefined for the first commit of a repository. */
+export async function firstParent(root: string, sha: string): Promise<string | undefined> {
+  try {
+    return (await git(['rev-parse', '--verify', '--quiet', `${sha}^1`], root)).toString('utf8').trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The commit of each blamed line (1-based line numbers), and the commits. */
+export interface BlameResult {
+  lines: Map<number, string>;
+  commits: Map<string, BlameCommit>;
+}
+
+/** `git blame` of line ranges of a file as it is in a commit, at its repository-relative path there (see blameArgs). */
+export async function blameLines(root: string, commit: string, relPath: string, ranges: [number, number][]): Promise<BlameResult> {
+  return parseBlame((await git(blameArgs(commit, relPath, ranges), root)).toString('utf8'));
+}
+
+/**
+ * Repository-relative path in a commit of the file now at `fsPath`: its own, another one when it was moved
+ * since (not committed yet), or undefined for a file that is not in that commit.
+ */
+export async function pathAt(root: string, fsPath: string, ref: string): Promise<string | undefined> {
+  if (await existsAt(fsPath, ref)) return path.relative(root, fsPath).split(path.sep).join('/');
+  return originalPath(fsPath, ref, false);
 }
 
 /** Commits of HEAD that no remote-tracking branch has (not pushed yet). */

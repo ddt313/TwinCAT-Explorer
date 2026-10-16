@@ -14,13 +14,14 @@ import { CommitInfo, commitChanges, commitLog, localOnlyCommits, openNotebookDif
 import { GitChanges } from './gitChanges';
 import { objectIcon, objectTreeLabel } from './tree';
 import { SOURCE_EXTENSIONS, isSourcePath } from './uris';
+import { relativeTime } from '../shared/time';
 
 const PAGE = 30;
 const EXTENSIONS = [...SOURCE_EXTENSIONS, '.tsproj', '.plcproj'];
 
 type Status = 'M' | 'A' | 'D' | 'R';
 
-const KIND_WORD: Record<ObjectKind, string> = {
+export const KIND_WORD: Record<ObjectKind, string> = {
   pou: 'POU', method: 'Method', property: 'Property', action: 'Action', transition: 'Transition',
   dut: 'DUT', gvl: 'GVL', itf: 'Interface',
 };
@@ -41,17 +42,6 @@ export class CommitNode {
   parent?: CommitNode;
 
   constructor(readonly id: string, readonly type: 'commit' | 'file' | 'view' | 'other' | 'more', public label: string) {}
-}
-
-/** `3 days ago`, like GitLens. */
-export function relativeTime(seconds: number, now = Date.now() / 1000): string {
-  const s = Math.max(0, now - seconds);
-  const steps: [number, string][] = [[31536000, 'year'], [2592000, 'month'], [604800, 'week'], [86400, 'day'], [3600, 'hour'], [60, 'minute']];
-  for (const [size, unit] of steps) {
-    const n = Math.floor(s / size);
-    if (n >= 1) return `${n} ${unit}${n === 1 ? '' : 's'} ago`;
-  }
-  return 'just now';
 }
 
 export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.Disposable {
@@ -176,17 +166,7 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     const n = new CommitNode(`commit:${c.sha}`, 'commit', c.subject || '(no message)');
     n.commit = c;
     n.root = this.root;
-    const local = this.local.has(c.sha);
-    n.description = `${c.email && c.email === this.me ? 'You' : c.author}, ${relativeTime(c.date)}`;
-    n.icon = local
-      ? new vscode.ThemeIcon('arrow-up', new vscode.ThemeColor('gitDecoration.addedResourceForeground'))
-      : new vscode.ThemeIcon('git-commit');
-    const md = new vscode.MarkdownString();
-    md.appendMarkdown(`**${escapeMarkdown(c.subject)}**\n\n`);
-    if (c.body) md.appendText(`${c.body}\n\n`);
-    md.appendMarkdown(`${escapeMarkdown(c.author)} · ${new Date(c.date * 1000).toLocaleString()} · \`${c.sha.slice(0, 7)}\``);
-    if (local) md.appendMarkdown(' · not pushed');
-    n.tooltip = md;
+    Object.assign(n, describeCommit(c, this.local.has(c.sha), this.me));
     return n;
   }
 
@@ -345,6 +325,27 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
   }
 }
 
-function escapeMarkdown(text: string): string {
+export function escapeMarkdown(text: string): string {
   return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, m => `\\${m}`);
+}
+
+/**
+ * Description (`You, 2 days ago`), icon (an arrow for a commit not pushed yet) and tooltip of a commit in a
+ * tree view; `more` adds lines to the tooltip.
+ */
+export function describeCommit(c: CommitInfo, local: boolean, me: string, more: string[] = []):
+  { description: string; icon: vscode.ThemeIcon; tooltip: vscode.MarkdownString } {
+  const md = new vscode.MarkdownString();
+  md.appendMarkdown(`**${escapeMarkdown(c.subject)}**\n\n`);
+  if (c.body) md.appendText(`${c.body}\n\n`);
+  for (const line of more) md.appendMarkdown(`${line}\n\n`);
+  md.appendMarkdown(`${escapeMarkdown(c.author)} · ${new Date(c.date * 1000).toLocaleString()} · \`${c.sha.slice(0, 7)}\``);
+  if (local) md.appendMarkdown(' · not pushed');
+  return {
+    description: `${c.email && c.email === me ? 'You' : c.author}, ${relativeTime(c.date)}`,
+    icon: local
+      ? new vscode.ThemeIcon('arrow-up', new vscode.ThemeColor('gitDecoration.addedResourceForeground'))
+      : new vscode.ThemeIcon('git-commit'),
+    tooltip: md,
+  };
 }

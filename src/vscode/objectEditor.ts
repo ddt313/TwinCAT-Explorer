@@ -17,6 +17,8 @@ import { LanguageFeatures } from './language';
 import { LocationService, rangeIn } from './locations';
 import { activeThemeTokens } from './theme';
 import { debugLog } from '../core/debugLog';
+import { BlameCommit, isUncommitted } from '../core/gitLog';
+import { BlameService, ViewBlame } from './blame';
 import { GitChanges } from './gitChanges';
 import { ObjectRef, locUriOf, parseObjectUri } from './uris';
 import {
@@ -46,6 +48,8 @@ export interface CompareBase {
   ref: string;
   label: string;
   mergeBase?: boolean;
+  /** Repository-relative path of the file in `ref`, when known (else renames since are looked up). */
+  path?: string;
 }
 
 export const HEAD_BASE: CompareBase = { ref: 'HEAD', label: 'HEAD' };
@@ -190,6 +194,10 @@ export class EditorSession implements vscode.Disposable {
   baseAvailable: boolean | undefined;
   private baseRequest = 0;
   private baseSent: Promise<void> = Promise.resolve();
+  /** The line blame sent last (a click on an annotation opens one of its commits). */
+  blame: ViewBlame | undefined;
+  private blameRequest = 0;
+  private blameTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly provider: ObjectEditorProvider, readonly document: vscode.TextDocument, readonly panel: vscode.WebviewPanel) {
     this.ref = parseObjectUri(document.uri)!;
@@ -269,6 +277,14 @@ export class EditorSession implements vscode.Disposable {
         resolve?.(m.result);
         return Promise.resolve();
       }
+      case 'blameOpen': {
+        const commit = this.blame?.commits.find(c => c.sha === m.sha);
+        if (commit && this.blame) void this.provider.openBlame?.(this, this.blame.root, commit);
+        return Promise.resolve();
+      }
+      case 'showHistory':
+        void this.provider.showHistory?.(this.ref);
+        return Promise.resolve();
       case 'error':
         this.provider.log?.(`Split editor webview: ${m.message}`);
         return Promise.resolve();
@@ -310,6 +326,43 @@ export class EditorSession implements vscode.Disposable {
     this.provider.scheduleDiagnostics(this.document, 50);
     // Not awaited: git can take a moment, and the edits queued behind this must not wait for it.
     this.baseSent = this.sendBase();
+    void this.sendBlame();
+  }
+
+  /** Blames the panes' lines again soon (HEAD moved). */
+  scheduleBlame(delay = 400): void {
+    if (this.blameTimer) clearTimeout(this.blameTimer);
+    this.blameTimer = setTimeout(() => {
+      this.blameTimer = undefined;
+      void this.sendBlame();
+    }, delay);
+  }
+
+  /** Sends the line blame of the sections as they are in HEAD (or that it is turned off). */
+  sendBlame(): Promise<void> {
+    const id = ++this.blameRequest;
+    const parsed = this.parse();
+    if (!parsed || !this.ready || this.disposed) return Promise.resolve();
+    const service = this.provider.blame;
+    if (!service || !blameEnabled()) {
+      this.blame = undefined;
+      this.post({ type: 'blame', enabled: false, sections: [], commits: [] });
+      return Promise.resolve();
+    }
+    return (async () => {
+      const blame = await service.blameView(this.ref.fsPath, parsed.sections.map(s => s.key));
+      if (id !== this.blameRequest || this.disposed) return;
+      this.blame = blame;
+      this.post({
+        type: 'blame',
+        enabled: true,
+        sections: blame?.sections ?? [],
+        commits: (blame?.commits ?? []).map(c => ({
+          sha: c.sha, author: c.author, you: !!c.email && c.email === blame?.me, time: c.time, summary: c.summary,
+          uncommitted: isUncommitted(c.sha),
+        })),
+      });
+    })().catch(e => this.provider.log?.(`Split editor: git blame of ${path.basename(this.ref.fsPath)} failed: ${(e as Error).message}`));
   }
 
   /** Sends the base texts of the sections (HEAD by default), which the panes mark their changes against. */
@@ -542,8 +595,14 @@ export class EditorSession implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true;
+    if (this.blameTimer) clearTimeout(this.blameTimer);
     for (const d of this.disposables) d.dispose();
   }
+}
+
+/** The annotation of the current line with the commit that last changed it (twincatExplorer.blame.currentLine). */
+function blameEnabled(): boolean {
+  return vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('blame.currentLine', true);
 }
 
 export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vscode.Disposable {
@@ -566,6 +625,12 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
   private readonly pendingBases = new Map<string, CompareBase>();
   /** HEAD texts for the change markers; without it the split editor shows no changes. */
   git?: GitChanges;
+  /** Line blame of the panes; without it there is no annotation of the current line. */
+  blame?: BlameService;
+  /** Shows what a commit of the line blame changed in the object of a split editor. */
+  openBlame?: (session: EditorSession, root: string, commit: BlameCommit) => Promise<void>;
+  /** Shows the commits that changed an object view (TwinCAT History view). */
+  showHistory?: (ref: ObjectRef) => Promise<void>;
   onDidActivate?: (uri: vscode.Uri) => void;
   openView?: (request: OpenViewRequest) => Promise<void>;
   log?: (message: string) => void;
@@ -668,9 +733,18 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     }
   }
 
-  /** HEAD moved: every split editor gets the HEAD texts again. */
+  /** HEAD moved: every split editor gets the HEAD texts and its line blame again. */
   refreshBases(): void {
-    for (const s of this.sessions) if (s.ready) void s.sendBase();
+    for (const s of this.sessions) {
+      if (!s.ready) continue;
+      void s.sendBase();
+      s.scheduleBlame();
+    }
+  }
+
+  /** twincatExplorer.blame changed: the annotation is turned on or off. */
+  blameSettingChanged(): void {
+    for (const s of this.sessions) if (s.ready) void s.sendBlame();
   }
 
   /**
@@ -686,7 +760,8 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
       this.firstChange.add(uri.toString());
       return true;
     }
-    if (session.base.ref !== base.ref || session.base.label !== base.label || !!session.base.mergeBase !== !!base.mergeBase) {
+    if (session.base.ref !== base.ref || session.base.label !== base.label || !!session.base.mergeBase !== !!base.mergeBase
+      || session.base.path !== base.path) {
       session.base = base;
       await session.sendBase();
     }

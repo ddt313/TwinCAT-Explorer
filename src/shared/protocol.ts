@@ -59,6 +59,26 @@ export interface Marker {
   severity: 'error' | 'warning';
 }
 
+/** A commit that last changed lines of the panes (line blame). */
+export interface BlameCommitInfo {
+  sha: string;
+  author: string;
+  /** Committed by the user of the repository (user.email): shown as "You". */
+  you: boolean;
+  /** Author date, seconds since 1970. */
+  time: number;
+  summary: string;
+  /** The lines are not committed yet. */
+  uncommitted: boolean;
+}
+
+/** Blame of one section: its text in HEAD ('' when not in HEAD), and per line the index of its commit (-1: unknown). */
+export interface SectionBlame {
+  key: string;
+  text: string;
+  lines: number[];
+}
+
 export type HostMessage =
   | {
     type: 'init';
@@ -84,6 +104,11 @@ export type HostMessage =
   | { type: 'base'; available: boolean; label: string; sections: { key: string; text: string | null }[] }
   /** Shows or hides the changes (inline diff in every pane), at the first change when `first`. */
   | { type: 'setChanges'; on: boolean; first?: boolean }
+  /**
+   * Line blame of the sections as they are in HEAD (the panes map it onto their own text: lines changed since
+   * are not committed); `enabled` false hides the annotation of the current line.
+   */
+  | { type: 'blame'; enabled: boolean; sections: SectionBlame[]; commits: BlameCommitInfo[] }
   | { type: 'flush'; id: number }
   /** The document's section texts; `ack` is the last webview edit applied. Answered with 'synced'. */
   | { type: 'sync'; id: number; sections: { key: string; text: string }[]; ack: number }
@@ -113,6 +138,10 @@ export type WebviewMessage =
   | { type: 'ratio'; ratio: number }
   /** The panes now show (or no longer show) the changes vs HEAD. */
   | { type: 'changesMode'; on: boolean }
+  /** Shows what a commit (from the line blame) changed in this object. */
+  | { type: 'blameOpen'; sha: string }
+  /** Shows the commits that changed this object (TwinCAT History view). */
+  | { type: 'showHistory' }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 
@@ -184,7 +213,20 @@ export type ProbeAction =
   /** A click on the change marker of a line (1-based). */
   | { kind: 'markerClick'; key: string; line: number }
   /** Reverts the change at a line (1-based) of a pane shown as a diff, like its Revert Block button. */
-  | { kind: 'revertChange'; key: string; line: number };
+  | { kind: 'revertChange'; key: string; line: number }
+  /** Puts the cursor on a line (1-based) and returns the blame annotation shown there (BlameProbe). */
+  | { kind: 'blame'; key: string; line: number }
+  /** A click on the blame annotation of a line (1-based). */
+  | { kind: 'blameClick'; key: string; line: number };
+
+/** The blame annotation of the current line. */
+export interface BlameProbe {
+  text: string | null;
+  sha: string | null;
+  hover: string | null;
+  /** blameClick: the annotation was rendered and clicked. */
+  clicked?: boolean;
+}
 
 export interface PaneState {
   key: string;
@@ -208,6 +250,8 @@ export interface PaneState {
   diffChanges: number;
   /** Text of the label shown over a pane in diff mode. */
   label?: string;
+  /** The blame annotation shown at the end of the current line. */
+  blame?: string;
 }
 
 export interface ProbeState {

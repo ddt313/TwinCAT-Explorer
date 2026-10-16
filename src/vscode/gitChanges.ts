@@ -4,7 +4,7 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ObjectChange, changeKey, objectChanges } from '../core/objectChanges';
+import { ObjectChange, ViewChange, changeKey, objectChanges, viewChanges } from '../core/objectChanges';
 import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { GitDirWatcher, changedSourceFiles, headCommit, mergeBase, originalPath, repositoryRoot, showAtRef } from './git';
@@ -101,8 +101,10 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
     if (cached && (await cached)?.head === head) return cached;
     const read = (async (): Promise<HeadFile | undefined> => {
       if (!head) return { head, file: undefined };
-      const r = await this.readAt(fsPath, 'HEAD');
-      if (r.error) this.log?.(`Reading ${path.basename(fsPath)} at HEAD failed: ${r.error}`);
+      // At the commit, not at HEAD: HEAD may have moved before checkHeads noticed, and the text must be the
+      // commit's it is labelled with.
+      const r = await this.readAt(fsPath, head);
+      if (r.error) this.log?.(`Reading ${path.basename(fsPath)} at HEAD (${head.slice(0, 7)}) failed: ${r.error}`);
       return r.error ? undefined : { head, file: r.file };
     })();
     this.headFiles.set(key, read);
@@ -273,7 +275,7 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
    * Texts of sections of a file at HEAD, at a commit, or at the merge base of HEAD with a branch (the base of
    * a comparison); undefined when that version cannot be read (no repository, no such branch).
    */
-  async viewBase(fsPath: string, sectionKeys: string[], base: { ref: string; mergeBase?: boolean } = { ref: 'HEAD' }): Promise<ViewBase | undefined> {
+  async viewBase(fsPath: string, sectionKeys: string[], base: { ref: string; mergeBase?: boolean; path?: string } = { ref: 'HEAD' }): Promise<ViewBase | undefined> {
     let file: TcSourceFile | undefined;
     if (base.ref === 'HEAD' && !base.mergeBase) {
       const head = await this.headFile(fsPath);
@@ -285,7 +287,7 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
       // Taken again each time: a rebase moves the merge base.
       const commit = base.mergeBase ? await mergeBase(root, base.ref) : base.ref;
       if (!commit) return undefined;
-      const read = await this.fileAtCommit(fsPath, commit);
+      const read = await this.fileAtCommit(fsPath, commit, base.mergeBase ? undefined : base.path);
       if (read.error) return undefined;
       file = read.file;
     }
@@ -310,6 +312,30 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
       if (this.commitFiles.size > 400) this.commitFiles.delete(this.commitFiles.keys().next().value!);
     }
     return read;
+  }
+
+  /** Root of the repository of a file (spelled like the file's path); undefined outside a repository. */
+  async root(fsPath: string): Promise<string | undefined> {
+    return (await this.rootOf(fsPath)) ?? undefined;
+  }
+
+  /**
+   * The file as committed in HEAD (`file` undefined: not in HEAD), with the HEAD commit; undefined outside a
+   * repository or when HEAD's version cannot be read.
+   */
+  headVersion(fsPath: string): Promise<{ head: string; file: TcSourceFile | undefined } | undefined> {
+    return this.headFile(fsPath);
+  }
+
+  /**
+   * The object views of a file that differ from HEAD, as the TwinCAT Changes view lists them (deleted ones
+   * too); undefined when HEAD's version cannot be read.
+   */
+  async viewChangesOf(fsPath: string): Promise<ViewChange[] | undefined> {
+    const work = this.ws.getFile(fsPath);
+    if (!work || work.error) return undefined;
+    const head = await this.headFile(fsPath);
+    return head ? viewChanges(head.file, work) : undefined;
   }
 
   /** Repository roots of the workspace's PLC projects, also of those that did not load (merge conflicts). */

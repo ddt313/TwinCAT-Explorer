@@ -75,6 +75,11 @@ export class CommitDiffPanel implements vscode.Disposable {
     return !!this.panel;
   }
 
+  /** The panel is the active editor tab. */
+  get active(): boolean {
+    return !!this.panel?.active;
+  }
+
   /** Shows an object as a commit changed it, in the panel (created on first use). */
   async show(item: CommitObject, preserveFocus = true): Promise<void> {
     const content = await this.load(item);

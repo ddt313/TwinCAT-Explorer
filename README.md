@@ -90,6 +90,27 @@ with the **Declaration above the Implementation** like XAE, while the code stays
     (editor title) opens the object as it is now. Files without object changes (project
     files, renames, metadata) open as VS Code's XML diff; a POU's whole file opens as a
     notebook diff from its inline button.
+- **TwinCAT History** view in the Source Control sidebar, like GitLens' file history but
+  per object:
+  - The commits of `HEAD` that changed one method, property, accessor, action, DUT or GVL,
+    newest first (50 at a time), back to the commit that created it. The file is followed
+    through renames and moves (`git log --follow`); commits that changed only other objects
+    of the file, or only metadata, are left out. For a POU with methods or properties, the
+    commits that changed any of its objects, each expanding to them.
+  - It shows the object of the active split editor or object notebook; `Pin to This Object`
+    (view title) keeps it. `Show History` is in the TwinCAT tree's context menu, the split
+    editor's and the commit diff panel's title bar, and on objects of the Changes and
+    Commits views.
+  - A click on a commit shows what it changed in the object, in the commit diff panel.
+    `Compare with Working Version` opens the object's split editor with its changes since
+    that commit. `Uncommitted changes` at the top opens the diff against `HEAD`.
+- **Line blame** in the split editor, like GitLens' current line blame: the end of the
+  current line shows who changed it last, when, and the commit message
+  (`You, 2 days ago • Fix the purge timer`). Its hover has the date and `Open Changes`
+  (the commit's changes of this object, in the commit diff panel, also a click on the
+  annotation) and `Show History`. Lines changed since `HEAD`, saved or not, show
+  `Uncommitted changes`. `TwinCAT: Toggle Line Blame` or `twincatExplorer.blame.currentLine`
+  turns it off.
 - **Notebook diff for git**: `Open Changes as TwinCAT Notebook` (tree, Explorer and
   Source Control menus, the `...` menu of a split editor tab) compares a whole file with
   `HEAD` (or, in Staged Changes, HEAD with the index) section by section; unchanged
@@ -144,6 +165,7 @@ The same command can show them again.
 | `twincatExplorer.foldersFirst` | `true` | Folders before objects in the tree. |
 | `twincatExplorer.editor` | `split` | `split`: XAE-like split editor; `notebook`: one cell per section. |
 | `twincatExplorer.diagnostics.enabled` | `true` | Report problems in open TwinCAT editors. |
+| `twincatExplorer.blame.currentLine` | `true` | Show the last commit of the current line at its end in the split editor. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers never reported as unknown. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files (see below). |
 | `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Ignored when searching `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |
@@ -204,6 +226,11 @@ resolved from their sources.
 - `Compare with Saved` on a split editor tab shows the raw text the editor works on
   (sections after marker lines). Closing that comparison while the tab has unsaved
   changes makes VS Code ask whether to save them.
+- Line blame is git's, by lines of the XML file: the first and last line of a section
+  share their line of the file with the CDATA tags, so a commit that added a line right
+  before or after a section's text is also named for its first or last line. Merge
+  commits are not listed in the TwinCAT History view (their changes come with the merged
+  commits).
 - In VS Code 1.141, `File: Revert File` on a notebook (any notebook, Jupyter too) clears the
   unsaved marker without restoring the cells. To drop the unsaved edits of a TwinCAT
   notebook tab, close it and choose "Don't Save". The split editor reverts normally.

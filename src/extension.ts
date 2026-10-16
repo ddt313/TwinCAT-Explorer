@@ -17,12 +17,14 @@ import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
 import { TreeNode, TwinCatTree } from './vscode/tree';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
-import { DiffFileSystem, GitDirWatcher, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
+import { DiffFileSystem, GitDirWatcher, firstParent, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
 import { GitChanges } from './vscode/gitChanges';
 import { BASE_SCHEME, ChangeNode, ChangesView } from './vscode/changesView';
 import { CommitNode, CommitsView } from './vscode/commitsView';
 import { CommitDiffPanel } from './vscode/commitDiff';
-import { ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
+import { HistoryNode, HistoryTarget, HistoryView } from './vscode/historyView';
+import { BlameService } from './vscode/blame';
+import { CompareBase, ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
 import {
   DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME, ObjectRef,
@@ -43,6 +45,8 @@ export interface TwinCatExplorerApi {
   commits: CommitsView;
   commitsView: vscode.TreeView<CommitNode>;
   commitDiff: CommitDiffPanel;
+  history: HistoryView;
+  historyView: vscode.TreeView<HistoryNode>;
   ready: Promise<void>;
   /** Opens an object view as a notebook. */
   openObject(fsPath: string, objectId: string, options?: OpenOptions): Promise<vscode.NotebookEditor | undefined>;
@@ -117,6 +121,23 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   commitsView.log = message => log.warn(message);
   commitsView.openObject = item => commitDiff.show(item);
   const commitsTree = vscode.window.createTreeView('twincatExplorer.commits', { treeDataProvider: commitsView, showCollapseAll: true });
+  const history = new HistoryView(ws, gitChanges);
+  history.log = message => log.warn(message);
+  history.openObject = item => commitDiff.show(item);
+  const historyTree = vscode.window.createTreeView('twincatExplorer.history', { treeDataProvider: history, showCollapseAll: true });
+  objectEditors.blame = new BlameService(gitChanges);
+  // A click on a line's blame: what that commit changed in the object, in the commit diff panel.
+  objectEditors.openBlame = async (session, root, commit) => {
+    await commitDiff.show({
+      root, commit: commit.sha, parent: await firstParent(root, commit.sha), path: commit.filename,
+      fromPath: commit.previous?.filename ?? commit.filename, objectId: session.ref.objectId, accessor: session.ref.accessor,
+    }, false);
+  };
+  const showHistory = async (target: HistoryTarget) => {
+    history.show(target);
+    await vscode.commands.executeCommand('twincatExplorer.history.focus');
+  };
+  objectEditors.showHistory = ref => showHistory({ fsPath: ref.fsPath, objectId: ref.objectId, accessor: ref.accessor });
   const checkCollection = vscode.languages.createDiagnosticCollection('twincat-check');
   const fileSerializer = new FileSerializer();
   const stSelector: vscode.DocumentSelector = { language: ST_LANGUAGE };
@@ -134,18 +155,28 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       objectEditors.refreshBases();
       changesView.schedule();
       commitsView.schedule();
+      history.headMoved();
     }),
     // The TwinCAT Commits view and its diff panel.
     commitsView, commitsTree, commitsView.attach(commitsTree), commitDiff,
+    // The TwinCAT History view (the commits that changed one object).
+    history, historyTree, history.attach(historyTree),
+    historyTree.onDidChangeVisibility(e => {
+      if (e.visible && !history.target) history.follow(activeObject());
+    }),
     // The TwinCAT Changes view in the Source Control sidebar.
     changesView, changesTree, changesView.attach(changesTree),
     vscode.window.registerFileDecorationProvider(changesView),
     vscode.workspace.registerTextDocumentContentProvider(BASE_SCHEME, changesView),
-    gitChanges.onDidChangeFileDecorations(() => changesView.schedule()),
+    gitChanges.onDidChangeFileDecorations(() => {
+      changesView.schedule();
+      history.workingChanged();
+    }),
     // A fetch can move the branch compared with; a push changes which commits are not pushed yet.
     gitDirs.onDidChange(() => {
       if (changesView.scope.kind === 'branch') changesView.schedule(1000);
       commitsView.schedule(1500);
+      history.refsChanged();
     }),
     vscode.window.registerCustomEditorProvider(OBJECT_EDITOR, objectEditors, {
       // Monaco keeps its undo history and scroll positions while the tab is in the background.
@@ -420,6 +451,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
         scheduleAllDiagnostics(50);
       }
       if (e.affectsConfiguration('twincatExplorer.exclude')) scheduleLoad();
+      if (e.affectsConfiguration('twincatExplorer.blame')) objectEditors.blameSettingChanged();
     }),
   );
 
@@ -484,13 +516,47 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     await openSplit(ref.fsPath, ref.objectId, { accessor: ref.accessor, reveal: target, viewColumn, preview: false });
   };
 
-  // An object of the TwinCAT Changes view: its split editor (whatever twincatExplorer.editor says, the diff is
-  // shown there) with the changes against the base of the view.
-  changesView.openChanges = async (fsPath, objectId, accessor, base) => {
+  // An object of the TwinCAT Changes or History view: its split editor (whatever twincatExplorer.editor says, the
+  // diff is shown there) with the changes against the base of the view.
+  const openWithChanges = async (fsPath: string, objectId: string, accessor: 'Get' | 'Set' | undefined, base: CompareBase) => {
     const doc = await openSplit(fsPath, objectId, { accessor, preview: true });
     if (doc && !(await objectEditors.showChangesAgainst(doc.uri, base))) {
       void vscode.window.showInformationMessage(`${path.basename(fsPath)} cannot be compared with ${base.label}.`);
     }
+  };
+  changesView.openChanges = openWithChanges;
+  history.openChanges = openWithChanges;
+
+  /** The object view of the active editor: a split editor, an object notebook, or the commit diff panel. */
+  const activeObject = (): HistoryTarget | undefined => {
+    const session = objectEditors.activeSession();
+    if (session) return { fsPath: session.ref.fsPath, objectId: session.ref.objectId, accessor: session.ref.accessor };
+    const nb = vscode.window.activeNotebookEditor?.notebook;
+    const ref = nb ? parseObjectUri(nb.uri) : undefined;
+    if (ref) return { fsPath: ref.fsPath, objectId: ref.objectId, accessor: ref.accessor };
+    const shown = commitDiff.active ? commitDiff.shown : undefined;
+    const live = commitDiff.livePath;
+    return shown && live ? { fsPath: live, objectId: shown.objectId, accessor: shown.accessor } : undefined;
+  };
+
+  /** The object a Show History command is for: a node of a view, a `twincat:` URI, or the active editor's. */
+  const historyTarget = (arg: unknown): HistoryTarget | undefined => {
+    if (arg instanceof TreeNode) return arg.fsPath && arg.objectId ? { fsPath: arg.fsPath, objectId: arg.objectId, accessor: arg.accessor } : undefined;
+    if (arg instanceof ChangeNode) return arg.fsPath && arg.view ? { fsPath: arg.fsPath, objectId: arg.view.objectId, accessor: arg.view.accessor } : undefined;
+    if (arg instanceof CommitNode) {
+      if (!arg.view || !arg.root || !arg.path) return undefined;
+      const fsPath = commitDiff.locate?.(arg.view.objectId, path.join(arg.root, arg.path));
+      return fsPath ? { fsPath, objectId: arg.view.objectId, accessor: arg.view.accessor } : undefined;
+    }
+    if (arg instanceof HistoryNode) {
+      const t = history.target;
+      return t && arg.objectId ? { fsPath: t.fsPath, objectId: arg.objectId, accessor: arg.accessor } : undefined;
+    }
+    if (arg instanceof vscode.Uri) {
+      const ref = parseObjectUri(arg) ?? parseLocUri(arg);
+      if (ref) return { fsPath: ref.fsPath, objectId: ref.objectId, accessor: ref.accessor };
+    }
+    return activeObject();
   };
 
   // twincat-loc section copies are opened by VS Code in an editor tab at a position (Problems panel,
@@ -627,8 +693,16 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   };
 
   let selectionTimer: NodeJS.Timeout | undefined;
+  /** The History view shows the object of the editor that became active (unless pinned). */
+  const followInHistory = (uri: vscode.Uri | undefined) => {
+    const ref = uri ? parseObjectUri(uri) : undefined;
+    if (ref) history.follow({ fsPath: ref.fsPath, objectId: ref.objectId, accessor: ref.accessor });
+  };
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveNotebookEditor(e => void reveal(e?.notebook.uri, false)),
+    vscode.window.onDidChangeActiveNotebookEditor(e => {
+      void reveal(e?.notebook.uri, false);
+      followInHistory(e?.notebook.uri);
+    }),
     vscode.window.onDidChangeActiveTextEditor(e => {
       if (e && e.document.uri.scheme === 'file') void reveal(e.document.uri, false, e.document.offsetAt(e.selection.active));
     }),
@@ -643,7 +717,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       if (e.visible) void reveal(activeUri(), false);
     }),
   );
-  objectEditors.onDidActivate = uri => void reveal(uri, false);
+  objectEditors.onDidActivate = uri => {
+    void reveal(uri, false);
+    followInHistory(uri);
+  };
 
   // ------------------------------------------------------------------ commands
 
@@ -706,10 +783,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.commands.registerCommand('twincatExplorer.commits.openNotebook', (node?: CommitNode) => node && commitsView.openNotebook(node)),
     vscode.commands.registerCommand('twincatExplorer.commits.loadMore', () => commitsView.loadMore()),
     vscode.commands.registerCommand('twincatExplorer.commits.refresh', () => commitsView.refresh()),
-    vscode.commands.registerCommand('twincatExplorer.commits.copySha', async (node?: CommitNode) => {
+    // Also for the commits of the TwinCAT History view.
+    vscode.commands.registerCommand('twincatExplorer.commits.copySha', async (node?: CommitNode | HistoryNode) => {
       if (node?.commit) await vscode.env.clipboard.writeText(node.commit.sha);
     }),
-    vscode.commands.registerCommand('twincatExplorer.commits.copyMessage', async (node?: CommitNode) => {
+    vscode.commands.registerCommand('twincatExplorer.commits.copyMessage', async (node?: CommitNode | HistoryNode) => {
       if (node?.commit) await vscode.env.clipboard.writeText(node.commit.body ? `${node.commit.subject}\n\n${node.commit.body}` : node.commit.subject);
     }),
     // The object of the commit diff panel as it is now, in the split editor.
@@ -722,6 +800,32 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
         return;
       }
       await openSplit(fsPath, shown.objectId, { accessor: shown.accessor, preview: false });
+    }),
+    vscode.commands.registerCommand('twincatExplorer.history.show', async (arg?: unknown) => {
+      const t = historyTarget(arg);
+      if (!t) {
+        void vscode.window.showInformationMessage('Show History works on TwinCAT objects in the working tree: open one, or pick it in the TwinCAT tree.');
+        return;
+      }
+      await showHistory(t);
+    }),
+    vscode.commands.registerCommand('twincatExplorer.history.open', (node?: HistoryNode) => node && history.open(node)),
+    vscode.commands.registerCommand('twincatExplorer.history.openWorking', (node?: HistoryNode) => node && history.openWorking(node)),
+    vscode.commands.registerCommand('twincatExplorer.history.compareWithWorking', (node?: HistoryNode) => node && history.compareWithWorking(node)),
+    vscode.commands.registerCommand('twincatExplorer.history.loadMore', () => history.loadMore()),
+    vscode.commands.registerCommand('twincatExplorer.history.refresh', () => history.reload()),
+    vscode.commands.registerCommand('twincatExplorer.history.pin', () => history.setPinned(true)),
+    vscode.commands.registerCommand('twincatExplorer.history.unpin', () => {
+      history.setPinned(false);
+      history.follow(activeObject());
+    }),
+    vscode.commands.registerCommand('twincatExplorer.toggleBlame', async () => {
+      const key = 'blame.currentLine';
+      const on = config().get<boolean>(key, true);
+      // Written where it is set: a workspace value would win over a user one.
+      const target = config().inspect<boolean>(key)?.workspaceValue !== undefined
+        ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+      await config().update(key, !on, target);
     }),
     vscode.commands.registerCommand('twincatExplorer.changes.open', (node?: ChangeNode) => node && changesView.open(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.discard', (node?: ChangeNode) => node && changesView.discard(node)),
@@ -810,11 +914,12 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     }),
   );
 
+  void vscode.commands.executeCommand('setContext', 'twincatExplorer.historyPinned', false);
   const ready = loadProjects();
   return {
     workspace: ws, index, tree, treeView, features, objectEditors, locations, git: gitChanges,
-    changes: changesView, changesView: changesTree, commits: commitsView, commitsView: commitsTree, commitDiff, ready,
-    openObject, openSplit,
+    changes: changesView, changesView: changesTree, commits: commitsView, commitsView: commitsTree, commitDiff,
+    history, historyView: historyTree, ready, openObject, openSplit,
   };
 }
 

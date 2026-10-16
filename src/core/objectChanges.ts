@@ -94,6 +94,47 @@ export function viewChanges(before: TcSourceFile | undefined, now: TcSourceFile 
   return out;
 }
 
+/**
+ * How one object view differs between two versions of its file (undefined: the file does not exist in that
+ * version): added, deleted, modified (code or name), or undefined when it is the same or in neither.
+ */
+export function viewChange(before: TcSourceFile | undefined, now: TcSourceFile | undefined, objectId: string, accessor?: Accessor):
+  { change: ViewChangeKind; renamedFrom?: string } | undefined {
+  const existed = viewExists(before, objectId, accessor);
+  const exists = viewExists(now, objectId, accessor);
+  if (!existed) return exists ? { change: 'added' } : undefined;
+  if (!exists) return { change: 'deleted' };
+  const old = before!.objects.get(objectId)!;
+  const obj = now!.objects.get(objectId)!;
+  if (!accessor && old.name !== obj.name) return { change: 'modified', renamedFrom: old.name };
+  return sameSections(viewSections(obj, accessor), viewSections(old, accessor)) ? undefined : { change: 'modified' };
+}
+
+/** True when the object view is in that version of its file (a property with that accessor, for an accessor). */
+export function viewExists(file: TcSourceFile | undefined, objectId: string, accessor?: Accessor): boolean {
+  const obj = file?.objects.get(objectId);
+  return !!obj && (!accessor || viewSections(obj, accessor).length > 0);
+}
+
+/**
+ * One commit of a file's history, looked at for the history of an object view (or with `whole`, of all the
+ * objects of the file, for a POU): the views it changed, and whether it created the object (no older commit
+ * can have changed it then). A commit without the object on either side changes nothing: in a merged history
+ * it is one of another branch, made before the object came there, and older commits can still matter.
+ */
+export function historyStep(before: TcSourceFile | undefined, now: TcSourceFile | undefined, objectId: string,
+  accessor: Accessor | undefined, whole: boolean): { views: ViewChange[]; created: boolean } {
+  if (whole) {
+    const existed = viewExists(before, objectId);
+    if (!existed && !viewExists(now, objectId)) return { views: [], created: false };
+    return { views: viewChanges(before, now), created: !existed };
+  }
+  const c = viewChange(before, now, objectId, accessor);
+  const obj = now?.objects.get(objectId) ?? before?.objects.get(objectId);
+  const views: ViewChange[] = c && obj ? [{ objectId, accessor, kind: obj.kind, label: viewLabel(obj, accessor), ...c }] : [];
+  return { views, created: c?.change === 'added' };
+}
+
 /** True when two versions of a .tsproj differ only in the TmcHash attributes a build rewrites. */
 export function onlyTmcHashChanged(before: string, now: string): boolean {
   const strip = (t: string) => t.replace(/\r\n/g, '\n').replace(/TmcHash="\{[^}"]*\}"/g, 'TmcHash=""');

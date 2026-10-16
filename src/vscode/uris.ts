@@ -118,6 +118,8 @@ export function viewKey(ref: ObjectRef, fileKeyOf: (p: string) => string): strin
 /** Git ref shown on the left of a comparison, or WORKTREE for the file on disk. */
 export const WORKTREE = 'WORKTREE';
 export const INDEX = 'INDEX';
+/** An empty file: the missing side of a file a commit added or deleted (no ref name has a colon). */
+export const EMPTY = ':empty';
 
 /**
  * `twincat-diff:/c:/.../FB_X.TcPOU.tcfile?{"ref":"HEAD","label":"...","against":"INDEX"}`.
@@ -131,6 +133,14 @@ export function diffUri(fsPath: string, ref: string, label: string, against?: st
   if (against) query.against = against;
   if (at) query.at = at;
   return vscode.Uri.from({ scheme: DIFF_SCHEME, path: `${filePath}.tcfile`, query: JSON.stringify(query) });
+}
+
+/**
+ * `twincat-diff:` URI of a file as it is at `ref`, at its repository-relative path `at` there. Without `.tcfile`
+ * it opens as read-only text, not as a notebook.
+ */
+export function revisionUri(fsPath: string, ref: string, label: string, at: string): vscode.Uri {
+  return vscode.Uri.from({ scheme: DIFF_SCHEME, path: vscode.Uri.file(fsPath).path, query: JSON.stringify({ ref, label, at }) });
 }
 
 export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string; against?: string; at?: string } | undefined {

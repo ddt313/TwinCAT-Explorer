@@ -525,6 +525,8 @@ function uniqueIds(nodes: ChangeNode[], seen = new Set<string>()): ChangeNode[] 
 
 export interface GitApi {
   toGitUri(uri: vscode.Uri, ref: string): vscode.Uri;
+  /** The repository the git extension has open for a file, or null (its git URIs of the file do not resolve). */
+  getRepository(uri: vscode.Uri): unknown;
 }
 
 /** The git extension's API (for VS Code's own text diffs of files at a commit). */

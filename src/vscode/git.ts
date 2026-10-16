@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { BlameCommit, CommitInfo, FileLogEntry, blameArgs, fileLogArgs, parseBlame, parseFileLog } from '../core/gitLog';
 import { fileKey } from '../core/workspace';
-import { INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri } from './uris';
+import { EMPTY, INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri } from './uris';
 
 export type { CommitInfo } from '../core/gitLog';
 
@@ -295,10 +295,10 @@ export async function restoreFromHead(fsPath: string): Promise<void> {
 }
 
 /**
- * Commits reachable from HEAD that change files with the given extensions, newest first: `count` of them
- * after skipping `skip`.
+ * Commits reachable from HEAD, newest first, like `git log`: `count` of them after skipping `skip`; with
+ * `extensions`, only the ones that change files with those extensions.
  */
-export async function commitLog(root: string, extensions: string[], count: number, skip = 0): Promise<CommitInfo[]> {
+export async function commitLog(root: string, count: number, skip = 0, extensions: string[] = []): Promise<CommitInfo[]> {
   const specs = extensions.map(e => `:(icase)*${e}`);
   const out = await git(['--no-optional-locks', 'log', `-n${count}`, `--skip=${skip}`,
     '--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b%x1e', 'HEAD', '--', ...specs], root);
@@ -309,10 +309,10 @@ export async function commitLog(root: string, extensions: string[], count: numbe
 }
 
 /**
- * Files with the given extensions that a commit changed against `parent` (its first parent; none for the
- * first commit of a repository).
+ * Files that a commit changed against `parent` (its first parent; none for the first commit of a repository),
+ * only the ones with the given extensions when there are any.
  */
-export async function commitChanges(root: string, commit: string, parent: string | undefined, extensions: string[]): Promise<PathChange[]> {
+export async function commitChanges(root: string, commit: string, parent: string | undefined, extensions: string[] = []): Promise<PathChange[]> {
   const specs = extensions.map(e => `:(icase)*${e}`);
   const args = ['diff-tree', '-r', '-M', '--name-status', '-z', '--no-commit-id', ...(parent ? [parent, commit] : ['--root', commit]), '--', ...specs];
   const tokens = (await git(args, root)).toString('utf8').split('\0');
@@ -501,6 +501,7 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
     const ref = parseDiffUri(uri);
     if (!ref) throw vscode.FileSystemError.FileNotFound(uri);
+    if (ref.ref === EMPTY) return new Uint8Array();
     this.served.set(uri.toString(), uri);
     if (ref.ref === WORKTREE) {
       try {

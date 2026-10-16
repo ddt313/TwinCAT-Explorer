@@ -1,7 +1,7 @@
-// The TwinCAT Commits view in the Source Control sidebar, like GitLens' commits: the commits of HEAD that
-// changed TwinCAT files, newest first. A commit expands to its POUs and other TwinCAT files, a POU to the
+// The TwinCAT Commits view in the Source Control sidebar, like GitLens' commits: the commits of HEAD, newest
+// first, as `git log` lists them. A commit expands to the files it changed: its POUs, each expanding to the
 // objects the commit changed, which open in the commit diff panel (the split editor's layout, against the
-// commit's parent).
+// commit's parent), then the project files and every other file, which open in VS Code's diff editor.
 
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -10,14 +10,14 @@ import { ViewChange, metadataChange, viewChanges } from '../core/objectChanges';
 import { TcWorkspace } from '../core/workspace';
 import { CHANGE_SCHEME, gitApi } from './changesView';
 import { CommitObject } from './commitDiff';
-import { CommitInfo, commitChanges, commitLog, localOnlyCommits, openNotebookDiff, readBlobs, userEmail } from './git';
+import { CommitInfo, commitChanges, commitLog, headCommit, localOnlyCommits, openNotebookDiff, readBlobs, userEmail } from './git';
 import { GitChanges } from './gitChanges';
 import { objectIcon, objectTreeLabel } from './tree';
-import { SOURCE_EXTENSIONS, isSourcePath } from './uris';
+import { EMPTY, isSourcePath, revisionUri } from './uris';
 import { relativeTime } from '../shared/time';
 
 const PAGE = 30;
-const EXTENSIONS = [...SOURCE_EXTENSIONS, '.tsproj', '.plcproj'];
+const PROJECT_FILE = /\.(tsproj|plcproj)$/i;
 
 type Status = 'M' | 'A' | 'D' | 'R';
 
@@ -105,17 +105,22 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
       if (this.view) this.view.message = 'The TwinCAT projects are not in a git repository.';
       return;
     }
+    if (this.view) this.view.description = repos.length > 1 ? path.basename(this.root) : undefined;
+    // `git log HEAD` fails in a repository without commits.
+    if (!(await headCommit(this.root))) {
+      this.commits = [];
+      this.more = false;
+      if (this.view) this.view.message = 'The repository has no commits yet.';
+      return;
+    }
     const [list, local, me] = await Promise.all([
-      commitLog(this.root, EXTENSIONS, this.count + 1), localOnlyCommits(this.root), userEmail(this.root),
+      commitLog(this.root, this.count + 1), localOnlyCommits(this.root), userEmail(this.root),
     ]);
     this.more = list.length > this.count;
     this.commits = list.slice(0, this.count);
     this.local = local;
     this.me = me;
-    if (this.view) {
-      this.view.message = this.commits.length ? undefined : 'No commit of HEAD changed a TwinCAT file.';
-      this.view.description = repos.length > 1 ? path.basename(this.root) : undefined;
-    }
+    if (this.view) this.view.message = undefined;
   }
 
   async getChildren(node?: CommitNode): Promise<CommitNode[]> {
@@ -151,7 +156,10 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     item.description = n.description;
     item.tooltip = n.tooltip;
     item.iconPath = n.icon;
-    if (n.status) item.resourceUri = vscode.Uri.from({ scheme: CHANGE_SCHEME, path: `/${encodeURIComponent(n.id)}`, query: n.status });
+    // The status letter and color come from the Changes view's provideFileDecoration. A file's name ends the
+    // path: the file icon theme picks the icon of a plain file by it.
+    const name = n.type !== 'view' && n.path ? `/${path.posix.basename(n.path)}` : '';
+    if (n.status) item.resourceUri = vscode.Uri.from({ scheme: CHANGE_SCHEME, path: `/${encodeURIComponent(n.id)}${name}`, query: n.status });
     const context: string[] = [n.type];
     // A whole-file notebook diff needs both sides: not for a file deleted, nor for the first commit.
     if (n.type === 'file' && n.status !== 'D' && n.commit?.parents.length) context.push('notebookDiff');
@@ -166,7 +174,9 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     const n = new CommitNode(`commit:${c.sha}`, 'commit', c.subject || '(no message)');
     n.commit = c;
     n.root = this.root;
-    Object.assign(n, describeCommit(c, this.local.has(c.sha), this.me));
+    // A merge shows what it brought into the branch.
+    const merge = c.parents.length > 1 ? [`Merge commit: its files are compared with the first parent \`${c.parents[0].slice(0, 7)}\``] : [];
+    Object.assign(n, describeCommit(c, this.local.has(c.sha), this.me, merge));
     return n;
   }
 
@@ -194,11 +204,11 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     const parent = c.parents[0];
     // Same id as the commit's node in the list, which is what VS Code matches (reveal).
     const commitNode = this.commitNode(c);
-    const changes = (await commitChanges(root, c.sha, parent, EXTENSIONS)).map(ch => {
+    const changes = (await commitChanges(root, c.sha, parent)).map(ch => {
       const rel = path.relative(root, ch.fsPath).split(path.sep).join('/');
       return { ch, rel, fromRel: ch.from ?? rel };
     });
-    // Both versions of every source file in one git process.
+    // Both versions of every TwinCAT source file in one git process.
     const specs: string[] = [];
     const at = (spec: string | undefined) => (spec === undefined ? -1 : specs.push(spec) - 1);
     const reads = changes.map(({ ch, rel, fromRel }) => isSourcePath(ch.fsPath)
@@ -214,6 +224,7 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     };
     const sources: CommitNode[] = [];
     const others: CommitNode[] = [];
+    const plain: CommitNode[] = [];
     const seen = new Set<string>();
     let failed = false;
     changes.forEach(({ ch, rel, fromRel }, i) => {
@@ -221,12 +232,19 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
       if (seen.has(node.id)) return;
       seen.add(node.id);
       Object.assign(node, { commit: c, root, path: rel, fromPath: fromRel, status: ch.status, parent: commitNode });
-      node.description = path.posix.dirname(rel);
+      const dir = path.posix.dirname(rel);
+      node.description = dir === '.' ? '' : dir;
       node.tooltip = ch.from ? `${rel}\nRenamed from ${ch.from}` : rel;
       const read = reads[i];
       if (node.type === 'other' || !read) {
-        node.icon = new vscode.ThemeIcon('project');
-        others.push(node);
+        // Not a POU: TwinCAT project files with their own icon, any other file with the file icon theme's.
+        if (PROJECT_FILE.test(rel)) {
+          node.icon = new vscode.ThemeIcon('project');
+          others.push(node);
+        } else {
+          node.icon = vscode.ThemeIcon.File;
+          plain.push(node);
+        }
         return;
       }
       // A file without object changes to show (unreadable, renamed, metadata only): its XML diff on a click.
@@ -274,8 +292,9 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
       }
       sources.push(node);
     });
-    const byLabel = (a: CommitNode, b: CommitNode) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
-    return { nodes: [...sources.sort(byLabel), ...others.sort(byLabel)], failed };
+    const byLabel = (a: CommitNode, b: CommitNode) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+      || (a.path ?? '').localeCompare(b.path ?? '');
+    return { nodes: [...sources.sort(byLabel), ...others.sort(byLabel), ...plain.sort(byLabel)], failed };
   }
 
   // ------------------------------------------------------------------ actions
@@ -289,20 +308,19 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     });
   }
 
-  /** A file without object changes (project files, renames, metadata): VS Code's text diff of the XML. */
+  /**
+   * Any file but a POU with object changes (project files, other files, renames, metadata): VS Code's diff
+   * editor, the first parent against the commit; an added or deleted file against an empty one.
+   */
   async openText(n: CommitNode): Promise<void> {
     if (!n.commit || !n.root || !n.path) return;
-    const api = await gitApi();
-    if (!api) return;
     const parent = n.commit.parents[0];
-    const right = n.status === 'D' ? undefined : api.toGitUri(vscode.Uri.file(path.join(n.root, n.path)), n.commit.sha);
-    const left = !parent || n.status === 'A' ? undefined : api.toGitUri(vscode.Uri.file(path.join(n.root, n.fromPath ?? n.path)), parent);
-    const short = n.commit.sha.slice(0, 7);
-    if (left && right) {
-      await vscode.commands.executeCommand('vscode.diff', left, right, `${path.basename(n.path)} (${short})`, { preview: true });
-    } else if (left ?? right) {
-      await vscode.commands.executeCommand('vscode.open', left ?? right, { preview: true });
-    }
+    const from = n.fromPath ?? n.path;
+    const left = await revision(n.root, from, n.status === 'A' ? undefined : parent);
+    const right = await revision(n.root, n.path, n.status === 'D' ? undefined : n.commit.sha);
+    const renamed = from !== n.path ? `${path.posix.basename(from)} → ` : '';
+    const refs = `${parent ? `${parent.slice(0, 7)} ↔ ` : ''}${n.commit.sha.slice(0, 7)}`;
+    await vscode.commands.executeCommand('vscode.diff', left, right, `${renamed}${path.posix.basename(n.path)} (${refs})`, { preview: true });
   }
 
   /** The whole POU file as a notebook diff, parent against commit. */
@@ -325,13 +343,27 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
   }
 }
 
+/**
+ * A file (repository-relative path) as a commit has it, or an empty file when `ref` is undefined (not there).
+ * The git extension's URI when it has the repository open (a git document, as VS Code's own diffs and GitLens
+ * know it), else this extension's.
+ */
+async function revision(root: string, rel: string, ref: string | undefined): Promise<vscode.Uri> {
+  const fsPath = path.join(root, rel);
+  const label = `${path.posix.basename(rel)} (${ref ? ref.slice(0, 7) : 'empty'})`;
+  if (!ref) return revisionUri(fsPath, EMPTY, label, rel);
+  const api = await gitApi();
+  const file = vscode.Uri.file(fsPath);
+  return api?.getRepository(file) ? api.toGitUri(file, ref) : revisionUri(fsPath, ref, label, rel);
+}
+
 export function escapeMarkdown(text: string): string {
   return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, m => `\\${m}`);
 }
 
 /**
- * Description (`You, 2 days ago`), icon (an arrow for a commit not pushed yet) and tooltip of a commit in a
- * tree view; `more` adds lines to the tooltip.
+ * Description (`You, 2 days ago`), icon (an arrow for a commit not pushed yet, else a commit or a merge) and
+ * tooltip of a commit in a tree view; `more` adds lines to the tooltip.
  */
 export function describeCommit(c: CommitInfo, local: boolean, me: string, more: string[] = []):
   { description: string; icon: vscode.ThemeIcon; tooltip: vscode.MarkdownString } {
@@ -345,7 +377,7 @@ export function describeCommit(c: CommitInfo, local: boolean, me: string, more: 
     description: `${c.email && c.email === me ? 'You' : c.author}, ${relativeTime(c.date)}`,
     icon: local
       ? new vscode.ThemeIcon('arrow-up', new vscode.ThemeColor('gitDecoration.addedResourceForeground'))
-      : new vscode.ThemeIcon('git-commit'),
+      : new vscode.ThemeIcon(c.parents.length > 1 ? 'git-merge' : 'git-commit'),
     tooltip: md,
   };
 }

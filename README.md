@@ -79,16 +79,18 @@ with the **Declaration above the Implementation** like XAE, while the code stays
     `ProductVersion`. They can be discarded too. Other `.tsproj`/`.plcproj` changes are
     under `Project files`; a click shows their XML diff.
 - **TwinCAT Commits** view in the Source Control sidebar, like the commits view of GitLens:
-  - The commits of `HEAD` that changed TwinCAT files, newest first (30 at a time,
+  - Every commit of `HEAD`, newest first, as `git log` lists them (30 at a time,
     `Load more commits...`), with author and age; an arrow marks the ones no remote has
-    yet. Copy the SHA or the message from the context menu.
-  - A commit expands to its POUs and other TwinCAT files, a POU to the objects the commit
-    changed (`M`, `A`, `D`).
+    yet, merges have their own icon. Copy the SHA or the message from the context menu.
+  - A commit expands to the files it changed: its POUs first, each expanding to the objects
+    the commit changed (`M`, `A`, `D`), then the project files and every other file. A merge
+    lists its changes against its first parent, what it brought into the branch.
   - A click on an object shows what the commit changed in it in the split editor's layout,
     Declaration above Implementation, read-only, against the commit's first parent, at the
     first change. The next object replaces it in the same tab. `Open Current Version`
-    (editor title) opens the object as it is now. Files without object changes (project
-    files, renames, metadata) open as VS Code's XML diff; a POU's whole file opens as a
+    (editor title) opens the object as it is now. Any other file (also project files, and
+    POU files with only a rename or metadata change) opens in VS Code's diff editor like in
+    GitLens, an added or deleted file against an empty one; a POU's whole file opens as a
     notebook diff from its inline button.
 - **TwinCAT History** view in the Source Control sidebar, like GitLens' file history but
   per object:

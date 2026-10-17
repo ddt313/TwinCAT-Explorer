@@ -95,8 +95,12 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
   private readonly repoInfos = new Map<string, Promise<{ local: Set<string>; me: string }>>();
   /** The view was not refreshed after a change while it was hidden. */
   private stale = true;
-  /** Opens made from this view do not change its object (the split editor of another view becomes active). */
-  private quietUntil = 0;
+  /**
+   * The object view this view opened last (Uncommitted changes, Compare with Working Version) and until when its
+   * split editor becoming active does not change the view's object (a POU's history opening one of its
+   * methods). Any other editor does at once.
+   */
+  private opened: { key: string; until: number } | undefined;
   private disposed = false;
   /** Shows a commit's changes of an object view (the commit diff panel). */
   openObject?: (item: CommitObject) => Promise<void>;
@@ -122,9 +126,11 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
     return this.pinnedTo;
   }
 
-  /** The object of the active editor (ignored while pinned, and right after this view opened something). */
+  /** The object of the active editor (ignored while pinned, and right after this view opened that object). */
   follow(target: HistoryTarget | undefined): void {
-    if (!target || this.pinnedTo || Date.now() < this.quietUntil) return;
+    if (!target || this.pinnedTo) return;
+    if (this.opened && targetKey(target) === this.opened.key && Date.now() < this.opened.until) return;
+    this.opened = undefined;
     this.setTarget(target);
   }
 
@@ -146,6 +152,8 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
 
   setPinned(on: boolean): void {
     this.pinnedTo = on;
+    // Unpinned, the view goes to the active editor, whoever opened it.
+    this.opened = undefined;
     void vscode.commands.executeCommand('setContext', 'twincatExplorer.historyPinned', on);
     this.updateTitle();
   }
@@ -433,8 +441,9 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
 
   // ------------------------------------------------------------------ actions
 
-  private quiet(): void {
-    this.quietUntil = Date.now() + 2000;
+  /** This view opens an object view in its split editor (see `opened`). */
+  private opening(fsPath: string, objectId: string, accessor: Accessor | undefined): void {
+    this.opened = { key: targetKey({ fsPath, objectId, accessor }), until: Date.now() + 2000 };
   }
 
   /** A commit's changes of an object view, in the commit diff panel. */
@@ -443,7 +452,6 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
     if (!t || !n.commit || !n.objectId || !n.path) return;
     const root = await this.git.root(t.fsPath);
     if (!root) return;
-    this.quiet();
     await this.openObject?.({
       root, commit: n.commit.sha, parent: n.commit.parents[0], path: n.path, fromPath: n.fromPath ?? n.path,
       objectId: n.objectId, accessor: n.accessor,
@@ -454,7 +462,7 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
   async openWorking(n: HistoryNode): Promise<void> {
     const t = this.current;
     if (!t || !n.objectId) return;
-    this.quiet();
+    this.opening(t.fsPath, n.objectId, n.accessor);
     await this.openChanges?.(t.fsPath, n.objectId, n.accessor, HEAD_BASE);
   }
 
@@ -462,7 +470,7 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
   async compareWithWorking(n: HistoryNode): Promise<void> {
     const t = this.current;
     if (!t || !n.objectId || !n.commit) return;
-    this.quiet();
+    this.opening(t.fsPath, n.objectId, n.accessor);
     // The file's path in that commit is known: no rename has to be looked up.
     await this.openChanges?.(t.fsPath, n.objectId, n.accessor, { ref: n.commit.sha, label: n.commit.sha.slice(0, 7), path: n.path });
   }

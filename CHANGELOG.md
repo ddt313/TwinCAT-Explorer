@@ -3,7 +3,7 @@
 All notable changes to TwinCAT Explorer. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.11.0 - 2026-10-17
 
 ### Security
 - Git runs by its full path, from VS Code's Git extension (`git.path`) or a full folder path of

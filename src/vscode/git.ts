@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { BlameCommit, CommitInfo, FileLogEntry, blameArgs, fileLogArgs, parseBlame, parseFileLog } from '../core/gitLog';
+import { findOnPath } from '../core/paths';
 import { fileKey } from '../core/workspace';
 import { EMPTY, INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri } from './uris';
 
@@ -15,9 +16,35 @@ export type { CommitInfo } from '../core/gitLog';
 // English messages: errors are recognised by their text (like the built-in git extension does).
 const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' };
 
-function git(args: string[], cwd: string): Promise<Buffer> {
+let gitProgram: Promise<string> | undefined;
+
+/**
+ * Full path of the git program: the git extension's (it applies the `git.path` setting), else the first git
+ * on PATH. Never a bare `git`: Windows looks for that in the folder git runs in first, so a `git.exe` in a
+ * repository would run instead of git.
+ */
+function gitExecutable(): Promise<string> {
+  if (!gitProgram) {
+    const found = (async () => {
+      const known = (await gitApi())?.git?.path;
+      if (known && path.isAbsolute(known)) return known;
+      const onPath = findOnPath('git');
+      if (!onPath) throw new Error('git was not found: install Git, or set git.path to its full path');
+      return onPath;
+    })();
+    gitProgram = found;
+    // Looked up again next time (Git installed or the git extension enabled meanwhile).
+    found.catch(() => {
+      if (gitProgram === found) gitProgram = undefined;
+    });
+  }
+  return gitProgram;
+}
+
+async function git(args: string[], cwd: string): Promise<Buffer> {
+  const program = await gitExecutable();
   return new Promise((resolve, reject) => {
-    cp.execFile('git', args, { cwd, env: GIT_ENV, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+    cp.execFile(program, args, { cwd, env: GIT_ENV, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       if (err) reject(new Error(Buffer.from(stderr).toString('utf8').trim() || err.message));
       else resolve(stdout);
     });
@@ -25,9 +52,10 @@ function git(args: string[], cwd: string): Promise<Buffer> {
 }
 
 /** Runs git with `input` on its standard input. */
-function gitWithInput(args: string[], cwd: string, input: Buffer | string): Promise<Buffer> {
+async function gitWithInput(args: string[], cwd: string, input: Buffer | string): Promise<Buffer> {
+  const program = await gitExecutable();
   return new Promise((resolve, reject) => {
-    const child = cp.spawn('git', args, { cwd, env: GIT_ENV, windowsHide: true });
+    const child = cp.spawn(program, args, { cwd, env: GIT_ENV, windowsHide: true });
     const chunks: Buffer[] = [];
     let stderr = '';
     child.stdout.on('data', (d: Buffer) => chunks.push(d));
@@ -593,6 +621,17 @@ export async function openNotebookDiff(fsPath: string, ref: string, right: strin
   await vscode.commands.executeCommand('vscode.diff', left, rightUri, title, { preview: true });
 }
 
+/** The git extension's API; undefined when that extension is disabled or unavailable. */
+export async function gitApi(): Promise<GitApi | undefined> {
+  try {
+    const ext = vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git');
+    if (!ext) return undefined;
+    return (ext.isActive ? ext.exports : await ext.activate()).getAPI(1);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Calls `onChange` (debounced) whenever a repository known to the built-in git extension changes. */
 export async function watchRepositories(onChange: () => void): Promise<vscode.Disposable> {
   const disposables: vscode.Disposable[] = [];
@@ -601,27 +640,22 @@ export async function watchRepositories(onChange: () => void): Promise<vscode.Di
     if (timer) clearTimeout(timer);
     timer = setTimeout(onChange, 300);
   };
-  try {
-    const ext = vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git');
-    if (ext) {
-      const exports = ext.isActive ? ext.exports : await ext.activate();
-      const api = exports.getAPI(1);
-      // Fire only when the commit or branch changes: state.onDidChange runs after every git status.
-      const hook = (repo: GitRepository) => {
-        let last = `${repo.state.HEAD?.name ?? ''}@${repo.state.HEAD?.commit ?? ''}`;
-        disposables.push(repo.state.onDidChange(() => {
-          const now = `${repo.state.HEAD?.name ?? ''}@${repo.state.HEAD?.commit ?? ''}`;
-          if (now !== last) {
-            last = now;
-            fire();
-          }
-        }));
-      };
-      api.repositories.forEach(hook);
-      disposables.push(api.onDidOpenRepository(hook));
-    }
-  } catch {
-    // Git extension disabled or unavailable: the comparisons then refresh when reopened.
+  // Without the git extension the comparisons refresh when reopened.
+  const api = await gitApi();
+  if (api) {
+    // Fire only when the commit or branch changes: state.onDidChange runs after every git status.
+    const hook = (repo: GitRepository) => {
+      let last = `${repo.state.HEAD?.name ?? ''}@${repo.state.HEAD?.commit ?? ''}`;
+      disposables.push(repo.state.onDidChange(() => {
+        const now = `${repo.state.HEAD?.name ?? ''}@${repo.state.HEAD?.commit ?? ''}`;
+        if (now !== last) {
+          last = now;
+          fire();
+        }
+      }));
+    };
+    api.repositories.forEach(hook);
+    disposables.push(api.onDidOpenRepository(hook));
   }
   return new vscode.Disposable(() => {
     if (timer) clearTimeout(timer);
@@ -633,7 +667,13 @@ interface GitRepository {
   state: { onDidChange: vscode.Event<void>; HEAD?: { name?: string; commit?: string } };
 }
 
-interface GitApi {
+/** The parts of the git extension's API used here. */
+export interface GitApi {
+  /** The git program the extension runs: the one it found, or the `git.path` setting. */
+  git: { path: string };
   repositories: GitRepository[];
   onDidOpenRepository: vscode.Event<GitRepository>;
+  toGitUri(uri: vscode.Uri, ref: string): vscode.Uri;
+  /** The repository the git extension has open for a file, or null (its git URIs of the file do not resolve). */
+  getRepository(uri: vscode.Uri): unknown;
 }

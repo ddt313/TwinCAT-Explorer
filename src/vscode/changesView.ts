@@ -11,7 +11,7 @@ import { viewSections } from '../core/objectText';
 import { removeMember, restoreView } from '../core/splice';
 import { ObjectKind, TcObject, encodeText, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
-import { PathChange, changesSince, headCommit, mergeBase, openNotebookDiff, restoreFromHead, showAtRef } from './git';
+import { PathChange, changesSince, gitApi, headCommit, mergeBase, openNotebookDiff, restoreFromHead, showAtRef } from './git';
 import { GitChanges } from './gitChanges';
 import { CompareBase, HEAD_BASE } from './objectEditor';
 import { objectIcon, objectTreeLabel } from './tree';
@@ -521,21 +521,4 @@ function uniqueIds(nodes: ChangeNode[], seen = new Set<string>()): ChangeNode[] 
     out.push(n);
   }
   return out;
-}
-
-export interface GitApi {
-  toGitUri(uri: vscode.Uri, ref: string): vscode.Uri;
-  /** The repository the git extension has open for a file, or null (its git URIs of the file do not resolve). */
-  getRepository(uri: vscode.Uri): unknown;
-}
-
-/** The git extension's API (for VS Code's own text diffs of files at a commit). */
-export async function gitApi(): Promise<GitApi | undefined> {
-  try {
-    const ext = vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git');
-    if (!ext) return undefined;
-    return (ext.isActive ? ext.exports : await ext.activate()).getAPI(1);
-  } catch {
-    return undefined;
-  }
 }

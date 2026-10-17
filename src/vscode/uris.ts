@@ -10,8 +10,6 @@ export const OBJECT_SCHEME = 'twincat';
 export const LOC_SCHEME = 'twincat-loc';
 export const DIFF_SCHEME = 'twincat-diff';
 export const OBJECT_EDITOR = 'twincatExplorer.objectEditor';
-/** Language of the `twincat:` text documents behind the split editor. */
-export const OBJECT_LANGUAGE = 'twincat-object';
 export const OBJECT_NOTEBOOK = 'twincat-object';
 export const DIFF_NOTEBOOK = 'twincat-diff';
 export const FILE_NOTEBOOK = 'twincat-file';
@@ -44,14 +42,14 @@ export interface ObjectInfo {
  * the path mirrors the XAE tree (shown in breadcrumbs), the query carries the tab title, the object id
  * and, for the Get or Set accessor of a property, `acc`.
  */
-export function objectUri(fsPath: string, obj: ObjectInfo, rev?: string, accessor?: Accessor, scheme = OBJECT_SCHEME): vscode.Uri {
+export function objectUri(fsPath: string, obj: ObjectInfo, rev?: string, accessor?: Accessor): vscode.Uri {
   const filePath = vscode.Uri.file(fsPath).path;
   const segments = [...obj.folderPath, obj.name, ...(accessor ? [accessor] : [])].map(safeName).join('/');
   // `rev` makes a fresh notebook document when the object is opened again (see openDocs.ts); it is not part of the identity.
   const query: Record<string, string> = { label: viewLabel(obj, accessor), id: obj.id };
   if (accessor) query.acc = accessor;
   if (rev) query.rev = rev;
-  return vscode.Uri.from({ scheme, path: `${filePath}/${segments}.tcobj`, query: JSON.stringify(query) });
+  return vscode.Uri.from({ scheme: OBJECT_SCHEME, path: `${filePath}/${segments}.tcobj`, query: JSON.stringify(query) });
 }
 
 /**
@@ -98,7 +96,7 @@ export function parseObjectUri(uri: vscode.Uri, scheme = OBJECT_SCHEME): ObjectR
     return undefined;
   }
   const segments = uri.path.split('/');
-  const fileIndex = segments.findIndex(s => /\.(tcpou|tcdut|tcgvl|tcio)$/i.test(s));
+  const fileIndex = segments.findIndex(isSourcePath);
   if (!objectId || fileIndex < 0) return undefined;
   const filePath = segments.slice(0, fileIndex + 1).join('/');
   const ref: ObjectRef = { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, objectId, accessor };

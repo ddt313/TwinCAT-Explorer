@@ -8,8 +8,6 @@ import * as vscode from 'vscode';
 import { parseJsonc } from '../core/jsonc';
 import { TokenRule, parseTmTheme } from '../core/tmTheme';
 
-export type { TokenRule };
-
 export interface ThemeTokens {
   /** Setting id of the theme, e.g. "Default Dark Modern". */
   name: string;

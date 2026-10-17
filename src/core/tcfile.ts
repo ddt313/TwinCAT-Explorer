@@ -20,7 +20,6 @@ export interface Section {
   element: XmlElement;
   /** False for implementations in a language other than ST. */
   editable: boolean;
-  language: string;
   owner: TcObject;
   accessor?: 'Get' | 'Set';
 }
@@ -35,7 +34,6 @@ export interface TcObject {
   /** Normalized GUID: lower case, no braces. */
   id: string;
   kind: ObjectKind;
-  tag: string;
   name: string;
   /** `FB_X` for a POU, `FB_X.Method` for a member. */
   qualifiedName: string;
@@ -169,7 +167,7 @@ function buildObject(file: TcSourceFile, el: XmlElement, kind: ObjectKind, paren
   const id = normalizeId(el.attrs.get('Id')) ?? `${parent ? parent.id + '/' : ''}${el.name}:${name}`;
   const folderPath = (el.attrs.get('FolderPath') ?? '').split('\\').filter(s => s.length > 0);
   const obj: TcObject = {
-    id, kind, tag: el.name, name,
+    id, kind, name,
     qualifiedName: parent ? `${parent.name}.${name}` : name,
     folderPath, element: el, sections: [], members: [], parent, accessors: [], innerFolders: [],
   };
@@ -181,16 +179,15 @@ function buildObject(file: TcSourceFile, el: XmlElement, kind: ObjectKind, paren
     if (role === 'decl') {
       const declEl = child(holder, 'Declaration');
       if (!declEl) return undefined;
-      return pushSection(file, obj, declEl, `${ownerId}:decl`, role, label, true, 'ST', accessor);
+      return pushSection(file, obj, declEl, `${ownerId}:decl`, role, label, true, accessor);
     }
     const implEl = child(holder, 'Implementation');
     if (!implEl) return undefined;
     const st = child(implEl, 'ST');
-    if (st) return pushSection(file, obj, st, `${ownerId}:impl`, role, label, true, 'ST', accessor);
+    if (st) return pushSection(file, obj, st, `${ownerId}:impl`, role, label, true, accessor);
     const other = implEl.children[0];
-    const language = other?.name ?? 'unknown';
     return pushSection(file, obj, other ?? implEl, `${ownerId}:impl`, role,
-      `${label} (${language}, read-only)`, false, language, accessor);
+      `${label} (${other?.name ?? 'unknown'}, read-only)`, false, accessor);
   };
 
   addSection(el, 'decl', id, 'Declaration');
@@ -219,10 +216,10 @@ function buildObject(file: TcSourceFile, el: XmlElement, kind: ObjectKind, paren
 }
 
 function pushSection(file: TcSourceFile, owner: TcObject, element: XmlElement, key: string, role: 'decl' | 'impl',
-  label: string, editable: boolean, language: string, accessor?: 'Get' | 'Set'): Section {
+  label: string, editable: boolean, accessor?: 'Get' | 'Set'): Section {
   const raw = editable ? cdataText(file.text, element) : '';
   const section: Section = {
-    key, role, label, text: normalizeEol(raw), element, editable, language, owner, accessor,
+    key, role, label, text: normalizeEol(raw), element, editable, owner, accessor,
   };
   owner.sections.push(section);
   file.sections.set(key, section);
@@ -355,12 +352,4 @@ export function objectAtOffset(file: TcSourceFile, offset: number): TcObject | u
     }
   }
   return best;
-}
-
-export function sectionAtOffset(file: TcSourceFile, offset: number): Section | undefined {
-  for (const section of file.sections.values()) {
-    const el = section.element;
-    if (offset >= el.contentStart && offset <= el.contentEnd) return section;
-  }
-  return undefined;
 }

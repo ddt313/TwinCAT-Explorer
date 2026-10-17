@@ -10,7 +10,7 @@ import {
 } from './symbols';
 import { Builtins } from './builtins';
 import { TcWorkspace, SourceEntry, fileKey } from '../core/workspace';
-import { ObjectKind, Section, TcObject, TcSourceFile } from '../core/tcfile';
+import { ObjectKind, Section, TcObject } from '../core/tcfile';
 import { PlcProject, resolutionLibraryName } from '../core/project';
 
 export interface SectionContext {
@@ -160,10 +160,9 @@ export class LanguageIndex {
 
   ensure(): void {
     if (this.builtWorkspaceVersion !== this.ws.version && !this.allDirty) {
-      // Projects reloaded or files invalidated in the workspace: re-check everything cheaply.
+      // Projects reloaded: everything is built again. (A file that changed is marked by invalidateFile.)
       this.allDirty = this.projectScopes.size !== this.ws.plcProjects.length ||
         this.ws.plcProjects.some(p => !this.projectScopes.has(p));
-      for (const e of this.ws.sourceEntries) this.dirty.add(e.key);
     }
     if (!this.allDirty && this.dirty.size === 0) return;
     if (this.allDirty) {
@@ -222,13 +221,13 @@ export class LanguageIndex {
         for (const mu of unit.members) {
           if (!mu.header) continue;
           const kind: MemberKind = mu.header.pouKind === 'PROPERTY' ? 'property' : mu.header.pouKind === 'ACTION' ? 'action' : 'method';
-          const member = this.makeMember(fake, pou, kind, mu, text, parsed.trivia, undefined, undefined, mu.header.name?.name ?? '?');
+          const member = this.makeMember(fake, pou, kind, mu, text, parsed.trivia, undefined, mu.header.name?.name ?? '?');
           pou.members.push(member);
         }
         this.addGlobal(scope, pou);
       }
       for (const td of unit.typeDecls) {
-        this.addGlobal(scope, this.makeType(fake, scope, td, text, parsed.trivia, undefined, undefined));
+        this.addGlobal(scope, this.makeType(fake, scope, td, text, parsed.trivia, undefined));
       }
       if (!unit.header && unit.varBlocks.length > 0) {
         const gvl: GvlSym = {
@@ -279,8 +278,6 @@ export class LanguageIndex {
           scope.refs.push(targetScope);
           scope.namespaces.set(lib.namespace.toUpperCase(), targetScope);
           scope.namespaces.set(lib.name.toUpperCase(), targetScope);
-        } else {
-          scope.unknownLibraries.push(lib.name);
         }
       }
       // TwinCAT's standard library is always available implicitly through Tc2_Standard
@@ -323,7 +320,7 @@ export class LanguageIndex {
         const mParsed = this.parseDecl(mText);
         const mUnit = mParsed.units.find(u => u.header) ?? mParsed.units[0];
         const kind = m.kind as MemberKind;
-        const member = this.makeMember(f, pou, kind, mUnit, mText, mParsed.trivia, mDecl?.key, m, m.name);
+        const member = this.makeMember(f, pou, kind, mUnit, mText, mParsed.trivia, mDecl?.key, m.name);
         for (const acc of m.accessors) {
           const accDecl = acc.sections.find(s => s.role === 'decl');
           if (!accDecl) continue;
@@ -349,7 +346,7 @@ export class LanguageIndex {
       const parsed = this.parseDecl(declText);
       const types: TypeSym[] = [];
       for (const u of parsed.units) {
-        for (const td of u.typeDecls) types.push(this.makeType(f, scope, td, declText, parsed.trivia, declSec?.key, root));
+        for (const td of u.typeDecls) types.push(this.makeType(f, scope, td, declText, parsed.trivia, declSec?.key));
       }
       f.types.push(...types);
       for (const s of root.sections) f.contexts.set(s.key, { ...ctxBase(s, root), types });
@@ -359,7 +356,7 @@ export class LanguageIndex {
       const parsed = this.parseDecl(declText);
       const gvl: GvlSym = {
         kind: 'gvl', id: `${scope.name}::${root.name}`, name: root.name, scope, vars: [],
-        qualifiedOnly: hasAttribute(parsed.trivia, 'qualified_only'), objectId: root.id,
+        qualifiedOnly: hasAttribute(parsed.trivia, 'qualified_only'),
         signature: `VAR_GLOBAL ${root.name}`, loc: declSec ? { fileKey: entry.key, sectionKey: declSec.key, start: 0, end: 0 } : undefined,
       };
       for (const u of parsed.units) {
@@ -393,7 +390,6 @@ export class LanguageIndex {
       kind: 'pou', pouKind, id: `${scope.name}::${name.toUpperCase()}`, name, scope,
       loc: this.loc(f, sectionKey, header?.name), vars: [], members: [],
       extendsNames: header?.extends ?? [], implementsNames: header?.implements ?? [], returnType: header?.returnType,
-      objectId: obj?.id, fileKey: obj ? f.key : undefined,
       signature: header ? text.slice(header.start, header.end).replace(/;\s*$/, '').trim() : name,
       doc: header ? docComment(text, trivia, header) : undefined,
     };
@@ -407,12 +403,12 @@ export class LanguageIndex {
   }
 
   private makeMember(f: FileSyms, pou: PouSym, kind: MemberKind, unit: A.DeclUnit, text: string, trivia: Trivia[],
-    sectionKey: string | undefined, obj: TcObject | undefined, fallbackName: string): MemberSym {
+    sectionKey: string | undefined, fallbackName: string): MemberSym {
     const header = unit?.header;
     const name = header?.name?.name ?? fallbackName;
     const member: MemberSym = {
       kind, id: `${pou.id}.${name.toUpperCase()}`, name, owner: pou, scope: pou.scope, vars: [], getVars: [], setVars: [],
-      returnType: header?.returnType, objectId: obj?.id, loc: this.loc(f, sectionKey, header?.name),
+      returnType: header?.returnType, loc: this.loc(f, sectionKey, header?.name),
       signature: header ? text.slice(header.start, header.end).replace(/;\s*$/, '').trim() : `${kind.toUpperCase()} ${name}`,
       doc: header ? docComment(text, trivia, header) : undefined,
     };
@@ -442,15 +438,14 @@ export class LanguageIndex {
     return v;
   }
 
-  private makeType(f: FileSyms, scope: Scope, td: A.TypeDecl, text: string, trivia: Trivia[], sectionKey: string | undefined,
-    obj: TcObject | undefined): TypeSym {
+  private makeType(f: FileSyms, scope: Scope, td: A.TypeDecl, text: string, trivia: Trivia[], sectionKey: string | undefined): TypeSym {
     const spec = td.spec;
     const dutKind = spec.kind === 'EnumType' ? 'enum' : spec.kind === 'StructType' ? (spec.union ? 'union' : 'struct') : 'alias';
     const t: TypeSym = {
       kind: 'type', dutKind, id: `${scope.name}::${td.name.upper}`, name: td.name.name, scope, fields: [], values: [],
       qualifiedOnly: hasAttribute(trivia, 'qualified_only', td.start), extendsName: td.extends,
       aliasSpec: spec.kind === 'EnumType' || spec.kind === 'StructType' ? undefined : spec,
-      baseSpec: spec.kind === 'EnumType' ? spec.base : undefined, objectId: obj?.id,
+      baseSpec: spec.kind === 'EnumType' ? spec.base : undefined,
       loc: this.loc(f, sectionKey, td.name), signature: '', doc: docComment(text, trivia, td),
     };
     this.register(f, sectionKey, td.name, t);
@@ -509,11 +504,6 @@ export class LanguageIndex {
     const out: GlobalSym[] = [];
     for (const f of this.files.values()) out.push(...f.pous, ...f.types, ...f.gvls);
     return out;
-  }
-
-  libraryScopeNames(): string[] {
-    this.ensure();
-    return [...this.libraryScopes.values()].map(s => s.name);
   }
 
   // ------------------------------------------------------------------ lookups

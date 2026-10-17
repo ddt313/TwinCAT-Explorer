@@ -23,9 +23,9 @@ export function newLoadId(): string {
 }
 
 /** The served text of an object view. */
-export function objectViewText(obj: TcObject, accessor?: 'Get' | 'Set', load = newLoadId()): string {
+export function objectViewText(obj: TcObject, accessor?: 'Get' | 'Set'): string {
   const sections = viewSections(obj, accessor);
-  return formatObjectText(headerOf(viewLabel(obj, accessor), obj.kind, sections, textHash, load), sections);
+  return formatObjectText(headerOf(viewLabel(obj, accessor), obj.kind, sections, textHash, newLoadId()), sections);
 }
 
 interface Stamp {

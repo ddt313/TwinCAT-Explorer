@@ -116,8 +116,4 @@ export class Builtins {
     this.cache.set(upper, sym);
     return sym;
   }
-
-  names(): string[] {
-    return Object.keys(BUILTINS);
-  }
 }

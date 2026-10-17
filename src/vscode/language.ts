@@ -10,7 +10,10 @@ import { Analysis, Analyzer, Occurrence, analyze } from '../lang/analyzer';
 import { Loc, Sym, Ty, tyToString } from '../lang/symbols';
 import { expressionBeforeDot } from '../lang/completion';
 import { TcWorkspace, fileKey } from '../core/workspace';
-import { sectionOffsetToFileOffset } from '../core/tcfile';
+import { positionIn } from '../core/objectText';
+import { TcSourceFile, sectionOffsetToFileOffset } from '../core/tcfile';
+import { escapeMarkdown } from '../shared/markdown';
+import { CompletionResult, HoverResult } from '../shared/protocol';
 import { cellMeta } from './serializers';
 import { openObjectDocument } from './openDocs';
 import {
@@ -22,20 +25,16 @@ export function editorMode(): 'split' | 'notebook' {
   return vscode.workspace.getConfiguration('twincatExplorer').get<string>('editor', 'split') === 'notebook' ? 'notebook' : 'split';
 }
 
-export interface CompletionEntry {
-  label: string;
-  /** Name of a vscode.CompletionItemKind member. */
-  kind: string;
-  detail?: string;
-  /** Markdown. */
-  documentation?: string;
+/** Problems are shown (twincatExplorer.diagnostics.enabled). */
+export function diagnosticsEnabled(): boolean {
+  return vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('diagnostics.enabled', true);
 }
 
-export interface HoverInfo {
-  /** Markdown. */
-  markdown: string;
-  start: number;
-  end: number;
+/** A problem found by the Structured Text analysis, as a VS Code diagnostic. */
+export function toDiagnostic(range: vscode.Range, message: string, severity: 'error' | 'warning'): vscode.Diagnostic {
+  const d = new vscode.Diagnostic(range, message, severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
+  d.source = 'TwinCAT';
+  return d;
 }
 
 /** Location of a section range in the split editor, through a twincat-loc rendering. */
@@ -43,6 +42,11 @@ export type SplitLocator = (ctx: SectionContext, loc: Loc) => vscode.Location | 
 
 function codeblock(code: string): string {
   return '\n```' + ST_LANGUAGE + '\n' + code + '\n```\n';
+}
+
+/** A symbol's doc comment (its line breaks kept) and where it is declared, as Markdown after its signature. */
+function symbolDoc(s: Sym): string {
+  return (s.doc ? `\n\n${escapeMarkdown(s.doc).replace(/\n/g, '  \n')}` : '') + `\n\n*${describeOwner(s)}*`;
 }
 
 export interface CellInfo {
@@ -157,7 +161,6 @@ export function describeOwner(s: Sym): string {
 }
 
 interface CachedAnalysis {
-  version: number;
   text: string;
   analysis: Analysis;
 }
@@ -165,7 +168,9 @@ interface CachedAnalysis {
 export class LanguageFeatures implements
   vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.ReferenceProvider,
   vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
+  /** Analyses per section, of the index version `cacheVersion`. */
   private readonly cache = new Map<string, CachedAnalysis>();
+  private cacheVersion = -1;
   private readonly symbolLocs = new WeakMap<vscode.SymbolInformation, Loc>();
   /** Set by the extension: where locations point when TwinCAT objects open in the split editor. */
   splitLocator?: SplitLocator;
@@ -183,11 +188,16 @@ export class LanguageFeatures implements
   }
 
   analysisOf(ctx: SectionContext, text: string): Analysis {
+    // Analyses of an older build are never used again, and they keep its symbols in memory.
+    if (this.cacheVersion !== this.index.version) {
+      this.cache.clear();
+      this.cacheVersion = this.index.version;
+    }
     const key = `${ctx.fileKey}|${ctx.sectionKey}`;
     const cached = this.cache.get(key);
-    if (cached && cached.version === this.index.version && cached.text === text) return cached.analysis;
+    if (cached?.text === text) return cached.analysis;
     const analysis = analyze(this.index, ctx, text, { ignore: this.ignoreSet() });
-    this.cache.set(key, { version: this.index.version, text, analysis });
+    this.cache.set(key, { text, analysis });
     return analysis;
   }
 
@@ -228,26 +238,20 @@ export class LanguageFeatures implements
     return o.sym.loc;
   }
 
-  hoverAt(ctx: SectionContext, text: string, offset: number): HoverInfo | undefined {
+  hoverAt(ctx: SectionContext, text: string, offset: number): HoverResult | undefined {
     const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
     if (!o) return undefined;
     const s = o.sym;
-    let md = codeblock(s.signature || s.name);
-    if (s.doc) md += '\n\n' + s.doc.replace(/([\\`*_{}[\]()#+\-.!|<>])/g, '\\$1').replace(/\n/g, '  \n');
-    md += `\n\n*${describeOwner(s)}*`;
-    return { markdown: md, start: o.start, end: o.end };
+    return { markdown: codeblock(s.signature || s.name) + symbolDoc(s), start: o.start, end: o.end };
   }
 
-  completionsAt(ctx: SectionContext, text: string, offset: number): CompletionEntry[] {
+  completionsAt(ctx: SectionContext, text: string, offset: number): CompletionResult[] {
     const analyzer = new Analyzer(this.index, ctx, text);
     const exprText = expressionBeforeDot(text, offset);
-    const items: CompletionEntry[] = [];
+    const items: CompletionResult[] = [];
     const add = (s: Sym, ty: Ty) => {
       const firstLine = (s.signature || '').split('\n')[0];
-      let doc = '';
-      if (s.signature) doc += codeblock(s.signature);
-      if (s.doc) doc += '\n\n' + s.doc.replace(/([\\`*_{}[\]()#+\-.!|<>])/g, '\\$1').replace(/\n/g, '  \n');
-      doc += `\n\n*${describeOwner(s)}*`;
+      const doc = (s.signature ? codeblock(s.signature) : '') + symbolDoc(s);
       items.push({ label: s.name, kind: completionKind(s), detail: firstLine || tyToString(ty), documentation: doc });
     };
     if (exprText !== undefined) {
@@ -404,16 +408,16 @@ export class LanguageFeatures implements
 
   // ------------------------------------------------------------------ whole workspace check
 
-  checkWorkspace(collection: vscode.DiagnosticCollection, onlyFile?: string): { files: number; problems: number } {
-    if (onlyFile) collection.delete(vscode.Uri.file(onlyFile));
-    else collection.clear();
+  checkWorkspace(collection: vscode.DiagnosticCollection): { files: number; problems: number } {
+    collection.clear();
     const byFile = new Map<string, vscode.Diagnostic[]>();
     let problems = 0;
     const ignore = this.ignoreSet();
-    const only = onlyFile ? fileKey(onlyFile) : undefined;
+    // Each file once (getFile checks the disk), not once per section.
+    const files = new Map<string, TcSourceFile | undefined>();
     for (const ctx of this.index.allContexts()) {
-      if (only && ctx.fileKey !== only) continue;
-      const file = this.ws.getFile(ctx.filePath);
+      if (!files.has(ctx.fileKey)) files.set(ctx.fileKey, this.ws.getFile(ctx.filePath));
+      const file = files.get(ctx.fileKey);
       const section = file?.sections.get(ctx.sectionKey);
       if (!file || !section) continue;
       // A section with unsaved edits is reported live in its editor; its offsets no longer match the XML.
@@ -422,12 +426,10 @@ export class LanguageFeatures implements
       if (a.problems.length === 0) continue;
       const diags = byFile.get(ctx.filePath) ?? [];
       for (const p of a.problems) {
-        const start = positionInText(file.text, sectionOffsetToFileOffset(file, section, p.start));
-        const end = positionInText(file.text, sectionOffsetToFileOffset(file, section, p.end));
-        const d = new vscode.Diagnostic(new vscode.Range(start, end), `${ctx.object.qualifiedName} (${ctx.label}): ${p.message}`,
-          p.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
-        d.source = 'TwinCAT';
-        diags.push(d);
+        const start = positionIn(file.text, sectionOffsetToFileOffset(file, section, p.start));
+        const end = positionIn(file.text, sectionOffsetToFileOffset(file, section, p.end));
+        diags.push(toDiagnostic(new vscode.Range(start.line, start.character, end.line, end.character),
+          `${ctx.object.qualifiedName} (${ctx.label}): ${p.message}`, p.severity));
         problems++;
       }
       byFile.set(ctx.filePath, diags);
@@ -435,18 +437,6 @@ export class LanguageFeatures implements
     for (const [p, diags] of byFile) collection.set(vscode.Uri.file(p), diags);
     return { files: byFile.size, problems };
   }
-}
-
-function positionInText(text: string, offset: number): vscode.Position {
-  let line = 0;
-  let lineStart = 0;
-  for (let i = 0; i < offset && i < text.length; i++) {
-    if (text[i] === '\n') {
-      line++;
-      lineStart = i + 1;
-    }
-  }
-  return new vscode.Position(line, offset - lineStart);
 }
 
 /** Live diagnostics for the Structured Text cells of open TwinCAT notebooks. */
@@ -457,13 +447,9 @@ export class CellDiagnostics implements vscode.Disposable {
 
   constructor(private readonly features: LanguageFeatures) {}
 
-  private enabled(): boolean {
-    return vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('diagnostics.enabled', true);
-  }
-
   refresh(doc: vscode.TextDocument): void {
     if (doc.languageId !== ST_LANGUAGE) return;
-    if (!this.enabled()) {
+    if (!diagnosticsEnabled()) {
       this.collection.delete(doc.uri);
       return;
     }
@@ -472,13 +458,8 @@ export class CellDiagnostics implements vscode.Disposable {
       this.collection.delete(doc.uri);
       return;
     }
-    const diags = r.analysis.problems.map(p => {
-      const d = new vscode.Diagnostic(new vscode.Range(doc.positionAt(p.start), doc.positionAt(p.end)), p.message,
-        p.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
-      d.source = 'TwinCAT';
-      return d;
-    });
-    this.collection.set(doc.uri, diags);
+    this.collection.set(doc.uri, r.analysis.problems.map(p =>
+      toDiagnostic(new vscode.Range(doc.positionAt(p.start), doc.positionAt(p.end)), p.message, p.severity)));
   }
 
   schedule(doc: vscode.TextDocument, delay = 250): void {

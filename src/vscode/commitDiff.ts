@@ -7,8 +7,8 @@ import * as vscode from 'vscode';
 import { Accessor, viewLabel, viewSections } from '../core/objectText';
 import { fileKey } from '../core/workspace';
 import { HostMessage, PaneSection, ProbeAction, WEBVIEW_COMMANDS, WebviewMessage } from '../shared/protocol';
-import { GitChanges } from './gitChanges';
-import { ObjectEditorProvider, editorInit, editorWebviewHtml, editorWebviewOptions } from './objectEditor';
+import { CommitFile, GitChanges } from './gitChanges';
+import { ObjectEditorProvider, editorConfig, editorInit, editorWebviewHtml, editorWebviewOptions } from './objectEditor';
 import { activeThemeTokens } from './theme';
 
 export const COMMIT_DIFF_VIEW = 'twincatExplorer.commitDiff';
@@ -43,8 +43,6 @@ export class CommitDiffPanel implements vscode.Disposable {
   private readonly probes = new Map<number, (v: unknown) => void>();
   private probeId = 0;
   private readonly disposables: vscode.Disposable[] = [];
-  /** Messages posted to the webview, kept for the integration tests. */
-  readonly posted: HostMessage[] = [];
   /** The working-tree file that holds an object (by GUID), the given one first. */
   locate?: (objectId: string, preferred: string) => string | undefined;
 
@@ -54,9 +52,7 @@ export class CommitDiffPanel implements vscode.Disposable {
       vscode.window.onDidChangeActiveColorTheme(postTheme),
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('editor.tokenColorCustomizations') || e.affectsConfiguration('workbench.colorTheme')) postTheme();
-        if (e.affectsConfiguration('editor') && this.panel) {
-          this.post({ type: 'config', config: editorInit(this.panel.webview, this.provider.extensionUri).config });
-        }
+        if (e.affectsConfiguration('editor')) this.post({ type: 'config', config: editorConfig() });
       }),
     );
   }
@@ -69,10 +65,6 @@ export class CommitDiffPanel implements vscode.Disposable {
   /** The working-tree file of the object shown, when it still exists. */
   get livePath(): string | undefined {
     return this.content?.livePath;
-  }
-
-  get visible(): boolean {
-    return !!this.panel;
   }
 
   /** The panel is the active editor tab. */
@@ -107,8 +99,10 @@ export class CommitDiffPanel implements vscode.Disposable {
 
   /** The commit's and the parent's texts of the object's sections; undefined (with a message) when unreadable. */
   private async load(item: CommitObject): Promise<Content | undefined> {
-    const after = await this.git.fileAtCommit(path.join(item.root, item.path), item.commit, item.path);
-    const before = item.parent ? await this.git.fileAtCommit(path.join(item.root, item.fromPath), item.parent, item.fromPath) : {};
+    const [after, before] = await Promise.all([
+      this.git.fileAtCommit(path.join(item.root, item.path), item.commit, item.path),
+      item.parent ? this.git.fileAtCommit(path.join(item.root, item.fromPath), item.parent, item.fromPath) : Promise.resolve<CommitFile>({}),
+    ]);
     const error = after.error ?? before.error;
     if (error) {
       void vscode.window.showErrorMessage(`TwinCAT: ${error}`);
@@ -218,10 +212,7 @@ export class CommitDiffPanel implements vscode.Disposable {
   }
 
   private post(message: HostMessage): void {
-    if (!this.panel) return;
-    this.posted.push(message);
-    if (this.posted.length > 200) this.posted.shift();
-    void this.panel.webview.postMessage(message);
+    if (this.panel) void this.panel.webview.postMessage(message);
   }
 
   /** Runs a test action in the webview and returns its result. */

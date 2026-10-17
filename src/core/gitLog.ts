@@ -1,5 +1,5 @@
-// Parsers of the git output behind the object history and the line blame: `git log --follow --raw -z` of
-// one file, and `git blame --porcelain`.
+// Parsers of git output: commits (`git log`), changed files (`--name-status -z`), the object history
+// (`git log --follow --raw -z` of one file) and the line blame (`git blame --porcelain`).
 
 export interface CommitInfo {
   sha: string;
@@ -13,8 +13,41 @@ export interface CommitInfo {
   body: string;
 }
 
-/** `--format` of the commit lines that parseFileLog reads: a record separator, then fields. */
-export const FILE_LOG_FORMAT = '%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b';
+/** `--format` of a commit that parseCommit reads: a record separator, then the fields. */
+export const COMMIT_FORMAT = '%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b';
+
+/** The fields of one commit of COMMIT_FORMAT (the text after its record separator). */
+export function parseCommit(fields: string): CommitInfo {
+  const [sha, parents, author, email, date, subject, body] = fields.split('\x1f');
+  return { sha, parents: parents ? parents.split(' ') : [], author, email, date: Number(date), subject, body: (body ?? '').trim() };
+}
+
+/** A file of `--name-status -z` output (git diff, diff-index, diff-tree). */
+export interface NameStatus {
+  /** Changed, added, deleted or renamed: a copy counts as added, a type change or conflict as changed. */
+  status: 'M' | 'A' | 'D' | 'R';
+  /** Repository-relative path; the new one of a rename or copy. */
+  path: string;
+  /** Repository-relative path a renamed file came from. */
+  from?: string;
+}
+
+/** The files of `--name-status -z` output: a status, then one path, or two for a rename or copy. */
+export function parseNameStatus(out: string): NameStatus[] {
+  const tokens = out.split('\0');
+  const files: NameStatus[] = [];
+  for (let i = 0; i < tokens.length && tokens[i];) {
+    const status = tokens[i][0];
+    if (status === 'R' || status === 'C') {
+      files.push(status === 'R' ? { status: 'R', path: tokens[i + 2], from: tokens[i + 1] } : { status: 'A', path: tokens[i + 2] });
+      i += 3;
+    } else {
+      files.push({ status: status === 'A' || status === 'D' ? status : 'M', path: tokens[i + 1] });
+      i += 2;
+    }
+  }
+  return files;
+}
 
 /**
  * Arguments of `git log` for the commits of HEAD that changed a file (repository-relative path), newest first,
@@ -23,8 +56,8 @@ export const FILE_LOG_FORMAT = '%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b';
  * changes come with the merged commits.
  */
 export function fileLogArgs(relPath: string): string[] {
-  return ['--no-optional-locks', '--literal-pathspecs', 'log', '--follow', '-M', '--raw', '--no-abbrev', '-z',
-    `--format=${FILE_LOG_FORMAT}`, 'HEAD', '--', relPath];
+  return ['--literal-pathspecs', 'log', '--follow', '-M', '--raw', '--no-abbrev', '-z',
+    `--format=${COMMIT_FORMAT}`, 'HEAD', '--', relPath];
 }
 
 /**
@@ -32,7 +65,7 @@ export function fileLogArgs(relPath: string): string[] {
  * path there); parseBlame reads the output.
  */
 export function blameArgs(commit: string, relPath: string, ranges: [number, number][]): string[] {
-  const args = ['--no-optional-locks', '--literal-pathspecs', 'blame', '--porcelain'];
+  const args = ['--literal-pathspecs', 'blame', '--porcelain'];
   for (const [start, end] of ranges) args.push('-L', `${start},${end}`);
   args.push(commit, '--', relPath);
   return args;
@@ -62,7 +95,7 @@ export function blobBefore(e: FileLogEntry): string | undefined {
 }
 
 /**
- * Entries of `git log --follow --raw --no-abbrev -z --format=<FILE_LOG_FORMAT> -- <file>`, newest first.
+ * Entries of `git log --follow --raw --no-abbrev -z --format=<COMMIT_FORMAT> -- <file>`, newest first.
  * Each record is the commit's fields, a NUL, then the raw line `:<modes> <old blob> <new blob> <status>` and
  * the path (two paths for a rename), NUL-separated.
  */
@@ -71,8 +104,8 @@ export function parseFileLog(out: string): FileLogEntry[] {
   for (const record of out.split('\x1e')) {
     const headerEnd = record.indexOf('\0');
     if (headerEnd < 0) continue;
-    const [sha, parents, author, email, date, subject, body] = record.slice(0, headerEnd).split('\x1f');
-    if (!sha) continue;
+    const commit = parseCommit(record.slice(0, headerEnd));
+    if (!commit.sha) continue;
     const tokens = record.slice(headerEnd + 1).split('\0').map(t => t.replace(/^\n+/, ''));
     const raw = tokens.findIndex(t => t.startsWith(':'));
     if (raw < 0) continue;
@@ -83,7 +116,7 @@ export function parseFileLog(out: string): FileLogEntry[] {
     const letter = fields[4][0];
     const twoPaths = letter === 'R' || letter === 'C';
     entries.push({
-      commit: { sha, parents: parents ? parents.split(' ') : [], author, email, date: Number(date), subject, body: (body ?? '').trim() },
+      commit,
       status: letter === 'R' || letter === 'C' || letter === 'A' || letter === 'D' ? letter : 'M',
       oldBlob: NO_BLOB.test(fields[2]) ? undefined : fields[2],
       newBlob: NO_BLOB.test(fields[3]) ? undefined : fields[3],

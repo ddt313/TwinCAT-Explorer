@@ -9,13 +9,13 @@ import * as vscode from 'vscode';
 import { ViewChange, metadataChange, onlyTmcHashChanged, viewChanges } from '../core/objectChanges';
 import { viewSections } from '../core/objectText';
 import { removeMember, restoreView } from '../core/splice';
-import { ObjectKind, TcObject, encodeText, parseTcFile } from '../core/tcfile';
+import { TcObject, encodeText, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { PathChange, changesSince, gitApi, headCommit, mergeBase, openNotebookDiff, restoreFromHead, showAtRef } from './git';
 import { GitChanges } from './gitChanges';
 import { CompareBase, HEAD_BASE } from './objectEditor';
-import { objectIcon, objectTreeLabel } from './tree';
-import { SOURCE_EXTENSIONS, isSourcePath, realPathOf } from './uris';
+import { KIND_WORD, compareLabels, objectIcon, objectTreeLabel, viewIcon } from './tree';
+import { SOURCE_EXTENSIONS, ST_LANGUAGE, isSourcePath, realPathOf } from './uris';
 
 export type ChangesScope = { kind: 'head' } | { kind: 'branch'; ref: string };
 
@@ -24,7 +24,35 @@ export const CHANGE_SCHEME = 'twincat-change';
 export const BASE_SCHEME = 'twincat-base';
 const SCOPE_KEY = 'twincatExplorer.changesScope';
 
-type Status = 'M' | 'A' | 'D' | 'R';
+/** The status letter of a changed file or object view (A, D, M, R). */
+export type Status = PathChange['status'];
+
+/** The URI that gives a node its status letter and color (provideFileDecoration); `name` keeps a file's icon. */
+export function statusUri(id: string, status: Status, name = ''): vscode.Uri {
+  return vscode.Uri.from({ scheme: CHANGE_SCHEME, path: `/${encodeURIComponent(id)}${name}`, query: status });
+}
+
+/** The status letter of a changed object view. */
+export function changeLetter(change: ViewChange['change']): Status {
+  return change === 'added' ? 'A' : change === 'deleted' ? 'D' : 'M';
+}
+
+/**
+ * A changed object view as the Changes, Commits and History views show it under its file: its name without the
+ * root object's (`Run` for `FB_X.Run`), its status and icon, `Get accessor` or its kind (and a rename), a tooltip.
+ */
+export function viewChangeItem(v: ViewChange, obj: TcObject | undefined, rootName: string | undefined):
+  { label: string; status: Status; icon: vscode.ThemeIcon; description: string; tooltip: string } {
+  const words = [v.accessor ? `${v.accessor} accessor` : KIND_WORD[v.kind]];
+  if (v.renamedFrom) words.push(`renamed from ${v.renamedFrom}`);
+  return {
+    label: rootName && v.label.startsWith(`${rootName}.`) ? v.label.slice(rootName.length + 1) : v.label,
+    status: changeLetter(v.change),
+    icon: viewIcon(obj, v.kind, v.accessor),
+    description: words.join(' · '),
+    tooltip: `${v.label} (${v.change})`,
+  };
+}
 
 export class ChangeNode {
   children: ChangeNode[] = [];
@@ -46,11 +74,6 @@ export class ChangeNode {
 
   constructor(readonly id: string, readonly type: 'file' | 'view' | 'group' | 'other', public label: string) {}
 }
-
-const KIND_WORD: Record<ObjectKind, string> = {
-  pou: 'POU', method: 'Method', property: 'Property', action: 'Action', transition: 'Transition',
-  dut: 'DUT', gvl: 'GVL', itf: 'Interface',
-};
 
 export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.FileDecorationProvider,
   vscode.TextDocumentContentProvider, vscode.Disposable {
@@ -186,7 +209,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
     if (this.ws.failedPlc.size) {
       notes.push(`${this.ws.failedPlc.size} PLC project(s) could not be read (merge conflict?): their changes may be incomplete.`);
     }
-    files.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    files.sort((a, b) => compareLabels(a.label, b.label));
     const roots = [...files];
     if (build.length) roots.push(this.group('build', 'Build output (no code changes)', build));
     if (projects.length) roots.push(this.group('projects', 'Project files', projects));
@@ -228,7 +251,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
 
   private group(id: string, label: string, children: ChangeNode[]): ChangeNode {
     const g = new ChangeNode(`group:${id}`, 'group', label);
-    g.children = children.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    g.children = children.sort((a, b) => compareLabels(a.label, b.label));
     g.description = String(children.length);
     return g;
   }
@@ -303,17 +326,9 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
     if (this.scope.kind === 'head' && (c.status === 'M' || c.status === 'D')) node.discard = 'file';
     for (const v of views) {
       const obj: TcObject | undefined = (v.change === 'deleted' ? before : now)?.objects.get(v.objectId);
-      const short = rootObject && v.label.startsWith(`${rootObject.name}.`) ? v.label.slice(rootObject.name.length + 1) : v.label;
-      const vn = new ChangeNode(`view:${fileKey(c.fsPath)}|${v.objectId}|${v.accessor ?? ''}`, 'view', short);
-      Object.assign(vn, { fsPath: c.fsPath, root, base, from: c.from, view: v });
-      vn.status = v.change === 'added' ? 'A' : v.change === 'deleted' ? 'D' : 'M';
-      vn.icon = v.accessor
-        ? new vscode.ThemeIcon(v.accessor === 'Get' ? 'arrow-small-left' : 'arrow-small-right', new vscode.ThemeColor('symbolIcon.methodForeground'))
-        : obj ? objectIcon(obj) : undefined;
-      const words = [v.accessor ? `${v.accessor} accessor` : KIND_WORD[v.kind]];
-      if (v.renamedFrom) words.push(`renamed from ${v.renamedFrom}`);
-      vn.description = words.join(' · ');
-      vn.tooltip = `${v.label} (${v.change})`;
+      const item = viewChangeItem(v, obj, rootObject?.name);
+      const vn = new ChangeNode(`view:${fileKey(c.fsPath)}|${v.objectId}|${v.accessor ?? ''}`, 'view', item.label);
+      Object.assign(vn, item, { fsPath: c.fsPath, root, base, from: c.from, view: v });
       // Code changes go back to HEAD; an added member or accessor is removed. Not for new or deleted files.
       const removable = v.change === 'added' && (v.accessor !== undefined || !!obj?.parent);
       if (this.scope.kind === 'head' && c.status === 'M' && ((v.change === 'modified' && !v.renamedFrom) || removable)) vn.discard = 'view';
@@ -359,7 +374,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
     item.tooltip = n.tooltip;
     item.iconPath = n.icon;
     // The status letter and color come from provideFileDecoration.
-    if (n.status) item.resourceUri = vscode.Uri.from({ scheme: CHANGE_SCHEME, path: `/${encodeURIComponent(n.id)}`, query: n.status });
+    if (n.status) item.resourceUri = statusUri(n.id, n.status);
     const context: string[] = [n.type];
     if (n.discard) context.push(`discard-${n.discard}`);
     if (n.type === 'file' && n.status !== 'D' && n.status !== 'A') context.push('notebookDiff');
@@ -404,7 +419,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
         query: JSON.stringify({ fsPath: n.fsPath, commit: n.base, from: n.from, objectId: v.objectId, accessor: v.accessor }),
       });
       const doc = await vscode.workspace.openTextDocument(uri);
-      await vscode.languages.setTextDocumentLanguage(doc, 'twincat-st');
+      await vscode.languages.setTextDocumentLanguage(doc, ST_LANGUAGE);
       await vscode.window.showTextDocument(doc, { preview: true });
       return;
     }

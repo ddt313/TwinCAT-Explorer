@@ -11,6 +11,7 @@ import {
   BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
   ProbeState, RequestKind, SectionBlame, SectionRef, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
+import { escapeMarkdown } from '../shared/markdown';
 import { relativeTime } from '../shared/time';
 import { TextMateHighlighter, parseColor, toHex } from './textmate';
 // Internal Monaco services: the public registerEditorOpener can only answer with the source editor, which
@@ -91,7 +92,6 @@ interface Pane {
   element: HTMLElement;
   /** Holds the pane's own editor (hidden while the diff is shown). */
   host: HTMLElement;
-  markers: number;
   /** HEAD text of the section (empty for a section that is not in HEAD). */
   base?: Monaco.editor.ITextModel;
   /** The section is not in HEAD: every line is new. */
@@ -116,8 +116,6 @@ interface Pane {
 }
 
 interface ModelInfo {
-  fileKey: string;
-  sectionKey: string;
   /** Section of another object view (read-only, shown in peek views). */
   ref?: SectionRef;
 }
@@ -252,10 +250,6 @@ function applyLanguage(l: LanguageConfig): void {
   monaco.languages.setLanguageConfiguration(LANG, conf);
 }
 
-function infoOf(model: Monaco.editor.ITextModel): ModelInfo | undefined {
-  return models.get(model.uri.toString());
-}
-
 function ownPane(model: Monaco.editor.ITextModel): Pane | undefined {
   return panes.find(p => p.model === model);
 }
@@ -276,7 +270,7 @@ function targetModel(t: TargetRange): Monaco.editor.ITextModel {
   }
   const uri = modelUri({ fileKey: t.ref.fileKey, sectionKey: t.ref.sectionKey, role: t.ref.role, title: t.ref.view.label });
   // Registered first, so the peek editor showing it is made read-only (see onDidCreateEditor).
-  models.set(uri.toString(), { fileKey: t.ref.fileKey, sectionKey: t.ref.sectionKey, ref: t.ref });
+  models.set(uri.toString(), { ref: t.ref });
   foreignOrder.delete(uri.toString());
   foreignOrder.add(uri.toString());
   let model = monaco.editor.getModel(uri);
@@ -536,10 +530,10 @@ function createPane(section: PaneSection): Pane {
   const model = monaco.editor.createModel(section.text, LANG, uri);
   model.setEOL(monaco.editor.EndOfLineSequence.LF);
   applyIndentation(model);
-  models.set(uri.toString(), { fileKey, sectionKey: section.key });
+  models.set(uri.toString(), {});
   const editor = monaco.editor.create(host, { ...editorOptions(section), model });
   const pane: Pane = {
-    section, model, standalone: editor, editor, element, host, markers: 0, baseNew: false, changes: [],
+    section, model, standalone: editor, editor, element, host, baseNew: false, changes: [],
     changeMarks: editor.createDecorationsCollection(), label, typedAt: 0,
   };
   model.onDidChangeContent(e => {
@@ -593,7 +587,6 @@ function wireEditor(pane: Pane, editor: Monaco.editor.ICodeEditor): void {
 function focused(pane: Pane): void {
   const before = lastFocused;
   lastFocused = pane.section.key;
-  post({ type: 'focus', key: pane.section.key });
   // The annotation moves to the pane edited now.
   if (before !== lastFocused) for (const p of panes) scheduleBlame(p, p === pane ? 0 : undefined);
 }
@@ -602,10 +595,6 @@ function focused(pane: Pane): void {
 
 function isBlameElement(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest('.tc-blame');
-}
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, m => `\\${m}`);
 }
 
 /** The commit that last changed a line (1-based) of a pane as the pane shows it now; undefined when unknown. */
@@ -1277,7 +1266,6 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
         for (const entry of m.markers) {
           const pane = panes.find(p => p.section.key === entry.key);
           if (!pane) continue;
-          pane.markers = entry.markers.length;
           monaco.editor.setModelMarkers(pane.model, 'twincat', entry.markers.map(mk => {
             const r = rangeOf(pane.model, mk.start, Math.max(mk.end, mk.start));
             return {

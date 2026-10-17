@@ -1,6 +1,10 @@
 // Messages between the split editor's webview and the extension host.
 // Offsets are character offsets in a section's text (LF line breaks).
 
+import type { TokenRule } from '../core/tmTheme';
+
+export type { TokenRule };
+
 export interface PaneSection {
   key: string;
   role: 'decl' | 'impl';
@@ -24,11 +28,6 @@ export interface TargetRange {
   ref: SectionRef;
   start: number;
   end: number;
-}
-
-export interface TokenRule {
-  scope?: string | string[];
-  settings: { foreground?: string; background?: string; fontStyle?: string };
 }
 
 export interface EditorConfig {
@@ -128,7 +127,6 @@ export type WebviewMessage =
   | { type: 'open'; target: TargetRange; side?: boolean }
   /** A VS Code command the panes cannot run themselves (see WORKBENCH_CHORDS). */
   | { type: 'command'; command: string }
-  | { type: 'focus'; key: string }
   /** The sections of a sync that the webview applied (it keeps sections it has unacknowledged edits in). */
   | { type: 'synced'; id: number; keys: string[] }
   /** Asks for the document's texts again, after a sync was skipped for sections with edits in flight. */

@@ -5,18 +5,20 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { cached } from '../core/cache';
 import { FileLogEntry, blobBefore } from '../core/gitLog';
 import { ViewChange, historyStep, viewExists } from '../core/objectChanges';
 import { Accessor, viewLabel } from '../core/objectText';
-import { ObjectKind, TcObject, TcSourceFile, parseTcFile } from '../core/tcfile';
+import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
-import { CHANGE_SCHEME } from './changesView';
+import { escapeMarkdown } from '../shared/markdown';
+import { Status, changeLetter, statusUri, viewChangeItem } from './changesView';
 import { CommitObject } from './commitDiff';
-import { KIND_WORD, describeCommit, escapeMarkdown } from './commitsView';
+import { describeCommit } from './commitsView';
 import { CommitInfo, fileLog, localOnlyCommits, pathAt, readBlobs, userEmail } from './git';
 import { GitChanges } from './gitChanges';
 import { CompareBase, HEAD_BASE } from './objectEditor';
-import { objectIcon } from './tree';
+import { KIND_WORD, viewIcon } from './tree';
 
 const PAGE = 50;
 /** File versions read by one git process while looking for the commits that changed the object. */
@@ -28,8 +30,6 @@ export interface HistoryTarget {
   objectId: string;
   accessor?: Accessor;
 }
-
-type Status = 'M' | 'A' | 'D' | 'R';
 
 export class HistoryNode {
   children: HistoryNode[] = [];
@@ -122,10 +122,6 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
     return this.current;
   }
 
-  get pinned(): boolean {
-    return this.pinnedTo;
-  }
-
   /** The object of the active editor (ignored while pinned, and right after this view opened that object). */
   follow(target: HistoryTarget | undefined): void {
     if (!target || this.pinnedTo) return;
@@ -207,27 +203,12 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
 
   // ------------------------------------------------------------------ reading the history
 
-  private cached<T>(map: Map<string, Promise<T>>, key: string, read: () => Promise<T>, max: number): Promise<T> {
-    let p = map.get(key);
-    if (!p) {
-      const reading = read();
-      p = reading;
-      map.set(key, reading);
-      // A failure is tried again the next time.
-      reading.catch(() => {
-        if (map.get(key) === reading) map.delete(key);
-      });
-      if (map.size > max) map.delete(map.keys().next().value!);
-    }
-    return p;
-  }
-
   private history(target: HistoryTarget): Promise<History> {
-    return this.cached(this.histories, targetKey(target), () => this.load(target), 10);
+    return cached(this.histories, targetKey(target), () => this.load(target), 10);
   }
 
   private repoInfo(root: string): Promise<{ local: Set<string>; me: string }> {
-    return this.cached(this.repoInfos, fileKey(root), async () => {
+    return cached(this.repoInfos, fileKey(root), async () => {
       const [local, me] = await Promise.all([localOnlyCommits(root), userEmail(root)]);
       return { local, me };
     }, 10);
@@ -242,7 +223,7 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
     const fileMode = !target.accessor && !!obj && obj === file?.root && obj.members.length > 0;
     // The file's path in HEAD: another one when it was moved since (not committed yet); none for a new file.
     const headPath = await pathAt(root, target.fsPath, 'HEAD');
-    const entries = headPath ? await this.cached(this.logs, `${fileKey(root)}|${headPath}`, () => fileLog(root, headPath), 20) : [];
+    const entries = headPath ? await cached(this.logs, `${fileKey(root)}|${headPath}`, () => fileLog(root, headPath), 20) : [];
     return { target, root, label, fileMode, entries, next: 0, found: [], done: entries.length === 0, wanted: PAGE, scanning: Promise.resolve() };
   }
 
@@ -350,7 +331,7 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
     item.tooltip = n.tooltip;
     item.iconPath = n.icon;
     // The status letter and color come from the TwinCAT Changes view's decorations.
-    if (n.status) item.resourceUri = vscode.Uri.from({ scheme: CHANGE_SCHEME, path: `/${encodeURIComponent(n.id)}`, query: n.status });
+    if (n.status) item.resourceUri = statusUri(n.id, n.status);
     const context: string[] = [n.type];
     if (n.commit && n.live) context.push('compare');
     item.contextValue = context.join(' ');
@@ -377,7 +358,7 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
         : v.renamedFrom ? [`Renamed from ${escapeMarkdown(v.renamedFrom)}`] : [];
       Object.assign(n, describeCommit(c, local, info.me, [...notes, ...moved]));
       if (v.renamedFrom) n.description += ` · renamed from ${v.renamedFrom}`;
-      n.status = v.change === 'added' ? 'A' : v.change === 'deleted' ? 'D' : 'M';
+      n.status = changeLetter(v.change);
       n.objectId = h.target.objectId;
       n.accessor = h.target.accessor;
       n.live = viewExists(this.ws.getFile(h.target.fsPath), h.target.objectId, h.target.accessor);
@@ -391,16 +372,10 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
     n.status = rootChange?.change === 'added' ? 'A' : 'M';
     const live = this.ws.getFile(h.target.fsPath);
     for (const v of f.views) {
-      const short = v.label.startsWith(`${h.label}.`) ? v.label.slice(h.label.length + 1) : v.label;
-      const vn = new HistoryNode(`hview:${c.sha}:${v.objectId}:${v.accessor ?? ''}`, 'view', short);
-      Object.assign(vn, { commit: c, path: n.path, fromPath: n.fromPath, objectId: v.objectId, accessor: v.accessor, parent: n });
-      vn.status = v.change === 'added' ? 'A' : v.change === 'deleted' ? 'D' : 'M';
+      const item = viewChangeItem(v, live?.objects.get(v.objectId), h.label);
+      const vn = new HistoryNode(`hview:${c.sha}:${v.objectId}:${v.accessor ?? ''}`, 'view', item.label);
+      Object.assign(vn, item, { commit: c, path: n.path, fromPath: n.fromPath, objectId: v.objectId, accessor: v.accessor, parent: n });
       vn.live = viewExists(live, v.objectId, v.accessor);
-      vn.icon = viewIcon(live?.objects.get(v.objectId), v.kind, v.accessor);
-      const words = [v.accessor ? `${v.accessor} accessor` : KIND_WORD[v.kind]];
-      if (v.renamedFrom) words.push(`renamed from ${v.renamedFrom}`);
-      vn.description = words.join(' · ');
-      vn.tooltip = `${v.label} (${v.change})`;
       n.children.push(vn);
     }
     return n;
@@ -431,7 +406,7 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
       const short = v.label.startsWith(`${h.label}.`) ? v.label.slice(h.label.length + 1) : v.label;
       const vn = new HistoryNode(`hworking:${v.objectId}:${v.accessor ?? ''}`, 'working', short);
       Object.assign(vn, { objectId: v.objectId, accessor: v.accessor, parent: n });
-      vn.status = v.change === 'added' ? 'A' : 'M';
+      vn.status = changeLetter(v.change);
       vn.icon = viewIcon(live?.objects.get(v.objectId), v.kind, v.accessor);
       vn.description = v.accessor ? `${v.accessor} accessor` : KIND_WORD[v.kind];
       n.children.push(vn);
@@ -501,9 +476,3 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
 
 /** A reason the view has nothing to show, said in its message. */
 class HistoryMessage extends Error {}
-
-/** Icon of an object view; for an object deleted since, the icon of its kind. */
-function viewIcon(obj: TcObject | undefined, kind: ObjectKind, accessor?: Accessor): vscode.ThemeIcon {
-  if (accessor) return new vscode.ThemeIcon(accessor === 'Get' ? 'arrow-small-left' : 'arrow-small-right', new vscode.ThemeColor('symbolIcon.methodForeground'));
-  return objectIcon(obj ?? ({ kind } as TcObject));
-}

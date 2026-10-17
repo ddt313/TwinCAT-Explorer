@@ -34,7 +34,6 @@ export class TcWorkspace {
   /** Incremented whenever projects or files change. */
   version = 0;
   private readonly entries = new Map<string, SourceEntry>();
-  private readonly tsOfPlc = new Map<PlcProject, TsProject[]>();
   private readonly plcByKey = new Map<string, PlcProject>();
   private readonly cache = new Map<string, CachedFile>();
 
@@ -44,7 +43,6 @@ export class TcWorkspace {
     this.loadErrors = [];
     this.failedPlc.clear();
     this.entries.clear();
-    this.tsOfPlc.clear();
     this.plcByKey.clear();
     const seen = new Set<string>();
     for (const p of tsprojPaths) {
@@ -61,12 +59,8 @@ export class TcWorkspace {
       this.tsProjects.push(ts);
       for (const ref of ts.plcProjects) {
         const plcKey = fileKey(ref.plcprojPath);
-        const known = this.plcByKey.get(plcKey);
-        if (known) {
-          // The same PLC project can belong to several TwinCAT projects (a simulation reuses the machine's).
-          this.tsOfPlc.get(known)?.push(ts);
-          continue;
-        }
+        // The same PLC project can belong to several TwinCAT projects (a simulation reuses the machine's).
+        if (this.plcByKey.has(plcKey)) continue;
         let plc: PlcProject;
         try {
           plc = parsePlcProject(ref.plcprojPath, fs.readFileSync(ref.plcprojPath, 'utf8'));
@@ -77,7 +71,6 @@ export class TcWorkspace {
         }
         this.plcProjects.push(plc);
         this.plcByKey.set(plcKey, plc);
-        this.tsOfPlc.set(plc, [ts]);
         for (const include of plc.compile) {
           const full = path.join(plc.dir, include.replace(/\\/g, path.sep));
           const k = fileKey(full);
@@ -87,10 +80,6 @@ export class TcWorkspace {
     }
     this.tsProjects.sort((a, b) => a.name.localeCompare(b.name));
     this.version++;
-  }
-
-  tsProjectsOf(plc: PlcProject): TsProject[] {
-    return this.tsOfPlc.get(plc) ?? [];
   }
 
   plcProject(plcprojPath: string): PlcProject | undefined {

@@ -5,26 +5,19 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ObjectKind, TcSourceFile, parseTcFile } from '../core/tcfile';
+import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { ViewChange, metadataChange, viewChanges } from '../core/objectChanges';
-import { TcWorkspace } from '../core/workspace';
-import { CHANGE_SCHEME } from './changesView';
+import { Status, statusUri, viewChangeItem } from './changesView';
 import { CommitObject } from './commitDiff';
 import { CommitInfo, commitChanges, commitLog, gitApi, headCommit, localOnlyCommits, openNotebookDiff, readBlobs, userEmail } from './git';
 import { GitChanges } from './gitChanges';
-import { objectIcon, objectTreeLabel } from './tree';
+import { compareLabels, objectIcon, objectTreeLabel } from './tree';
 import { EMPTY, isSourcePath, revisionUri } from './uris';
+import { escapeMarkdown } from '../shared/markdown';
 import { relativeTime } from '../shared/time';
 
 const PAGE = 30;
 const PROJECT_FILE = /\.(tsproj|plcproj)$/i;
-
-type Status = 'M' | 'A' | 'D' | 'R';
-
-export const KIND_WORD: Record<ObjectKind, string> = {
-  pou: 'POU', method: 'Method', property: 'Property', action: 'Action', transition: 'Transition',
-  dut: 'DUT', gvl: 'GVL', itf: 'Interface',
-};
 
 export class CommitNode {
   children: CommitNode[] = [];
@@ -65,7 +58,7 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
   openObject?: (item: CommitObject) => Promise<void>;
   log?: (message: string) => void;
 
-  constructor(private readonly ws: TcWorkspace, private readonly git: GitChanges) {}
+  constructor(private readonly git: GitChanges) {}
 
   attach(view: vscode.TreeView<CommitNode>): vscode.Disposable {
     this.view = view;
@@ -159,7 +152,7 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     // The status letter and color come from the Changes view's provideFileDecoration. A file's name ends the
     // path: the file icon theme picks the icon of a plain file by it.
     const name = n.type !== 'view' && n.path ? `/${path.posix.basename(n.path)}` : '';
-    if (n.status) item.resourceUri = vscode.Uri.from({ scheme: CHANGE_SCHEME, path: `/${encodeURIComponent(n.id)}${name}`, query: n.status });
+    if (n.status) item.resourceUri = statusUri(n.id, n.status, name);
     const context: string[] = [n.type];
     // A whole-file notebook diff needs both sides: not for a file deleted, nor for the first commit.
     if (n.type === 'file' && n.status !== 'D' && n.commit?.parents.length) context.push('notebookDiff');
@@ -273,26 +266,17 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
         return;
       }
       for (const v of views) {
-        const short = rootObject && v.label.startsWith(`${rootObject.name}.`) ? v.label.slice(rootObject.name.length + 1) : v.label;
-        const vn = new CommitNode(`cview:${c.sha}:${rel}:${v.objectId}:${v.accessor ?? ''}`, 'view', short);
+        const item = viewChangeItem(v, (v.change === 'deleted' ? before.file : after.file)?.objects.get(v.objectId), rootObject?.name);
+        const vn = new CommitNode(`cview:${c.sha}:${rel}:${v.objectId}:${v.accessor ?? ''}`, 'view', item.label);
         // Two objects with one GUID (XML copied by hand) would give two equal ids, and VS Code shows nothing.
         if (seen.has(vn.id)) continue;
         seen.add(vn.id);
-        Object.assign(vn, { commit: c, root, path: rel, fromPath: fromRel, view: v, parent: node });
-        vn.status = v.change === 'added' ? 'A' : v.change === 'deleted' ? 'D' : 'M';
-        const obj = (v.change === 'deleted' ? before.file : after.file)?.objects.get(v.objectId);
-        vn.icon = v.accessor
-          ? new vscode.ThemeIcon(v.accessor === 'Get' ? 'arrow-small-left' : 'arrow-small-right', new vscode.ThemeColor('symbolIcon.methodForeground'))
-          : obj ? objectIcon(obj) : undefined;
-        const words = [v.accessor ? `${v.accessor} accessor` : KIND_WORD[v.kind]];
-        if (v.renamedFrom) words.push(`renamed from ${v.renamedFrom}`);
-        vn.description = words.join(' · ');
-        vn.tooltip = `${v.label} (${v.change})`;
+        Object.assign(vn, item, { commit: c, root, path: rel, fromPath: fromRel, view: v, parent: node });
         node.children.push(vn);
       }
       sources.push(node);
     });
-    const byLabel = (a: CommitNode, b: CommitNode) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+    const byLabel = (a: CommitNode, b: CommitNode) => compareLabels(a.label, b.label)
       || (a.path ?? '').localeCompare(b.path ?? '');
     return { nodes: [...sources.sort(byLabel), ...others.sort(byLabel), ...plain.sort(byLabel)], failed };
   }
@@ -357,9 +341,6 @@ async function revision(root: string, rel: string, ref: string | undefined): Pro
   return api?.getRepository(file) ? api.toGitUri(file, ref) : revisionUri(fsPath, ref, label, rel);
 }
 
-export function escapeMarkdown(text: string): string {
-  return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, m => `\\${m}`);
-}
 
 /**
  * Description (`You, 2 days ago`), icon (an arrow for a commit not pushed yet, else a commit or a merge) and

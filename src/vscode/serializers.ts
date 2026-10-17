@@ -4,20 +4,14 @@
 
 import * as vscode from 'vscode';
 import { ObjectTextHeader, ParsedObjectText, SectionMeta, formatObjectText, parseObjectText } from '../core/objectText';
+import { KIND_WORD } from './tree';
 import { ST_LANGUAGE } from './uris';
 import { decodeBytes, parseTcText, encodeText } from '../core/tcfile';
 import { applySectionEdits } from '../core/splice';
 
-export interface CellMeta {
-  key: string;
-  label: string;
-  role: 'decl' | 'impl';
-  editable: boolean;
-  accessor?: 'Get' | 'Set';
+export interface CellMeta extends SectionMeta {
   /** Header cell of an object in a file notebook. */
   header?: boolean;
-  /** Hash of the section text on disk when the tab was loaded. */
-  base?: string;
 }
 
 export function cellMeta(cell: vscode.NotebookCell | vscode.NotebookCellData): CellMeta | undefined {
@@ -81,11 +75,6 @@ export class ObjectSerializer implements vscode.NotebookSerializer {
   }
 }
 
-const KIND_LABEL: Record<string, string> = {
-  pou: 'POU', method: 'Method', property: 'Property', action: 'Action', transition: 'Transition',
-  dut: 'DUT', gvl: 'GVL', itf: 'Interface',
-};
-
 export class FileSerializer implements vscode.NotebookSerializer {
   deserializeNotebook(content: Uint8Array): vscode.NotebookData {
     const { text, bom } = decodeBytes(content);
@@ -93,7 +82,7 @@ export class FileSerializer implements vscode.NotebookSerializer {
     const file = parseTcText('', text, bom);
     const cells: vscode.NotebookCellData[] = [];
     for (const obj of file.ordered) {
-      const kind = obj.kind === 'pou' && obj.pouKind ? obj.pouKind : KIND_LABEL[obj.kind] ?? obj.kind;
+      const kind = obj.kind === 'pou' && obj.pouKind ? obj.pouKind : KIND_WORD[obj.kind];
       const header = new vscode.NotebookCellData(vscode.NotebookCellKind.Markup, `### ${obj.qualifiedName} · ${kind}`, 'markdown');
       header.metadata = { key: `${obj.id}:header`, label: kind, role: 'decl', editable: false, header: true } satisfies CellMeta;
       cells.push(header);

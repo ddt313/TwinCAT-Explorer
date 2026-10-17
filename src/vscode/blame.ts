@@ -4,8 +4,11 @@
 // would also call the line next to an added one changed: the first and last lines of a section share their
 // line of the file with the CDATA tags.)
 
+import { cached } from '../core/cache';
 import { BlameCommit, mergeRanges } from '../core/gitLog';
 import { TcSourceFile, sectionFileLines } from '../core/tcfile';
+import { fileKey } from '../core/workspace';
+import { SectionBlame } from '../shared/protocol';
 import { BlameResult, blameLines, pathAt, userEmail } from './git';
 import { GitChanges } from './gitChanges';
 
@@ -18,7 +21,7 @@ export interface ViewBlame {
    * Per section: its text in HEAD ('' when not in HEAD) and, per line of it, the index of its commit in
    * `commits` (-1: unknown).
    */
-  sections: { key: string; text: string; lines: number[] }[];
+  sections: SectionBlame[];
   commits: BlameCommit[];
 }
 
@@ -33,21 +36,10 @@ export class BlameService {
   async blameView(fsPath: string, keys: string[]): Promise<ViewBlame | undefined> {
     const root = await this.git.root(fsPath);
     if (!root) return undefined;
-    const head = await this.git.headVersion(fsPath);
+    const head = await this.git.headFile(fsPath);
     if (!head) return undefined;
-    const key = `${fsPath.toLowerCase()}|${head.head}|${keys.join(',')}`;
-    let blame = this.cache.get(key);
-    if (!blame) {
-      const computing = this.compute(root, fsPath, head.head, head.file, keys);
-      blame = computing;
-      this.cache.set(key, computing);
-      // A failure is tried again the next time.
-      computing.catch(() => {
-        if (this.cache.get(key) === computing) this.cache.delete(key);
-      });
-      if (this.cache.size > 30) this.cache.delete(this.cache.keys().next().value!);
-    }
-    return blame;
+    const key = `${fileKey(fsPath)}|${head.head}|${keys.join(',')}`;
+    return cached(this.cache, key, () => this.compute(root, fsPath, head.head, head.file, keys), 30);
   }
 
   /**

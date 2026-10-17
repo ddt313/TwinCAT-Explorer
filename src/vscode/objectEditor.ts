@@ -11,16 +11,17 @@ import * as vscode from 'vscode';
 import { ParsedObjectText, SectionMeta, applyChanges, mapOffset, parseObjectText, viewLabel } from '../core/objectText';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { parseJsonc } from '../core/jsonc';
+import { normalizeEol } from '../core/tcfile';
 import { LanguageIndex } from '../lang/index';
 import { Loc } from '../lang/symbols';
-import { LanguageFeatures } from './language';
+import { LanguageFeatures, diagnosticsEnabled, toDiagnostic } from './language';
 import { LocationService, rangeIn } from './locations';
 import { activeThemeTokens } from './theme';
 import { debugLog } from '../core/debugLog';
 import { BlameCommit, isUncommitted } from '../core/gitLog';
 import { BlameService, ViewBlame } from './blame';
 import { GitChanges } from './gitChanges';
-import { ObjectRef, locUriOf, parseObjectUri } from './uris';
+import { ObjectRef, ST_LANGUAGE, locUriOf, parseObjectUri } from './uris';
 import {
   EditorConfig, HostMessage, LanguageConfig, Marker, PaneSection, ProbeAction, SectionRef, TargetRange, WEBVIEW_COMMANDS, WebviewMessage,
 } from '../shared/protocol';
@@ -69,8 +70,8 @@ const EDITOR_OPTIONS = [
   'columnSelection', 'definitionLinkOpensInPeek', 'gotoLocation', 'inlayHints', 'experimentalWhitespaceRendering',
 ];
 
-function editorConfig(): EditorConfig {
-  const cfg = vscode.workspace.getConfiguration('editor', { languageId: 'twincat-st' });
+export function editorConfig(): EditorConfig {
+  const cfg = vscode.workspace.getConfiguration('editor', { languageId: ST_LANGUAGE });
   const options: Record<string, unknown> = {};
   for (const key of EDITOR_OPTIONS) {
     const v = cfg.get(key);
@@ -249,7 +250,6 @@ export class EditorSession implements vscode.Disposable {
         return this.enqueue(() => {
           void vscode.commands.executeCommand(m.command);
         });
-      case 'focus': return Promise.resolve();
       case 'synced': return this.enqueue(() => this.confirmed(m));
       case 'resync': return this.enqueue(() => this.resync());
       case 'flushed': {
@@ -400,7 +400,7 @@ export class EditorSession implements vscode.Disposable {
   }
 
   private async applyEdit(m: Extract<WebviewMessage, { type: 'edit' }>): Promise<void> {
-    const wanted = m.text.replace(/\r\n?/g, '\n');
+    const wanted = normalizeEol(m.text);
     // Acknowledged (this.seq) only once applied or refused: a sync posted while this edit is retried must
     // not make the webview drop it.
     const done = () => {
@@ -424,7 +424,7 @@ export class EditorSession implements vscode.Disposable {
       if (applyChanges(section.text, m.changes) === wanted) {
         for (const c of m.changes) {
           const range = new vscode.Range(doc.positionAt(section.start + c.offset), doc.positionAt(section.start + c.offset + c.length));
-          edit.replace(doc.uri, range, c.text.replace(/\r\n?/g, '\n'));
+          edit.replace(doc.uri, range, normalizeEol(c.text));
         }
       } else if (section.text !== before) {
         // The section changed (XAE, git, another editor) after the webview last had it, so this edit was made
@@ -854,10 +854,6 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
 
   // ------------------------------------------------------------------ diagnostics
 
-  private enabled(): boolean {
-    return vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('diagnostics.enabled', true);
-  }
-
   scheduleDiagnostics(doc: vscode.TextDocument, delay = 250): void {
     const key = doc.uri.toString();
     const t = this.diagTimers.get(key);
@@ -902,18 +898,13 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     this.clearDiagnostics(doc.uri);
     const uris: vscode.Uri[] = [];
     for (const s of parsed.sections) {
-      const ctx = this.enabled() ? this.index.context(fk, s.key) : undefined;
+      const ctx = diagnosticsEnabled() ? this.index.context(fk, s.key) : undefined;
       const problems = ctx ? this.features.problemsOf(ctx, s.text) : [];
       all.push({ key: s.key, markers: problems.map(p => ({ start: p.start, end: p.end, message: p.message, severity: p.severity })) });
       if (problems.length === 0) continue;
       // One copy per section, so the Problems panel shows the line numbers of the pane.
       const uri = locUriOf(doc.uri, s.key, meta.get(s.key)?.label ?? s.key);
-      this.diagnostics.set(uri, problems.map(p => {
-        const d = new vscode.Diagnostic(rangeIn(s.text, p.start, p.end), p.message,
-          p.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
-        d.source = 'TwinCAT';
-        return d;
-      }));
+      this.diagnostics.set(uri, problems.map(p => toDiagnostic(rangeIn(s.text, p.start, p.end), p.message, p.severity)));
       uris.push(uri);
     }
     if (uris.length) this.diagnosed.set(doc.uri.toString(), uris);

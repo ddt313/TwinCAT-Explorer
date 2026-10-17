@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  UNCOMMITTED, blameArgs, blobBefore, fileLogArgs, mergeRanges, parseBlame, parseFileLog, unquotePath,
+  UNCOMMITTED, blameArgs, blobBefore, fileLogArgs, mergeRanges, parseBlame, parseCommit, parseFileLog, parseNameStatus, unquotePath,
 } from '../../src/core/gitLog';
 import { historyStep, viewChange, viewExists } from '../../src/core/objectChanges';
 import { parseTcText, sectionFileLines } from '../../src/core/tcfile';
@@ -79,6 +79,28 @@ test('parseFileLog reads commits, blobs and renames of git log --follow --raw -z
     ['M', b('2'), b('3'), 'PLC/FB_Test.TcPOU', 'PLC/FB_Test.TcPOU']);
   assert.deepEqual([entries[1].status, entries[1].oldPath, entries[1].newPath], ['R', 'PLC/Old/FB_Test.TcPOU', 'PLC/FB_Test.TcPOU']);
   assert.deepEqual([entries[2].status, entries[2].oldBlob, entries[2].newBlob, entries[2].commit.parents], ['A', undefined, b('1'), []]);
+});
+
+test('parseCommit reads the fields of a commit; parseNameStatus the files of --name-status -z', () => {
+  const b = (c: string) => c.repeat(40);
+  const log = `\x1e${b('a')}\x1f${b('p')} ${b('q')}\x1fAlice\x1falice@example.com\x1f1700000000\x1fMerge it\x1f\n`
+    + `\x1e${b('c')}\x1f\x1fBob\x1fbob@example.com\x1f1680000000\x1fCreate\x1fWhy:\nbecause\n\n`;
+  assert.deepEqual(log.split('\x1e').slice(1).map(parseCommit), [
+    { sha: b('a'), parents: [b('p'), b('q')], author: 'Alice', email: 'alice@example.com', date: 1700000000, subject: 'Merge it', body: '' },
+    { sha: b('c'), parents: [], author: 'Bob', email: 'bob@example.com', date: 1680000000, subject: 'Create', body: 'Why:\nbecause' },
+  ]);
+  const files = 'M\0PLC/A.TcPOU\0R087\0PLC/Old.TcPOU\0PLC/New.TcPOU\0C100\0PLC/B.TcPOU\0PLC/Copy.TcPOU\0D\0PLC/Gone.TcDUT\0'
+    + 'A\0PLC/New.TcGVL\0T\0PLC/Link.TcPOU\0U\0PLC/Conflict.TcPOU\0';
+  assert.deepEqual(parseNameStatus(files), [
+    { status: 'M', path: 'PLC/A.TcPOU' },
+    { status: 'R', path: 'PLC/New.TcPOU', from: 'PLC/Old.TcPOU' },
+    { status: 'A', path: 'PLC/Copy.TcPOU' },
+    { status: 'D', path: 'PLC/Gone.TcDUT' },
+    { status: 'A', path: 'PLC/New.TcGVL' },
+    { status: 'M', path: 'PLC/Link.TcPOU' },
+    { status: 'M', path: 'PLC/Conflict.TcPOU' },
+  ]);
+  assert.deepEqual(parseNameStatus(''), []);
 });
 
 test('parseBlame reads the commit of each line and the commits of git blame --porcelain', () => {

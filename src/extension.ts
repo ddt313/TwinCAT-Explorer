@@ -27,7 +27,7 @@ import { BlameService } from './vscode/blame';
 import { CompareBase, ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
 import {
-  DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME, ObjectRef,
+  DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME,
   ST_LANGUAGE, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf, viewKey,
 } from './vscode/uris';
 
@@ -38,7 +38,6 @@ export interface TwinCatExplorerApi {
   treeView: vscode.TreeView<TreeNode>;
   features: LanguageFeatures;
   objectEditors: ObjectEditorProvider;
-  locations: LocationService;
   git: GitChanges;
   changes: ChangesView;
   changesView: vscode.TreeView<ChangeNode>;
@@ -117,7 +116,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     if (ws.getFile(preferred)?.objects.has(objectId)) return preferred;
     return ws.sourceEntries.find(e => ws.getFile(e.path)?.objects.has(objectId))?.path;
   };
-  const commitsView = new CommitsView(ws, gitChanges);
+  const commitsView = new CommitsView(gitChanges);
   commitsView.log = message => log.warn(message);
   commitsView.openObject = item => commitDiff.show(item);
   const commitsTree = vscode.window.createTreeView('twincatExplorer.commits', { treeDataProvider: commitsView, showCollapseAll: true });
@@ -917,7 +916,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   void vscode.commands.executeCommand('setContext', 'twincatExplorer.historyPinned', false);
   const ready = loadProjects();
   return {
-    workspace: ws, index, tree, treeView, features, objectEditors, locations, git: gitChanges,
+    workspace: ws, index, tree, treeView, features, objectEditors, git: gitChanges,
     changes: changesView, changesView: changesTree, commits: commitsView, commitsView: commitsTree, commitDiff,
     history, historyView: historyTree, ready, openObject, openSplit,
   };

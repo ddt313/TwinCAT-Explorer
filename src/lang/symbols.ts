@@ -31,8 +31,6 @@ export interface PouSym extends SymBase {
   extendsNames: A.QualName[];
   implementsNames: A.QualName[];
   returnType?: A.TypeSpec;
-  objectId?: string;
-  fileKey?: string;
 }
 
 export type MemberKind = 'method' | 'property' | 'action' | 'transition';
@@ -44,7 +42,6 @@ export interface MemberSym extends SymBase {
   getVars: VarSym[];
   setVars: VarSym[];
   returnType?: A.TypeSpec;
-  objectId?: string;
 }
 
 export interface VarSym extends SymBase {
@@ -67,7 +64,6 @@ export interface TypeSym extends SymBase {
   extendsName?: A.QualName;
   aliasSpec?: A.TypeSpec;
   baseSpec?: A.TypeSpec;
-  objectId?: string;
 }
 
 export interface EnumValueSym extends SymBase {
@@ -79,7 +75,6 @@ export interface GvlSym extends SymBase {
   kind: 'gvl';
   vars: VarSym[];
   qualifiedOnly: boolean;
-  objectId?: string;
 }
 
 export interface NamespaceSym extends SymBase {
@@ -103,7 +98,6 @@ export class Scope {
   readonly enumValues = new Map<string, EnumValueSym>();
   readonly namespaces = new Map<string, Scope>();
   refs: Scope[] = [];
-  unknownLibraries: string[] = [];
 
   constructor(readonly name: string, readonly isLibrary: boolean) {}
 
@@ -113,7 +107,6 @@ export class Scope {
     this.enumValues.clear();
     this.namespaces.clear();
     this.refs = [];
-    this.unknownLibraries = [];
   }
 }
 

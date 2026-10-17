@@ -5,9 +5,10 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { TcWorkspace, fileKey } from '../core/workspace';
-import { InnerFolder, TcObject, TcSourceFile } from '../core/tcfile';
+import { Accessor } from '../core/objectText';
+import { InnerFolder, ObjectKind, TcObject, TcSourceFile } from '../core/tcfile';
 import { PlcProject, TsProject, resolutionLibraryName } from '../core/project';
-import { objectUri } from './uris';
+import { isSourcePath, objectUri } from './uris';
 
 export type NodeKind = 'tsproj' | 'plcproj' | 'references' | 'library' | 'folder' | 'file' | 'innerFolder' | 'object' | 'accessor';
 
@@ -24,7 +25,7 @@ export class TreeNode {
   tooltip?: string;
   fsPath?: string;
   objectId?: string;
-  accessor?: 'Get' | 'Set';
+  accessor?: Accessor;
   icon?: vscode.ThemeIcon;
   /** URI of the object view of a member or accessor node, which carries its git decoration (see GitChanges). */
   resourceUri?: vscode.Uri;
@@ -39,7 +40,7 @@ export class TreeNode {
     const parts: string[] = [this.kind];
     if (this.openable) parts.push('openable');
     if (this.fsPath) parts.push('hasFile');
-    if (this.kind === 'file' && this.fsPath && /\.(tcpou|tcdut|tcgvl|tcio)$/i.test(this.fsPath)) parts.push('stFile');
+    if (this.kind === 'file' && this.fsPath && isSourcePath(this.fsPath)) parts.push('stFile');
     if (this.name) parts.push('named');
     return parts.join(' ');
   }
@@ -68,6 +69,26 @@ export function objectIcon(obj: TcObject): vscode.ThemeIcon {
   }
 }
 
+/** Icon of a property's Get or Set accessor. */
+export function accessorIcon(accessor: Accessor): vscode.ThemeIcon {
+  return icon(accessor === 'Get' ? 'arrow-small-left' : 'arrow-small-right', 'symbolIcon.methodForeground');
+}
+
+/** Icon of an object view; for an object that is not there (deleted since), the icon of its kind. */
+export function viewIcon(obj: TcObject | undefined, kind: ObjectKind, accessor?: Accessor): vscode.ThemeIcon {
+  if (accessor) return accessorIcon(accessor);
+  return objectIcon(obj ?? ({ kind } as TcObject));
+}
+
+/** What the views call each kind of object. */
+export const KIND_WORD: Record<ObjectKind, string> = {
+  pou: 'POU', method: 'Method', property: 'Property', action: 'Action', transition: 'Transition',
+  dut: 'DUT', gvl: 'GVL', itf: 'Interface',
+};
+
+/** Compares labels for sorting: case and accents aside, like `localeCompare` with base sensitivity. */
+export const compareLabels = new Intl.Collator(undefined, { sensitivity: 'base' }).compare;
+
 /** Label as XAE shows it: `MAIN (PRG)`, `FB_X (FB)`, `F_Y (FUN)`. */
 export function objectTreeLabel(obj: TcObject): string {
   if (obj.kind === 'pou' && obj.pouKind) return `${obj.name} (${obj.pouKind})`;
@@ -78,21 +99,17 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
   private readonly emitter = new vscode.EventEmitter<TreeNode | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
   private roots: TreeNode[] = [];
-  private readonly byId = new Map<string, TreeNode>();
   /** Every node per object and per file: a PLC project shared by two .tsproj files appears twice. */
   private readonly byObject = new Map<string, TreeNode[]>();
   private readonly byFile = new Map<string, TreeNode[]>();
   private refreshTimer: NodeJS.Timeout | undefined;
-  loaded = false;
 
   constructor(private readonly ws: TcWorkspace) {}
 
   rebuild(): void {
-    this.byId.clear();
     this.byObject.clear();
     this.byFile.clear();
     this.roots = this.ws.tsProjects.map(ts => this.buildTsProject(ts));
-    this.loaded = true;
     this.emitter.fire(undefined);
   }
 
@@ -105,7 +122,6 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
   }
 
   private add(node: TreeNode): TreeNode {
-    this.byId.set(node.id, node);
     node.parent?.children.push(node);
     return node;
   }
@@ -174,7 +190,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       const parentNode = ensureFolder(dir);
       this.buildFile(parentNode, path.join(plc.dir, include.replace(/\\/g, path.sep)), prefix);
     }
-    this.sortTree(node);
+    this.sortTree(node, vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('foldersFirst', true));
   }
 
   private buildFile(parent: TreeNode, fsPath: string, prefix: string): void {
@@ -237,7 +253,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
         an.objectId = m.id;
         an.accessor = acc.kind;
         an.openable = true;
-        an.icon = icon(acc.kind === 'Get' ? 'arrow-small-left' : 'arrow-small-right', 'symbolIcon.methodForeground');
+        an.icon = accessorIcon(acc.kind);
         an.sortGroup = 2;
         an.tooltip = `${m.qualifiedName}.${acc.kind}`;
         an.resourceUri = objectUri(fsPath, m, undefined, acc.kind);
@@ -250,12 +266,11 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     this.byObject.set(key, [...(this.byObject.get(key) ?? []), node]);
   }
 
-  private sortTree(node: TreeNode): void {
-    const foldersFirst = vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('foldersFirst', true);
+  private sortTree(node: TreeNode, foldersFirst: boolean): void {
     // References first, then (optionally) folders, then objects; alphabetical within a group.
     const rank = (n: TreeNode) => (n.sortGroup === 0 ? 0 : foldersFirst ? n.sortGroup : 1);
-    node.children.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
-    for (const c of node.children) this.sortTree(c);
+    node.children.sort((a, b) => rank(a) - rank(b) || compareLabels(a.label, b.label));
+    for (const c of node.children) this.sortTree(c, foldersFirst);
   }
 
   // ------------------------------------------------------------------ TreeDataProvider
@@ -299,18 +314,6 @@ ${error ?? 'The .plcproj file does not exist.'}`;
 
   nodesForFile(fsPath: string): TreeNode[] {
     return this.byFile.get(fileKey(fsPath)) ?? [];
-  }
-
-  nodeForObject(fsPath: string, objectId: string): TreeNode | undefined {
-    return this.nodesForObject(fsPath, objectId)[0];
-  }
-
-  nodeForFile(fsPath: string): TreeNode | undefined {
-    return this.nodesForFile(fsPath)[0];
-  }
-
-  node(id: string): TreeNode | undefined {
-    return this.byId.get(id);
   }
 
   get rootNodes(): TreeNode[] {

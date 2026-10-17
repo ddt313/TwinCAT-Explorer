@@ -4,6 +4,7 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { cached } from '../core/cache';
 import { ObjectChange, ViewChange, changeKey, objectChanges, viewChanges } from '../core/objectChanges';
 import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
@@ -35,8 +36,8 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
   private readonly headEmitter = new vscode.EventEmitter<void>();
   /** HEAD moved (commit, checkout, rebase, reset): the HEAD texts shown by split editors may have changed. */
   readonly onDidChangeHead = this.headEmitter.event;
-  /** Repository root per folder (fileKey); null outside a repository. */
-  private readonly roots = new Map<string, Promise<string | null>>();
+  /** Repository root per folder (fileKey); undefined outside a repository. */
+  private readonly roots = new Map<string, Promise<string | undefined>>();
   /** HEAD commit per repository root (fileKey). */
   private readonly heads = new Map<string, { root: string; head: string }>();
   /** First HEAD lookup of a root, shared by the callers that ask meanwhile. */
@@ -62,11 +63,12 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
 
   // ------------------------------------------------------------------ repositories and HEAD
 
-  private rootOf(fsPath: string): Promise<string | null> {
+  /** Root of the repository of a file (spelled like the file's path); undefined outside a repository. */
+  root(fsPath: string): Promise<string | undefined> {
     const dir = path.dirname(fsPath);
     let root = this.roots.get(fileKey(dir));
     if (!root) {
-      root = repositoryRoot(dir).then(r => r ?? null);
+      root = repositoryRoot(dir);
       this.roots.set(fileKey(dir), root);
     }
     return root;
@@ -89,11 +91,11 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
   }
 
   /**
-   * The file as committed in HEAD; undefined outside a repository, or when HEAD's version cannot be read
-   * (nothing is known then: no marks, no change markers).
+   * The file as committed in HEAD (`file` undefined: not in HEAD), with the HEAD commit; undefined outside a
+   * repository, or when HEAD's version cannot be read (nothing is known then: no marks, no change markers).
    */
-  private async headFile(fsPath: string): Promise<HeadFile | undefined> {
-    const root = await this.rootOf(fsPath);
+  async headFile(fsPath: string): Promise<HeadFile | undefined> {
+    const root = await this.root(fsPath);
     if (!root) return undefined;
     const head = await this.headOf(root);
     const key = fileKey(fsPath);
@@ -132,7 +134,7 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
   private async headIsRead(fsPath: string): Promise<boolean> {
     const cached = this.headFiles.get(fileKey(fsPath));
     if (!cached) return false;
-    const root = await this.rootOf(fsPath);
+    const root = await this.root(fsPath);
     if (!root) return true;
     const known = this.heads.get(fileKey(root));
     return !!known && (await cached)?.head === known.head;
@@ -176,7 +178,7 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
   private async refreshAllNow(): Promise<void> {
     const roots = new Map<string, string>();
     for (const plc of this.ws.plcProjects) {
-      const root = await this.rootOf(plc.path);
+      const root = await this.root(plc.path);
       if (!root) continue;
       roots.set(fileKey(root), root);
       void this.gitDirs.watch(plc.path);
@@ -275,14 +277,14 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
    * Texts of sections of a file at HEAD, at a commit, or at the merge base of HEAD with a branch (the base of
    * a comparison); undefined when that version cannot be read (no repository, no such branch).
    */
-  async viewBase(fsPath: string, sectionKeys: string[], base: { ref: string; mergeBase?: boolean; path?: string } = { ref: 'HEAD' }): Promise<ViewBase | undefined> {
+  async viewBase(fsPath: string, sectionKeys: string[], base: { ref: string; mergeBase?: boolean; path?: string }): Promise<ViewBase | undefined> {
     let file: TcSourceFile | undefined;
     if (base.ref === 'HEAD' && !base.mergeBase) {
       const head = await this.headFile(fsPath);
       if (!head) return undefined;
       file = head.file;
     } else {
-      const root = await this.rootOf(fsPath);
+      const root = await this.root(fsPath);
       if (!root) return undefined;
       // Taken again each time: a rebase moves the merge base.
       const commit = base.mergeBase ? await mergeBase(root, base.ref) : base.ref;
@@ -300,31 +302,7 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
    * path there). Failed reads are not kept, the next call tries again.
    */
   fileAtCommit(fsPath: string, commit: string, from?: string): Promise<CommitFile> {
-    const key = `${commit}|${from ?? fileKey(fsPath)}`;
-    let read = this.commitFiles.get(key);
-    if (!read) {
-      const reading = this.readAt(fsPath, commit, from);
-      read = reading;
-      this.commitFiles.set(key, reading);
-      void reading.then(r => {
-        if (r.error && this.commitFiles.get(key) === reading) this.commitFiles.delete(key);
-      });
-      if (this.commitFiles.size > 400) this.commitFiles.delete(this.commitFiles.keys().next().value!);
-    }
-    return read;
-  }
-
-  /** Root of the repository of a file (spelled like the file's path); undefined outside a repository. */
-  async root(fsPath: string): Promise<string | undefined> {
-    return (await this.rootOf(fsPath)) ?? undefined;
-  }
-
-  /**
-   * The file as committed in HEAD (`file` undefined: not in HEAD), with the HEAD commit; undefined outside a
-   * repository or when HEAD's version cannot be read.
-   */
-  headVersion(fsPath: string): Promise<{ head: string; file: TcSourceFile | undefined } | undefined> {
-    return this.headFile(fsPath);
+    return cached(this.commitFiles, `${commit}|${from ?? fileKey(fsPath)}`, () => this.readAt(fsPath, commit, from), 400, r => !!r.error);
   }
 
   /**
@@ -343,7 +321,7 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
     const roots = new Map<string, string>();
     const plcPaths = new Set(this.ws.tsProjects.flatMap(t => t.plcProjects.map(r => r.plcprojPath)));
     for (const p of plcPaths) {
-      const root = await this.rootOf(p);
+      const root = await this.root(p);
       if (root) roots.set(fileKey(root), root);
     }
     return [...roots.values()];

@@ -6,15 +6,19 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { BlameCommit, CommitInfo, FileLogEntry, blameArgs, fileLogArgs, parseBlame, parseFileLog } from '../core/gitLog';
+import {
+  BlameCommit, COMMIT_FORMAT, CommitInfo, FileLogEntry, NameStatus, blameArgs, fileLogArgs, parseBlame, parseCommit, parseFileLog,
+  parseNameStatus,
+} from '../core/gitLog';
 import { findOnPath } from '../core/paths';
 import { fileKey } from '../core/workspace';
 import { EMPTY, INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri } from './uris';
 
 export type { CommitInfo } from '../core/gitLog';
 
-// English messages: errors are recognised by their text (like the built-in git extension does).
-const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C' };
+// English messages, like the built-in git extension's. No optional locks: git never rewrites .git/index for
+// these reads (a stat refresh), which GitDirWatcher would report as a change of the repository.
+const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', GIT_OPTIONAL_LOCKS: '0' };
 
 let gitProgram: Promise<string> | undefined;
 
@@ -71,9 +75,6 @@ async function gitWithInput(args: string[], cwd: string, input: Buffer | string)
   });
 }
 
-/** git's message when a path does not exist at a ref or in the index (new, renamed or deleted file). */
-const MISSING_PATH = /does not exist in|exists on disk, but not in|not in the index|neither on disk nor in the index|bad revision|invalid object name|path '.*' does not exist/i;
-
 /** Nearest existing folder of a file: its own folder, unless that was deleted or moved. */
 function existingDir(fsPath: string): string {
   let dir = path.dirname(fsPath);
@@ -91,7 +92,7 @@ function relFrom(cwd: string, fsPath: string): string {
 }
 
 function specOf(ref: string, rel: string): string {
-  // `:0:` names the index stage explicitly; git then reports a missing path in words MISSING_PATH knows.
+  // `:0:` is the index (stage 0).
   return ref === INDEX ? `:0:${rel}` : `${ref}:${rel}`;
 }
 
@@ -103,15 +104,11 @@ export async function showAtRef(fsPath: string, ref: string, orig?: string): Pro
   const cwd = existingDir(fsPath);
   const spec = specOf(ref, orig ?? relFrom(cwd, fsPath));
   try {
-    // `--`: otherwise git also checks that no file is named like the argument, and on Windows that check
-    // fails ("Filename too long") once the folder plus a repository-relative path pass 260 characters.
-    return await git(['show', spec, '--'], cwd);
+    // A file that does not exist at that ref (added since), or an unknown ref, is compared with an empty
+    // file; git missing or no repository is reported.
+    return (await readBlobs(cwd, [spec]))[0] ?? Buffer.alloc(0);
   } catch (e) {
-    const message = (e as Error).message;
-    // A file that does not exist at that ref (added since) is compared with an empty file;
-    // anything else (git missing, not a repository, ...) is reported.
-    if (MISSING_PATH.test(message)) return Buffer.alloc(0);
-    throw new Error(`git show ${spec} failed: ${message}`);
+    throw new Error(`reading ${spec} failed: ${(e as Error).message}`);
   }
 }
 
@@ -148,19 +145,7 @@ export async function renamedFrom(fsPath: string, ref: string, staged: boolean):
     const args = ['diff-index', '-M', '--name-status', '-z'];
     if (staged) args.push('--cached');
     args.push(ref, '--');
-    const tokens = (await git(args, cwd)).toString('utf8').split('\0');
-    for (let i = 0; i < tokens.length;) {
-      const status = tokens[i];
-      if (!status) break;
-      if (status.startsWith('R') || status.startsWith('C')) {
-        const from = tokens[i + 1];
-        const to = tokens[i + 2];
-        if (status.startsWith('R') && to?.toLowerCase() === current) return from;
-        i += 3;
-      } else {
-        i += 2;
-      }
-    }
+    return parseNameStatus((await git(args, cwd)).toString('utf8')).find(f => f.status === 'R' && f.path.toLowerCase() === current)?.from;
   } catch {
     // Not a repository or unknown ref: no rename information.
   }
@@ -188,11 +173,10 @@ async function sameObjectDeleted(fsPath: string, ref: string, staged: boolean): 
     const args = ['diff-index', '--name-only', '--diff-filter=D', '-z'];
     if (staged) args.push('--cached');
     args.push(ref, '--');
-    const deleted = (await git(args, cwd)).toString('utf8').split('\0').filter(p => p && path.extname(p).toLowerCase() === ext);
-    for (const candidate of deleted.slice(0, 100)) {
-      const text = (await git(['show', `${ref}:${candidate}`, '--'], cwd)).toString('utf8');
-      if (ROOT_ID.exec(text)?.[1]?.toLowerCase() === id) return candidate;
-    }
+    const deleted = (await git(args, cwd)).toString('utf8').split('\0').filter(p => p && path.extname(p).toLowerCase() === ext).slice(0, 100);
+    const texts = await readBlobs(cwd, deleted.map(p => `${ref}:${p}`));
+    const found = texts.findIndex(t => t && ROOT_ID.exec(t.toString('utf8'))?.[1]?.toLowerCase() === id);
+    return found < 0 ? undefined : deleted[found];
   } catch {
     // no information
   }
@@ -244,9 +228,7 @@ export async function headCommit(root: string): Promise<string> {
  * renamed. Deleted files are left out (there is nothing to show for them).
  */
 export async function changedSourceFiles(root: string): Promise<string[]> {
-  // No optional locks: this runs after HEAD changes and must not rewrite the index, which is watched.
-  const args = ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--',
-    ...SOURCE_EXTENSIONS.map(e => `:(icase)*${e}`)];
+  const args = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...extensionSpecs(SOURCE_EXTENSIONS)];
   const tokens = (await git(args, root)).toString('utf8').split('\0');
   const out: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
@@ -271,12 +253,23 @@ export interface PathChange {
   from?: string;
 }
 
+/** Pathspecs of the files with these extensions, in any case. */
+function extensionSpecs(extensions: string[]): string[] {
+  return extensions.map(e => `:(icase)*${e}`);
+}
+
+function pathChange(root: string, f: NameStatus): PathChange {
+  const change: PathChange = { status: f.status, fsPath: path.join(root, f.path) };
+  if (f.from !== undefined) change.from = f.from;
+  return change;
+}
+
 /**
  * Files with the given extensions that differ between `base` (a commit) and the working tree, staged or
  * not, plus the untracked ones.
  */
 export async function changesSince(root: string, base: string, extensions: string[]): Promise<PathChange[]> {
-  const specs = extensions.map(e => `:(icase)*${e}`);
+  const specs = extensionSpecs(extensions);
   const byPath = new Map<string, PathChange>();
   const add = (c: PathChange) => {
     const key = fileKey(c.fsPath);
@@ -285,23 +278,9 @@ export async function changesSince(root: string, base: string, extensions: strin
     if (known && known.status !== c.status && (known.status === 'D' || c.status === 'D')) byPath.set(key, { status: 'M', fsPath: c.fsPath });
     else if (!known) byPath.set(key, c);
   };
-  const tokens = (await git(['--no-optional-locks', 'diff', '--name-status', '-z', '-M', base, '--', ...specs], root))
-    .toString('utf8').split('\0');
-  for (let i = 0; i < tokens.length && tokens[i];) {
-    const status = tokens[i][0];
-    if (status === 'R' || status === 'C') {
-      const from = tokens[i + 1];
-      const to = tokens[i + 2];
-      i += 3;
-      add(status === 'R' ? { status: 'R', fsPath: path.join(root, to), from } : { status: 'A', fsPath: path.join(root, to) });
-      continue;
-    }
-    const p = tokens[i + 1];
-    i += 2;
-    // Type changes and unmerged files count as changed.
-    add({ status: status === 'A' || status === 'D' ? status : 'M', fsPath: path.join(root, p) });
-  }
-  const untracked = (await git(['--no-optional-locks', 'ls-files', '--others', '--exclude-standard', '-z', '--', ...specs], root))
+  const diff = (await git(['diff', '--name-status', '-z', '-M', base, '--', ...specs], root)).toString('utf8');
+  for (const f of parseNameStatus(diff)) add(pathChange(root, f));
+  const untracked = (await git(['ls-files', '--others', '--exclude-standard', '-z', '--', ...specs], root))
     .toString('utf8').split('\0').filter(Boolean);
   for (const p of untracked) add({ status: 'A', fsPath: path.join(root, p) });
   return [...byPath.values()];
@@ -322,42 +301,16 @@ export async function restoreFromHead(fsPath: string): Promise<void> {
   await git(['restore', '--source=HEAD', '--staged', '--worktree', '--', relFrom(cwd, fsPath)], cwd);
 }
 
-/**
- * Commits reachable from HEAD, newest first, like `git log`: `count` of them after skipping `skip`; with
- * `extensions`, only the ones that change files with those extensions.
- */
-export async function commitLog(root: string, count: number, skip = 0, extensions: string[] = []): Promise<CommitInfo[]> {
-  const specs = extensions.map(e => `:(icase)*${e}`);
-  const out = await git(['--no-optional-locks', 'log', `-n${count}`, `--skip=${skip}`,
-    '--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b%x1e', 'HEAD', '--', ...specs], root);
-  return out.toString('utf8').split('\x1e').map(r => r.replace(/^\s+/, '')).filter(Boolean).map(r => {
-    const [sha, parents, author, email, date, subject, body] = r.split('\x1f');
-    return { sha, parents: parents ? parents.split(' ') : [], author, email, date: Number(date), subject, body: (body ?? '').trim() };
-  });
+/** The first `count` commits reachable from HEAD, newest first, like `git log`. */
+export async function commitLog(root: string, count: number): Promise<CommitInfo[]> {
+  const out = await git(['log', `-n${count}`, `--format=${COMMIT_FORMAT}`, 'HEAD', '--'], root);
+  return out.toString('utf8').split('\x1e').slice(1).map(parseCommit);
 }
 
-/**
- * Files that a commit changed against `parent` (its first parent; none for the first commit of a repository),
- * only the ones with the given extensions when there are any.
- */
-export async function commitChanges(root: string, commit: string, parent: string | undefined, extensions: string[] = []): Promise<PathChange[]> {
-  const specs = extensions.map(e => `:(icase)*${e}`);
-  const args = ['diff-tree', '-r', '-M', '--name-status', '-z', '--no-commit-id', ...(parent ? [parent, commit] : ['--root', commit]), '--', ...specs];
-  const tokens = (await git(args, root)).toString('utf8').split('\0');
-  const out: PathChange[] = [];
-  for (let i = 0; i < tokens.length && tokens[i];) {
-    const status = tokens[i][0];
-    if (status === 'R' || status === 'C') {
-      out.push(status === 'R'
-        ? { status: 'R', fsPath: path.join(root, tokens[i + 2]), from: tokens[i + 1] }
-        : { status: 'A', fsPath: path.join(root, tokens[i + 2]) });
-      i += 3;
-      continue;
-    }
-    out.push({ status: status === 'A' || status === 'D' ? status : 'M', fsPath: path.join(root, tokens[i + 1]) });
-    i += 2;
-  }
-  return out;
+/** Files that a commit changed against `parent` (its first parent; none for the first commit of a repository). */
+export async function commitChanges(root: string, commit: string, parent: string | undefined): Promise<PathChange[]> {
+  const args = ['diff-tree', '-r', '-M', '--name-status', '-z', '--no-commit-id', ...(parent ? [parent, commit] : ['--root', commit]), '--'];
+  return parseNameStatus((await git(args, root)).toString('utf8')).map(f => pathChange(root, f));
 }
 
 /**
@@ -590,20 +543,25 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
   /** A repository changed (commit, checkout, rebase, stage): refresh every ref and index side. */
   notifyRefsChanged(): void {
     this.refVersion++;
-    // A side at a commit (a full SHA) never changes.
+    // A side at a commit never changes.
     const events = [...this.served.values()]
       .filter(u => {
         const ref = parseDiffUri(u)?.ref;
-        return ref !== undefined && ref !== WORKTREE && !/^[0-9a-f]{40}$/i.test(ref);
+        return ref !== undefined && ref !== WORKTREE && !isFullSha(ref);
       })
       .map(uri => ({ type: vscode.FileChangeType.Changed, uri }));
     if (events.length) this.emitter.fire(events);
   }
 }
 
+/** A commit named by its full SHA (not a branch or HEAD, which can move). */
+function isFullSha(ref: string): boolean {
+  return /^[0-9a-f]{40}$/i.test(ref);
+}
+
 function refLabel(ref: string): string {
   if (ref === INDEX) return 'Index';
-  return /^[0-9a-f]{40}$/i.test(ref) ? ref.slice(0, 7) : ref;
+  return isFullSha(ref) ? ref.slice(0, 7) : ref;
 }
 
 /**

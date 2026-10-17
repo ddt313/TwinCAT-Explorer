@@ -199,6 +199,8 @@ class Parser {
         currentClosed = true;
       } else if (this.acceptOp(';')) {
         // stray semicolon
+      } else if (units.length === 0 && this.acceptAccessorModifiers()) {
+        // The access specifier of a property's Get or Set.
       } else {
         this.error(`Unexpected '${t.text}' in declaration`);
         this.next();
@@ -208,6 +210,19 @@ class Parser {
     if (units.length === 0) units.push(newUnit());
     for (const u of units) u.end = this.tok.end;
     return units;
+  }
+
+  /**
+   * Access specifiers alone before the VAR blocks, as in the declaration of a property's Get or Set
+   * (`PUBLIC`, then `VAR` ... `END_VAR`, as TwinCAT 3.1.4026 writes it). Anywhere else they stay unexpected.
+   */
+  acceptAccessorModifiers(): boolean {
+    let k = 0;
+    while (this.peek(k).kind === Tk.Ident && MODIFIERS.has(this.peek(k).upper)) k++;
+    const after = this.peek(k);
+    if (k === 0 || (after.kind !== Tk.EOF && !(after.kind === Tk.Ident && VAR_SECTIONS.has(after.upper)))) return false;
+    for (let i = 0; i < k; i++) this.next();
+    return true;
   }
 
   parseHeader(): A.Header {

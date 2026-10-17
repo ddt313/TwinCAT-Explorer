@@ -50,6 +50,79 @@ test('parser reports syntax errors', () => {
   assert.ok(b.errors.length >= 2);
 });
 
+test('the access specifier before the VAR block of a Get or Set, as TwinCAT 3.1.4026 writes it', () => {
+  for (const text of ['PUBLIC\nVAR\nEND_VAR', 'PRIVATE\nVAR\n\tnShown : INT;\nEND_VAR\n', 'protected\nVAR\nEND_VAR', 'INTERNAL']) {
+    assert.deepEqual(parseDeclaration(text).errors, [], text);
+  }
+  assert.deepEqual(parseDeclaration('PRIVATE\nVAR\n\tnShown : INT;\nEND_VAR').units[0].varBlocks[0].decls[0].names.map(n => n.name), ['nShown']);
+  // Anywhere else it is still a mistake.
+  for (const text of ['PUBLIC\nFUNCTION_BLOCK FB_X', 'VAR\nEND_VAR\nPUBLIC', 'PUBLIC nShown : INT;']) {
+    assert.match(parseDeclaration(text).errors[0]?.message ?? '', /Unexpected 'PUBLIC'/, text);
+  }
+});
+
+test('a Get and a Set declared with their access specifier have no problems', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-accessor-'));
+  const write = (rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  try {
+    write('A/A.tsproj', `<?xml version="1.0"?>
+<TcSmProject><Project><Plc><Project Name="Plc" PrjFilePath="Plc\\Plc.plcproj"/></Plc></Project></TcSmProject>`);
+    write('A/Plc/Plc.plcproj', `<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup><Name>Plc</Name></PropertyGroup>
+  <ItemGroup><Compile Include="POUs\\FB_Tank.TcPOU"><SubType>Code</SubType></Compile></ItemGroup>
+</Project>`);
+    write('A/Plc/POUs/FB_Tank.TcPOU', `<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_Tank" Id="{cccccccc-0000-0000-0000-000000000001}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Tank
+VAR
+	nLevel : INT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Property Name="P_Level" Id="{cccccccc-0000-0000-0000-000000000002}">
+      <Declaration><![CDATA[PROPERTY PUBLIC P_Level : INT]]></Declaration>
+      <Get Name="Get" Id="{cccccccc-0000-0000-0000-000000000003}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+	nShown : INT;
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[nShown := nLevel;
+P_Level := nShown;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{cccccccc-0000-0000-0000-000000000004}">
+        <Declaration><![CDATA[PRIVATE
+VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[nLevel := P_Level;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+  </POU>
+</TcPlcObject>`);
+    const w = new TcWorkspace();
+    w.load([path.join(root, 'A/A.tsproj')]);
+    const idx = new LanguageIndex(w);
+    idx.setStubs(BUNDLED_STUBS);
+    const sections = idx.allContexts().filter(c => c.object.name === 'P_Level');
+    assert.deepEqual(sections.map(c => c.label),
+      ['Declaration', 'Get · Declaration', 'Get · Implementation', 'Set · Declaration', 'Set · Implementation']);
+    for (const c of sections) {
+      assert.deepEqual(analyze(idx, c, idx.sectionText(c.fileKey, c.sectionKey)!).problems.map(p => p.message), [], c.label);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('finds the expression before a dot for member completion', async () => {
   const { expressionBeforeDot } = await import('../../src/lang/completion');
   const at = (s: string) => expressionBeforeDot(s.replace('|', ''), s.indexOf('|'));

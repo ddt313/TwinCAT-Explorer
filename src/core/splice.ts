@@ -287,8 +287,7 @@ export function addMember(file: TcSourceFile, ownerId: string, spec: MemberSpec,
   if (declaration !== undefined) lines.push([1, `<Declaration>${cdata(declaration)}</Declaration>`]);
   if (spec.kind === 'property') {
     for (const acc of accessors) {
-      // TwinCAT 3.1.4026 writes PUBLIC before the VAR block, the access the accessor has anyway (the property's);
-      // left out, since the language parser does not take an access specifier there.
+      // TwinCAT 3.1.4026 writes PUBLIC before the VAR block: left out, the accessor has the property's access anyway.
       lines.push([1, `<${acc} Name="${acc}" Id="${newId()}">`], [2, `<Declaration>${cdata('VAR\nEND_VAR')}</Declaration>`]);
       if (!itf) implementation(2);
       lines.push([1, `</${acc}>`]);

@@ -21,6 +21,8 @@ All notable changes to Explorer for TwinCAT. The format follows
 - At start-up the TwinCAT view shows the content of every TwinCAT project. With VS Code 1.142, only the
   first one had its PLC projects until Refresh.
 - The folders inside a POU without methods or properties show in the TwinCAT tree.
+- No syntax error on the access specifier before the `VAR` block of a property's `Get` or `Set`
+  (`PUBLIC`, as TwinCAT 3.1.4026 writes it).
 
 ## 0.11.0 - 2026-10-17
 

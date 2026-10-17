@@ -10,7 +10,7 @@ const folder = path.resolve(process.argv[2] || '.');
 const code = process.env.VSCODE_EXECUTABLE || path.join(os.homedir(), 'AppData/Local/Programs/Microsoft VS Code/Code.exe');
 
 (async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-explorer-act-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'explorer-for-twincat-act-'));
   try {
     await runTests({
       vscodeExecutablePath: fs.existsSync(code) ? code : undefined,

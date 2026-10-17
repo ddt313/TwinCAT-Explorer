@@ -1,6 +1,6 @@
 {
-  "name": "twincat-explorer",
-  "displayName": "TwinCAT Explorer",
+  "name": "explorer-for-twincat",
+  "displayName": "Explorer for TwinCAT",
   "description": "XAE-like TwinCAT PLC project tree, an XAE-like declaration/implementation split editor and Structured Text language features",
   "version": "0.11.0",
   "publisher": "thanhdang",
@@ -139,7 +139,7 @@
           "id": "twincatExplorer.tree",
           "name": "TwinCAT",
           "icon": "media/twincat.svg",
-          "contextualTitle": "TwinCAT Explorer",
+          "contextualTitle": "Explorer for TwinCAT",
           "when": "twincatExplorer.hasProjects"
         }
       ],
@@ -761,7 +761,7 @@
       }
     ],
     "configuration": {
-      "title": "TwinCAT Explorer",
+      "title": "Explorer for TwinCAT",
       "properties": {
         "twincatExplorer.autoReveal": {
           "type": "boolean",

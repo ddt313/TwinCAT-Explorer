@@ -23,7 +23,7 @@ const components = [
 
 const rule = '='.repeat(78);
 const lines = [
-  'TwinCAT Explorer: third-party software notices',
+  'Explorer for TwinCAT: third-party software notices',
   '',
   "The split editor's webview (out/webview) includes the components below. Their copyright notices and",
   'licenses follow.',

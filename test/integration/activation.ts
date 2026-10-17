@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export async function run(): Promise<void> {
-  const ext = vscode.extensions.getExtension('thanhdang.twincat-explorer');
+  const ext = vscode.extensions.getExtension('thanhdang.explorer-for-twincat');
   console.log(`ACTIVATION: extension known=${!!ext}`);
   const found = await vscode.workspace.findFiles('**/*.tsproj', '**/{node_modules,.git,_Boot,_CompileInfo,_Libraries}/**');
   console.log(`ACTIVATION: findFiles(**/*.tsproj) -> ${found.length} ${found.map(u => u.fsPath).join(', ')}`);

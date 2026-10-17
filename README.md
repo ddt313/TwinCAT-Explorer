@@ -1,4 +1,4 @@
-# TwinCAT Explorer
+# Explorer for TwinCAT
 
 TwinCAT 3 PLC projects in VS Code, the way TwinCAT XAE shows them. The extension adds the XAE project
 tree, opens every POU, method, property and accessor in its own tab with the **Declaration above the
@@ -203,10 +203,10 @@ and marked `M`, `A` or `D`.
 
 ## Installation
 
-Install **TwinCAT Explorer** from the Extensions view (Ctrl+Shift+X), or from the command line:
+Install **Explorer for TwinCAT** from the Extensions view (Ctrl+Shift+X), or from the command line:
 
 ```bash
-code --install-extension thanhdang.twincat-explorer
+code --install-extension thanhdang.explorer-for-twincat
 ```
 
 VS Code profiles have their own extensions, and the `code` CLI installs into the **Default** profile
@@ -218,7 +218,7 @@ A `.vsix` file (see [Development](#development) to build one) installs with
 `Extensions: Install from VSIX...` in the target window, or with:
 
 ```bash
-code --install-extension twincat-explorer-<version>.vsix --profile <profile>
+code --install-extension explorer-for-twincat-<version>.vsix --profile <profile>
 ```
 
 Reload the window after installing a new version over an old one.
@@ -226,7 +226,7 @@ Reload the window after installing a new version over an old one.
 To uninstall, use the Extensions view, or:
 
 ```bash
-code --uninstall-extension thanhdang.twincat-explorer --profile <profile>
+code --uninstall-extension thanhdang.explorer-for-twincat --profile <profile>
 ```
 
 ## Getting started
@@ -384,7 +384,7 @@ sources.
     outside hidden folders.
   - Check that the extension is installed in the profile of this window (see
     [Installation](#installation)).
-- **A project or file is missing from the tree.** The `TwinCAT Explorer` output channel logs what was
+- **A project or file is missing from the tree.** The `Explorer for TwinCAT` output channel logs what was
   loaded, and every project file that could not be read. The tree marks such a project with a
   warning, for example a `.plcproj` with merge conflict markers.
 - **The git views say the projects are not in a git repository.** Check that git is installed and on
@@ -408,7 +408,7 @@ npm run package
 
 - `npm run compile` also type-checks `src/webview` and bundles it (Monaco, vscode-textmate,
   oniguruma) with esbuild into `out/webview`.
-- `npm run package` builds `twincat-explorer-<version>.vsix`. `npm run install:local -- <profile>`
+- `npm run package` builds `explorer-for-twincat-<version>.vsix`. `npm run install:local -- <profile>`
   installs it into that VS Code profile (`default` for the Default profile).
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser
   and the resolver on a whole TwinCAT repository.
@@ -417,12 +417,12 @@ npm run package
 
 ## License
 
-TwinCAT Explorer is released under the [MIT License](LICENSE).
+Explorer for TwinCAT is released under the [MIT License](LICENSE).
 
 The split editor bundles Monaco Editor, vscode-textmate and vscode-oniguruma. Their licenses are in
 [ThirdPartyNotices.txt](ThirdPartyNotices.txt).
 
 ## Trademarks
 
-Beckhoff® and TwinCAT® are registered trademarks of Beckhoff Automation GmbH. TwinCAT Explorer is an
-independent project. It is not affiliated with, endorsed by or sponsored by Beckhoff Automation.
+Beckhoff® and TwinCAT® are registered trademarks of Beckhoff Automation GmbH. Explorer for TwinCAT is
+an independent project. It is not affiliated with, endorsed by or sponsored by Beckhoff Automation.

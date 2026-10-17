@@ -75,7 +75,7 @@ function userStubs(): StubSource[] {
     try {
       out.push({ path: full, text: fs.readFileSync(full, 'utf8') });
     } catch (e) {
-      const message = `TwinCAT Explorer: cannot read stub file ${full}: ${(e as Error).message}`;
+      const message = `Explorer for TwinCAT: cannot read stub file ${full}: ${(e as Error).message}`;
       if (!warnedStubs.has(message)) void vscode.window.showWarningMessage(message);
       warnedStubs.add(message);
     }
@@ -88,7 +88,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const index = new LanguageIndex(ws);
   // User stubs are read once projects are found, so windows without TwinCAT never warn about them.
   index.setStubs(BUNDLED_STUBS);
-  const log = vscode.window.createOutputChannel('TwinCAT Explorer', { log: true });
+  const log = vscode.window.createOutputChannel('Explorer for TwinCAT', { log: true });
   const objectFs = new ObjectFileSystem(context.workspaceState);
   const gitDirs = new GitDirWatcher();
   const diffFs = new DiffFileSystem(gitDirs);
@@ -281,14 +281,14 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       const errors = ws.loadErrors.join('\n');
       if (errors && errors !== reportedErrors) {
         void vscode.window.showWarningMessage(
-          `TwinCAT Explorer: ${ws.loadErrors.length} project file(s) could not be loaded. The tree marks them with a warning.`,
+          `Explorer for TwinCAT: ${ws.loadErrors.length} project file(s) could not be loaded. The tree marks them with a warning.`,
           'Show Log').then(choice => { if (choice) log.show(); });
       }
       reportedErrors = errors;
       scheduleAllDiagnostics(100);
     } catch (e) {
       log.error(`Loading the TwinCAT projects failed: ${(e as Error).stack ?? e}`);
-      void vscode.window.showErrorMessage(`TwinCAT Explorer: loading the projects failed: ${(e as Error).message}`, 'Show Log')
+      void vscode.window.showErrorMessage(`Explorer for TwinCAT: loading the projects failed: ${(e as Error).message}`, 'Show Log')
         .then(choice => { if (choice) log.show(); });
     }
   };

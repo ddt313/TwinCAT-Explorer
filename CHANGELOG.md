@@ -1,9 +1,14 @@
 # Changelog
 
-All notable changes to TwinCAT Explorer. The format follows
+All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 0.11.0 - 2026-10-17
+
+### Changed
+- Renamed from TwinCAT Explorer to Explorer for TwinCAT; the extension ID is now
+  `thanhdang.explorer-for-twincat`. Settings, commands and views keep their names. Uninstall
+  `thanhdang.twincat-explorer` before installing this version.
 
 ### Security
 - Git runs by its full path, from VS Code's Git extension (`git.path`) or a full folder path of

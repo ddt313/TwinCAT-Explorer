@@ -1,0 +1,92 @@
+# Publishes the extension to the Visual Studio Marketplace when a version tag (v0.12.0) is pushed.
+# It signs in to Microsoft Entra ID with the OIDC token of GitHub Actions, so no PAT is stored: the
+# Entra app (or managed identity) in AZURE_CLIENT_ID trusts this repository's `marketplace`
+# environment through a federated credential, and is a member of the Marketplace publisher.
+# Run it by hand (Actions > Publish > Run workflow) to check the sign-in without publishing: the run
+# prints the identity's Marketplace ID and whether it may publish.
+name: Publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the version in package.json (otherwise only check the sign-in)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency: publish
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run compile
+
+      - run: npm run test:unit
+
+      - name: Check that the tag is the version in package.json
+        if: github.event_name == 'push'
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but package.json has $version."
+            exit 1
+          fi
+
+      - name: Package
+        run: npx vsce package --no-dependencies --out extension.vsix
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: extension.vsix
+
+      - name: Sign in to Microsoft Entra ID
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Show the identity's Marketplace ID
+        if: env.PUBLISH != 'true'
+        run: |
+          echo "Add this ID to the Marketplace publisher as a member with the Contributor role:"
+          az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv
+
+      - name: Check that the identity may publish
+        if: env.PUBLISH != 'true'
+        run: |
+          publisher="$(node -p "require('./package.json').publisher")"
+          npx vsce verify-pat "$publisher" --azure-credential || {
+            echo "::error::The identity may not publish as $publisher yet: add the ID above to the publisher's members."
+            exit 1
+          }
+
+      - name: Publish
+        if: env.PUBLISH == 'true'
+        run: npx vsce publish --packagePath extension.vsix --azure-credential

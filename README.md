@@ -414,6 +414,9 @@ npm run package
   and the resolver on a whole TwinCAT repository.
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
   bundled packages.
+- A release is a tag: update the version in `package.json` and the changelog, commit, then push a
+  tag with that version (`git tag v0.12.0` and `git push origin v0.12.0`). The Publish workflow
+  (`.github/workflows/publish.yml`) builds, tests and publishes it to the Marketplace.
 
 ## License
 

@@ -3,6 +3,12 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- At start-up the TwinCAT view shows the content of every TwinCAT project. With VS Code 1.142, only the
+  first one had its PLC projects until Refresh.
+
 ## 0.11.0 - 2026-10-17
 
 ### Changed

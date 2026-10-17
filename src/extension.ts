@@ -661,6 +661,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const reveal = async (uri: vscode.Uri | undefined, explicit: boolean, offset?: number) => {
     if (!uri) return;
     if (!explicit && (!config().get<boolean>('autoReveal', true) || !treeView.visible)) return;
+    if (!explicit) {
+      // Once VS Code rendered the tree, and refreshed it at start-up (see onDidChangeVisibility).
+      await tree.whenQuiet();
+      if (!treeView.visible) return;
+    }
     const candidates = nodesForUri(uri, offset);
     if (candidates.length === 0) {
       if (explicit) void vscode.window.showInformationMessage('This file is not part of a TwinCAT PLC project in the workspace.');
@@ -692,6 +697,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   };
 
   let selectionTimer: NodeJS.Timeout | undefined;
+  let treeRendered = false;
   /** The History view shows the object of the editor that became active (unless pinned). */
   const followInHistory = (uri: vscode.Uri | undefined) => {
     const ref = uri ? parseObjectUri(uri) : undefined;
@@ -713,7 +719,14 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       }, 300);
     }),
     treeView.onDidChangeVisibility(e => {
-      if (e.visible) void reveal(activeUri(), false);
+      if (!e.visible) return;
+      if (!treeRendered) {
+        // VS Code 1.142, rendering the view expanded as the last session left it, shows the children of the first
+        // project only, although it asked for those of every project. A refresh once it rendered the tree shows them.
+        treeRendered = true;
+        void tree.whenQuiet().then(() => tree.refresh());
+      }
+      void reveal(activeUri(), false);
     }),
   );
   objectEditors.onDidActivate = uri => {

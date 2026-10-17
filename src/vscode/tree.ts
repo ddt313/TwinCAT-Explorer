@@ -95,6 +95,9 @@ export function objectTreeLabel(obj: TcObject): string {
   return obj.name;
 }
 
+/** How long VS Code must not ask for nodes before the tree counts as rendered (see whenQuiet). */
+const QUIET_MS = 500;
+
 export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
   private readonly emitter = new vscode.EventEmitter<TreeNode | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
@@ -103,6 +106,12 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
   private readonly byObject = new Map<string, TreeNode[]>();
   private readonly byFile = new Map<string, TreeNode[]>();
   private refreshTimer: NodeJS.Timeout | undefined;
+  /** VS Code asked for the roots, so it rendered the tree. */
+  private fetched = false;
+  /** When VS Code last asked for nodes, or was told to refresh. */
+  private lastActivity = 0;
+  private quietTimer: NodeJS.Timeout | undefined;
+  private readonly quietWaiters: (() => void)[] = [];
 
   constructor(private readonly ws: TcWorkspace) {}
 
@@ -110,7 +119,36 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
     this.byObject.clear();
     this.byFile.clear();
     this.roots = this.ws.tsProjects.map(ts => this.buildTsProject(ts));
+    // Until VS Code asks for the roots it has not rendered the tree, and gets these when it does.
+    if (this.fetched) this.refresh();
+  }
+
+  /** Makes VS Code fetch the tree again. */
+  refresh(): void {
     this.emitter.fire(undefined);
+    this.noteActivity();
+  }
+
+  /** Resolves once VS Code asked for the tree and then stopped asking for nodes: once it rendered the tree. */
+  whenQuiet(): Promise<void> {
+    if (this.fetched && Date.now() - this.lastActivity >= QUIET_MS) return Promise.resolve();
+    return new Promise(resolve => {
+      this.quietWaiters.push(resolve);
+      if (this.fetched) this.armQuietTimer();
+    });
+  }
+
+  private noteActivity(): void {
+    this.lastActivity = Date.now();
+    if (this.quietWaiters.length) this.armQuietTimer();
+  }
+
+  private armQuietTimer(): void {
+    if (this.quietTimer) clearTimeout(this.quietTimer);
+    this.quietTimer = setTimeout(() => {
+      this.quietTimer = undefined;
+      for (const resolve of this.quietWaiters.splice(0)) resolve();
+    }, QUIET_MS - Math.min(QUIET_MS, Date.now() - this.lastActivity));
   }
 
   scheduleRebuild(delay = 300): void {
@@ -309,6 +347,8 @@ ${error ?? 'The .plcproj file does not exist.'}`;
   }
 
   getChildren(node?: TreeNode): TreeNode[] {
+    if (!node) this.fetched = true;
+    this.noteActivity();
     return node ? node.children : this.roots;
   }
 

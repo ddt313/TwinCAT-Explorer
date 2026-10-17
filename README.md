@@ -18,6 +18,8 @@ the sections you edited.
 - [Troubleshooting](#troubleshooting)
 - [Release notes](#release-notes)
 - [Development](#development)
+- [License](#license)
+- [Trademarks](#trademarks)
 
 ## Features
 
@@ -195,28 +197,33 @@ and marked `M`, `A` or `D`.
   `PATH`. It never runs a program named git that sits in the workspace.
 - **Windows** is the main target, since TwinCAT XAE runs only there. The extension does not depend on
   XAE being installed.
+- **No other extension.** The git views are the extension's own, so GitLens is not needed; this
+  README names it only to compare. VS Code's built-in Git extension is used when it is enabled: its
+  git, its git documents, and its events to refresh open comparisons after a commit or checkout.
 
 ## Installation
 
-TwinCAT Explorer is not published on the Marketplace. Build the `.vsix` and install it:
+Install **TwinCAT Explorer** from the Extensions view (Ctrl+Shift+X), or from the command line:
 
 ```bash
-npm install
-npm run package
-npm run install:local -- <profile>
+code --install-extension thanhdang.twincat-explorer
 ```
-
-`install:local` runs `code --install-extension twincat-explorer-<version>.vsix --force --profile <profile>`.
-Without an argument it uses the `TWINCAT_PROFILE` environment variable, otherwise the Default
-profile.
 
 VS Code profiles have their own extensions, and the `code` CLI installs into the **Default** profile
 unless told otherwise. A window that uses another profile (see the gear menu > Profiles) then never
-loads the extension, or keeps an old version. Another way to install is `Extensions: Install from
-VSIX...` in the target window, which installs into that window's profile. Reload the window
-afterwards.
+loads the extension. Add `--profile <profile>` to the command, or install from the Extensions view of
+that window.
 
-To uninstall:
+A `.vsix` file (see [Development](#development) to build one) installs with
+`Extensions: Install from VSIX...` in the target window, or with:
+
+```bash
+code --install-extension twincat-explorer-<version>.vsix --profile <profile>
+```
+
+Reload the window after installing a new version over an old one.
+
+To uninstall, use the Extensions view, or:
 
 ```bash
 code --uninstall-extension thanhdang.twincat-explorer --profile <profile>
@@ -388,46 +395,7 @@ sources.
 
 ## Release notes
 
-### Unreleased
-- **Security:** git runs by its full path, from VS Code's Git extension or `PATH`. A `git.exe`
-  committed to a repository can no longer run in its place on Windows.
-- **Fixed:**
-  - The TwinCAT History view follows another editor at once after it opened one of its own objects.
-  - Objects on UNC paths open.
-  - A file another program holds no longer breaks the tree or the language features.
-  - Hover, go to definition and references always get an answer. References in a tab whose file
-    changed outside VS Code point at the right lines.
-  - The git views recover once git becomes available.
-  - Duplicate tree entries no longer hide a folder.
-  - The commit diff panel shows the object clicked last.
-  - Signature checks (`log.showSignature`) no longer slow the commit lists down or enter the commit
-    messages.
-  - Project files open from the TwinCAT Changes view without the Git extension's repository.
-
-### 0.10.0
-- The TwinCAT Commits view lists every commit of `HEAD`, also those without TwinCAT files, and merges.
-  Files other than POUs open as git diffs.
-
-### 0.9.0
-- TwinCAT History view per object, and line blame in the split editor.
-
-### 0.8.0
-- TwinCAT Commits view in the Source Control sidebar.
-
-### 0.7.0
-- TwinCAT Changes view in the Source Control sidebar: uncommitted or branch changes per object, with
-  Discard Changes.
-
-### 0.6.0
-- Changes vs `HEAD`: `M`/`A` marks in the tree and on tabs, change markers and inline diffs in the
-  split editor.
-
-### 0.5.0 and 0.5.1
-- The XAE-like split editor: the Declaration above the Implementation, each with its own scroll bar.
-
-### 0.1.0 to 0.4.0
-- TwinCAT tree, object notebooks, Structured Text language features, notebook diffs for git, and
-  safe saving of the edited sections only.
+See the [changelog](CHANGELOG.md).
 
 ## Development
 
@@ -440,9 +408,21 @@ npm run package
 
 - `npm run compile` also type-checks `src/webview` and bundles it (Monaco, vscode-textmate,
   oniguruma) with esbuild into `out/webview`.
+- `npm run package` builds `twincat-explorer-<version>.vsix`. `npm run install:local -- <profile>`
+  installs it into that VS Code profile (`default` for the Default profile).
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser
   and the resolver on a whole TwinCAT repository.
+- `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
+  bundled packages.
 
 ## License
 
-UNLICENSED: a private extension, not published.
+The license of TwinCAT Explorer is not chosen yet.
+
+The split editor bundles Monaco Editor, vscode-textmate and vscode-oniguruma. Their licenses are in
+[ThirdPartyNotices.txt](ThirdPartyNotices.txt).
+
+## Trademarks
+
+Beckhoff® and TwinCAT® are registered trademarks of Beckhoff Automation GmbH. TwinCAT Explorer is an
+independent project. It is not affiliated with, endorsed by or sponsored by Beckhoff Automation.

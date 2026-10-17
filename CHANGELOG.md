@@ -1,0 +1,155 @@
+# Changelog
+
+All notable changes to TwinCAT Explorer. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## Unreleased
+
+### Security
+- Git runs by its full path, from VS Code's Git extension (`git.path`) or a full folder path of
+  `PATH`. A `git.exe` committed to a repository can no longer run in its place on Windows.
+
+### Fixed
+- The TwinCAT History view follows another editor at once after it opened one of its own objects.
+- Objects on UNC paths open.
+- A file another program holds no longer breaks the tree or the language features.
+- Hover, go to definition and references always get an answer. References in a tab whose file
+  changed outside VS Code point at the right lines.
+- The git views recover once git becomes available.
+- Duplicate tree entries no longer hide a folder.
+- The commit diff panel shows the object clicked last.
+- Signature checks (`log.showSignature`) no longer slow the commit lists down or enter the commit
+  messages.
+- Project files open from the TwinCAT Changes view without the Git extension's repository.
+
+## 0.10.0 - 2026-10-16
+
+### Changed
+- The TwinCAT Commits view lists every commit of `HEAD`, as `git log` does: also the commits that
+  change no TwinCAT file, and merges, which have their own icon and are compared with their first
+  parent.
+- A commit lists its POUs first, then the project files, then every other file it changed, with its
+  `M`, `A` or `D` mark. Any file but a POU with object changes opens in VS Code's diff editor, as in
+  GitLens; an added or deleted file is compared with an empty one.
+
+## 0.9.0 - 2026-10-16
+
+### Added
+- TwinCAT History view in the Source Control sidebar: the commits that changed one method, property,
+  accessor, action, DUT or GVL, newest first, followed through renames and moves. It shows the
+  object of the active editor unless pinned.
+- `Show History` in the TwinCAT tree, the split editor, the commit diff panel and on the objects of
+  the Changes and Commits views. `Compare with Working Version` opens the split editor against a
+  commit.
+- Line blame in the split editor: who changed the current line last, when, and the commit message.
+  The hover has `Open Changes` and `Show History`. `twincatExplorer.blame.currentLine` and
+  `TwinCAT: Toggle Line Blame` turn it off.
+
+### Fixed
+- `HEAD`'s version of a file always matches the commit it is labelled with, also right after a
+  commit.
+
+## 0.8.0 - 2026-10-16
+
+### Added
+- TwinCAT Commits view in the Source Control sidebar: the commits of `HEAD` that changed TwinCAT
+  files, newest first, 30 at a time, with author and age. An arrow marks the commits no remote has
+  yet.
+- A commit expands to its POUs and other TwinCAT files, and a POU to the objects the commit changed.
+  A click shows what the commit changed in the object, read-only, in the split editor's layout.
+- `Open Current Version` opens the object as it is now, also when its file moved since.
+
+### Fixed
+- Renamed files in long folder paths are read from git on Windows.
+
+## 0.7.0 - 2026-10-15
+
+### Added
+- TwinCAT Changes view in the Source Control sidebar: the objects that differ from `HEAD`, or since
+  the merge base with another branch (`origin/develop` by default), grouped by POU and marked `M`,
+  `A` or `D`. Files with only XAE metadata changes go to `Build output (no code changes)`, other
+  project file changes to `Project files`.
+- A click opens the split editor with the diff against that base, at the first change.
+- `Discard Changes` puts the code of an object back, removes a new member or accessor, or restores a
+  whole file.
+
+## 0.6.0 - 2026-10-15
+
+### Added
+- `M` and `A` marks on the methods, properties and accessors that differ from `HEAD`, in the TwinCAT
+  tree and on their tabs.
+- Change markers in the gutter of the split editor, unsaved edits included. `Alt+F5` and
+  `Shift+Alt+F5` move between changes.
+- `Show Changes vs HEAD` turns the panes into inline diffs, with the unchanged lines folded and
+  `Revert Block`.
+
+## 0.5.1 - 2026-10-09
+
+### Fixed
+- Undoing back to the text on disk no longer stalls saving for 1.5 seconds, after which VS Code
+  turned off the extension's save handling.
+- Long reference lists keep their previews.
+- Go to definition from a notebook cell, Ctrl+T and the Problems panel give the split editor the
+  focus.
+- `Open to the Side` opens the object beside the current one.
+- The indentation left on an empty line is no longer trimmed when the pane takes in a change of the
+  document.
+
+## 0.5.0 - 2026-10-09
+
+### Added
+- The XAE-like split editor: the Declaration above the Implementation, each with its own scroll bar,
+  and a bar between them to drag. `Get` and `Set` open in their own tabs, as in XAE.
+- Syntax colours of the active theme, and hover, completion, definition, references and problems in
+  both panes.
+
+### Changed
+- Objects open in the split editor. Set `twincatExplorer.editor` to `notebook`, or use
+  `Reopen Editor With`, for the object notebook.
+
+## 0.4.0 - 2026-10-08
+
+### Fixed
+- Reopening a tab after discarding its edits shows the text on disk.
+- A tab in the background reloads after the file changed outside VS Code.
+- After a save, the language features see the outside changes to the sections you did not edit.
+
+## 0.3.0 - 2026-10-08
+
+### Fixed
+- Find All References opens one document per object.
+- A closed tab no longer feeds its unsaved text to the other tabs.
+- Notebook diffs pair an unstaged rename with the old file through the object's GUID, and compare
+  staged deletions.
+- Git output is read in English, whatever the system language.
+- The extension stays idle in windows without TwinCAT projects.
+
+## 0.2.0 - 2026-10-08
+
+### Changed
+- Saving writes only the sections you edited, so changes made meanwhile in XAE or by git survive. If
+  a section you edited was also changed on disk, the save is refused with a message.
+
+### Added
+- The `TwinCAT Explorer` output channel logs what was loaded and every project file that could not be
+  read.
+- Notebook diffs follow staged renames and refresh after a commit, checkout or stage.
+
+### Fixed
+- The `TwinCAT File (Notebook)` editor saves.
+- Unsaved declarations are seen by the other tabs.
+
+## 0.1.0 - 2026-10-08
+
+### Added
+- TwinCAT tree in the Explorer: TwinCAT projects, PLC projects, folders and objects, with the folders,
+  methods, properties, actions and transitions inside a POU and XAE's labels.
+- Object notebooks, one tab per object and one cell per section, and the `TwinCAT File (Notebook)`
+  editor for a whole file.
+- Saving that replaces only the CDATA of the changed sections, and refuses renames in declaration
+  headers.
+- Structured Text language features: go to definition, hover, completion, references, problems,
+  Ctrl+T, outline and `TwinCAT: Check All Structured Text`.
+- Library stubs for common Beckhoff libraries, and `twincatExplorer.stubFiles` for others.
+- `Open Changes as TwinCAT Notebook` and `Compare with Git Ref as TwinCAT Notebook...`.
+- `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)`.

@@ -6,12 +6,31 @@
   "publisher": "thanhdang",
   "private": true,
   "license": "UNLICENSED",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ddt313/TwinCAT-Explorer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ddt313/TwinCAT-Explorer/issues"
+  },
+  "homepage": "https://github.com/ddt313/TwinCAT-Explorer#readme",
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
     "Programming Languages",
     "Other"
+  ],
+  "keywords": [
+    "TwinCAT",
+    "Beckhoff",
+    "PLC",
+    "Structured Text",
+    "IEC 61131-3",
+    "XAE",
+    "TcPOU",
+    "automation"
   ],
   "activationEvents": [
     "workspaceContains:**/*.tsproj",
@@ -836,7 +855,7 @@
     "watch": "tsc -w -p .",
     "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
     "test": "npm run compile && npm run test:unit",
-    "package": "vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "package": "vsce package --no-dependencies --skip-license",
     "vscode:prepublish": "npm run compile",
     "install:local": "node scripts/install.js",
     "build:webview": "node scripts/build-webview.js"

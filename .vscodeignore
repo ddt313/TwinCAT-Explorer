@@ -1,8 +1,12 @@
 **
 !package.json
 !README.md
+!CHANGELOG.md
+!LICENSE*
+!ThirdPartyNotices.txt
 !language-configuration.json
 !syntaxes/**
-!media/**
+!media/icon.png
+!media/twincat.svg
 !out/src/**/*.js
 !out/webview/**

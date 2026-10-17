@@ -1,0 +1,175 @@
+# Releases a version when its tag (v0.12.0) is pushed: builds and tests it, attaches the .vsix to a
+# GitHub release whose notes come from CHANGELOG.md, and publishes it to the Visual Studio
+# Marketplace once the repository variable MARKETPLACE_PUBLISH is `true`.
+#
+# The Marketplace job signs in to Microsoft Entra ID with the OIDC token of GitHub Actions, so no
+# PAT is stored: the Entra app (or managed identity) in AZURE_CLIENT_ID trusts this repository's
+# `marketplace` environment through a federated credential, and is a member of the publisher.
+#
+# Run it by hand (Actions > Release > Run workflow):
+# - with a tag, to release a tag pushed before (a tag runs the workflow of its own commit);
+# - without a tag, to check the Marketplace sign-in: the run prints the identity's Marketplace ID
+#   and whether it may publish, and releases nothing.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release, for example v0.12.0 (empty to only check the Marketplace sign-in)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency: release
+
+jobs:
+  package:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      RELEASE: ${{ github.event_name == 'push' || inputs.tag != '' }}
+    outputs:
+      vsix: ${{ steps.package.outputs.vsix }}
+      publisher: ${{ steps.package.outputs.publisher }}
+      vsce: ${{ steps.package.outputs.vsce }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run compile
+
+      - run: npm run test:unit
+
+      - name: Check that the tag is the version in package.json
+        if: env.RELEASE == 'true'
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$TAG" ]; then
+            echo "::error::The tag is $TAG but package.json has $version."
+            exit 1
+          fi
+
+      - name: Package
+        id: package
+        run: |
+          vsix="$(node -p "const p = require('./package.json'); p.name + '-' + p.version + '.vsix'")"
+          npx vsce package --no-dependencies --out "$vsix"
+          {
+            echo "vsix=$vsix"
+            echo "publisher=$(node -p "require('./package.json').publisher")"
+            echo "vsce=$(node -p "require('@vscode/vsce/package.json').version")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Release notes from the changelog
+        if: env.RELEASE == 'true'
+        env:
+          VSIX: ${{ steps.package.outputs.vsix }}
+        run: |
+          version="${TAG#v}"
+          notes="$(awk -v head="## $version" '
+            index($0, head " ") == 1 || $0 == head { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md | sed '/./,$!d')"
+          if [ -z "$notes" ]; then
+            echo "::error::CHANGELOG.md has no section for $version."
+            exit 1
+          fi
+          printf '%s\n\nInstall the attached file with `code --install-extension %s`, or from the Marketplace.\n' \
+            "$notes" "$VSIX" > release-notes.md
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: |
+            ${{ steps.package.outputs.vsix }}
+            release-notes.md
+          if-no-files-found: ignore
+
+  github-release:
+    needs: package
+    if: github.event_name == 'push' || inputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      VSIX: ${{ needs.package.outputs.vsix }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+
+      - name: Create the GitHub release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$VSIX" --clobber
+          else
+            gh release create "$TAG" "$VSIX" --verify-tag --title "$TAG" --notes-file release-notes.md
+          fi
+
+  marketplace:
+    needs: package
+    if: vars.MARKETPLACE_PUBLISH == 'true' || (github.event_name == 'workflow_dispatch' && inputs.tag == '')
+    runs-on: ubuntu-latest
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PUBLISH: ${{ github.event_name == 'push' || inputs.tag != '' }}
+      VSCE: npx --yes @vscode/vsce@${{ needs.package.outputs.vsce }}
+      PUBLISHER: ${{ needs.package.outputs.publisher }}
+      VSIX: ${{ needs.package.outputs.vsix }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Sign in to Microsoft Entra ID
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Show the identity's Marketplace ID
+        if: env.PUBLISH != 'true'
+        run: |
+          echo "Add this ID to the Marketplace publisher as a member with the Contributor role:"
+          az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv
+
+      - name: Check that the identity may publish
+        if: env.PUBLISH != 'true'
+        run: |
+          $VSCE verify-pat "$PUBLISHER" --azure-credential || {
+            echo "::error::The identity may not publish as $PUBLISHER yet: add the ID above to the publisher's members."
+            exit 1
+          }
+
+      - name: Publish
+        if: env.PUBLISH == 'true'
+        run: $VSCE publish --packagePath "$VSIX" --azure-credential

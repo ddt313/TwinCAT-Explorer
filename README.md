@@ -214,8 +214,9 @@ unless told otherwise. A window that uses another profile (see the gear menu > P
 loads the extension. Add `--profile <profile>` to the command, or install from the Extensions view of
 that window.
 
-A `.vsix` file (see [Development](#development) to build one) installs with
-`Extensions: Install from VSIX...` in the target window, or with:
+A `.vsix` file (attached to every [GitHub release](https://github.com/ddt313/TwinCAT-Explorer/releases),
+or built as in [Development](#development)) installs with `Extensions: Install from VSIX...` in the
+target window, or with:
 
 ```bash
 code --install-extension explorer-for-twincat-<version>.vsix --profile <profile>
@@ -415,8 +416,10 @@ npm run package
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
   bundled packages.
 - A release is a tag: update the version in `package.json` and the changelog, commit, then push a
-  tag with that version (`git tag v0.12.0` and `git push origin v0.12.0`). The Publish workflow
-  (`.github/workflows/publish.yml`) builds, tests and publishes it to the Marketplace.
+  tag with that version (`git tag v0.12.0` and `git push origin v0.12.0`). The Release workflow
+  (`.github/workflows/release.yml`) builds and tests it, attaches the `.vsix` to a GitHub release
+  with the changelog's notes, and publishes it to the Marketplace once the repository variable
+  `MARKETPLACE_PUBLISH` is `true`.
 
 ## License
 

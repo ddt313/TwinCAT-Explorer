@@ -417,7 +417,7 @@ npm run package
 
 ## License
 
-The license of TwinCAT Explorer is not chosen yet.
+TwinCAT Explorer is released under the [MIT License](LICENSE).
 
 The split editor bundles Monaco Editor, vscode-textmate and vscode-oniguruma. Their licenses are in
 [ThirdPartyNotices.txt](ThirdPartyNotices.txt).

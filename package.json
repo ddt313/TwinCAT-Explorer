@@ -5,7 +5,7 @@
   "version": "0.10.0",
   "publisher": "thanhdang",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -855,7 +855,7 @@
     "watch": "tsc -w -p .",
     "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
     "test": "npm run compile && npm run test:unit",
-    "package": "vsce package --no-dependencies --skip-license",
+    "package": "vsce package --no-dependencies",
     "vscode:prepublish": "npm run compile",
     "install:local": "node scripts/install.js",
     "build:webview": "node scripts/build-webview.js"

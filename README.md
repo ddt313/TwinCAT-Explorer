@@ -34,6 +34,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - Labels follow XAE (`FB_X (FB)`, `MAIN (PRG)`), and modified files get their git colour.
 - Methods, properties and accessors that differ from `HEAD` are marked `M` (changed) or `A` (new),
   like the Explorer marks files.
+- Right-click a POU, an interface or a folder inside a POU to add a method, property or action (see
+  [Adding methods, properties and actions](#adding-methods-properties-and-actions)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 
 ### Split editor
@@ -81,6 +83,29 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   the text on disk makes the tab clean again.
 - **Renaming is blocked:** changing the name in a declaration header (`METHOD OnEntry` to
   `METHOD OnEnter`) makes the save fail with a message. Rename objects in TwinCAT XAE.
+
+### Adding methods, properties and actions
+
+- **Add Method...**, **Add Property...** and **Add Action...** are in the context menu of a POU or
+  interface in the TwinCAT tree, and of a folder inside a POU. From the Command Palette they add to the
+  object of the active editor. Actions are for function blocks and programs.
+- **What they ask:** the name, checked against the other members (case aside); the return type of a
+  method (empty for none) or the type of a property; and whether a property gets `Get` and `Set` or one
+  of them.
+- **What they write**, as XAE does: a new GUID, a declaration (`METHOD Start : BOOL`, `VAR_INPUT`,
+  `END_VAR`) and an empty Structured Text implementation. Methods and properties of an interface have
+  no implementation. `FB_init`, `FB_reinit` and `FB_exit` get the inputs TwinCAT passes them.
+  - The new element takes the file's indentation and line breaks, and the file keeps its BOM. The rest
+    of the file stays byte-identical.
+  - It goes at its place in name order when the members are in name order, else after the last one.
+- **Then:** the tree shows the new member and it opens in the split editor, or the notebook if
+  `twincatExplorer.editor` says so. A new property opens at its `Get` (or `Set`).
+- **Implement Interfaces...** on a function block with `IMPLEMENTS`: picks from the methods and
+  properties of its interfaces, and of the interfaces these extend, that neither the function block
+  nor one it extends has yet. Each gets the declaration it has in the interface and an empty
+  implementation.
+- A file with unsaved changes in an editor is refused: save or revert them first. To take back a new
+  member, use Discard Changes in the TwinCAT Changes view.
 
 ### Structured Text language features
 
@@ -252,6 +277,8 @@ title bars and context menus, for example Discard Changes, Copy Commit SHA and C
 | `TwinCAT: Go to Object...` | Pick any object of the workspace and open it (Ctrl+Alt+T). |
 | `TwinCAT: Reveal in TwinCAT Explorer` / `TwinCAT: Reveal Active Editor` | Select the object or file in the TwinCAT tree. |
 | `TwinCAT: Open XML` | Open the object's file as XML text, at the object. |
+| `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
+| `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as inline diffs against `HEAD`, or back as normal panes. |
 | `TwinCAT: Open Changes as TwinCAT Notebook` | Compare a whole file with `HEAD` (or the index), section by section. |
 | `TwinCAT: Compare with Git Ref as TwinCAT Notebook...` | Compare a whole file with any branch, tag or commit. |
@@ -328,7 +355,10 @@ sources.
 **Editing and projects**
 - Only Structured Text is editable; other implementation languages are shown as read-only
   placeholders.
-- Objects are created, renamed, moved and deleted in TwinCAT XAE.
+- Methods, properties and actions can be added here. POUs, DUTs, GVLs, interfaces, folders and
+  transitions are created in TwinCAT XAE, and objects are renamed, moved and deleted there.
+- A member added here has no `LineIds` element yet, the line map XAE keeps for breakpoints and online
+  change. XAE writes the line map when it saves the file.
 - If TwinCAT XAE has the same project open, it keeps its own copy in memory and can overwrite changes
   saved from VS Code. Reload the project in XAE after editing here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.

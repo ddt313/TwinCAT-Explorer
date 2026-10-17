@@ -137,7 +137,7 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
     }
     for (const k of docKeys) {
       if (!k || !meta.has(k)) {
-        throw new Error('Sections cannot be added to a TwinCAT object. Add methods or properties in TwinCAT XAE.');
+        throw new Error('Sections cannot be added to a TwinCAT object. Add methods and properties with Add Method... and Add Property... in the TwinCAT tree.');
       }
     }
     for (const k of meta.keys()) {

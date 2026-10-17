@@ -6,11 +6,20 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { Accessor } from '../core/objectText';
-import { InnerFolder, ObjectKind, TcObject, TcSourceFile } from '../core/tcfile';
+import { InnerFolder, ObjectKind, TcObject, TcSourceFile, stripTrivia } from '../core/tcfile';
 import { PlcProject, TsProject, resolutionLibraryName } from '../core/project';
 import { isSourcePath, objectUri } from './uris';
 
 export type NodeKind = 'tsproj' | 'plcproj' | 'references' | 'library' | 'folder' | 'file' | 'innerFolder' | 'object' | 'accessor';
+
+/** Where the Add Method/Property/Action commands of a node put the new member: a POU or interface, one of its folders. */
+export interface MemberTarget {
+  fsPath: string;
+  objectId: string;
+  folderPath: string[];
+  /** A function block or program: actions too. */
+  actions: boolean;
+}
 
 export class TreeNode {
   /** The .tsproj node this node belongs to. */
@@ -33,6 +42,10 @@ export class TreeNode {
   /** Name used by "Copy Name". */
   name?: string;
   sortGroup = 1;
+  /** Members can be added here. */
+  memberTarget?: MemberTarget;
+  /** A function block that names interfaces after IMPLEMENTS. */
+  implementsInterfaces = false;
 
   constructor(readonly id: string, readonly kind: NodeKind, public label: string, readonly parent: TreeNode | undefined) {}
 
@@ -42,8 +55,16 @@ export class TreeNode {
     if (this.fsPath) parts.push('hasFile');
     if (this.kind === 'file' && this.fsPath && isSourcePath(this.fsPath)) parts.push('stFile');
     if (this.name) parts.push('named');
+    if (this.memberTarget) parts.push(this.memberTarget.actions ? 'addMember addAction' : 'addMember');
+    if (this.implementsInterfaces) parts.push('implements');
     return parts.join(' ');
   }
+}
+
+/** Whether a POU or interface can get methods and properties (actions: function blocks and programs only). */
+export function memberKinds(obj: TcObject): { members: boolean; actions: boolean } {
+  const pou = obj.kind === 'pou' && (obj.pouKind === 'FB' || obj.pouKind === 'PRG');
+  return { members: pou || obj.kind === 'itf', actions: pou };
 }
 
 function icon(id: string, color?: string): vscode.ThemeIcon {
@@ -116,6 +137,9 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
   constructor(private readonly ws: TcWorkspace) {}
 
   rebuild(): void {
+    // A rebuild scheduled before this one has nothing more to show.
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = undefined;
     this.byObject.clear();
     this.byFile.clear();
     this.roots = this.ws.tsProjects.map(ts => this.buildTsProject(ts));
@@ -259,8 +283,14 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     node.openable = true;
     node.icon = objectIcon(root);
     node.name = root.name;
+    const kinds = memberKinds(root);
+    const memberTarget = (folderPath: string[]): MemberTarget | undefined =>
+      kinds.members ? { fsPath, objectId: root.id, folderPath, actions: kinds.actions } : undefined;
+    node.memberTarget = memberTarget([]);
+    const decl = root.sections.find(s => s.role === 'decl' && !s.accessor)?.text ?? '';
+    node.implementsInterfaces = root.pouKind === 'FB' && /\bIMPLEMENTS\b/i.test(stripTrivia(decl));
     this.indexObject(file, root, node);
-    if (root.members.length === 0) return;
+    if (root.members.length === 0 && root.innerFolders.length === 0) return;
     const inner = new Map<string, TreeNode>();
     const ensureInner = (folderPath: string[]): TreeNode => {
       if (folderPath.length === 0) return node;
@@ -271,6 +301,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       const f = this.add(new TreeNode(`ifolder:${prefix}|${fk}|${key}`, 'innerFolder', folderPath[folderPath.length - 1], p));
       f.icon = vscode.ThemeIcon.Folder;
       f.sortGroup = 1;
+      f.memberTarget = memberTarget(folderPath);
       inner.set(key, f);
       return f;
     };

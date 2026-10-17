@@ -1,9 +1,12 @@
 // Writes edited Structured Text back into a TwinCAT file by replacing only the
 // CDATA content of the changed sections. Everything else (BOM, EOL, attribute
-// order, GUIDs, untouched sections) stays byte-identical.
+// order, GUIDs, untouched sections) stays byte-identical. New members (methods,
+// properties, actions) are inserted as whole elements, the rest of the file
+// staying as it is.
 
+import { randomUUID } from 'crypto';
 import { Accessor, viewSections } from './objectText';
-import { Section, TcSourceFile, normalizeEol, stripTrivia } from './tcfile';
+import { Section, TcObject, TcSourceFile, normalizeEol, parseTcText, stripTrivia } from './tcfile';
 import { XmlElement } from './xml';
 
 export interface SectionEdit {
@@ -130,4 +133,167 @@ export function removeMember(file: TcSourceFile, objectId: string, accessor?: 'G
   if (text.startsWith('\r\n', end)) end += 2;
   else if (text[end] === '\n') end++;
   return text.slice(0, start) + text.slice(end);
+}
+
+/** A member addMember creates: a method, a property with its accessors, or an action. */
+export interface MemberSpec {
+  kind: 'method' | 'property' | 'action';
+  name: string;
+  /** Return type of a method (none when empty), type of a property. */
+  type?: string;
+  /** Accessors of a property: Get and Set when not given. */
+  accessors?: Accessor[];
+  /** Declaration used instead of the one made of the name and type (Implement Interfaces copies the interface's). */
+  declaration?: string;
+  /** Folder inside the POU that the member is shown in, XAE's FolderPath. */
+  folderPath?: string[];
+}
+
+const MEMBER_TAGS = { method: 'Method', property: 'Property', action: 'Action' } as const;
+const MEMBER_ELEMENTS = new Set(['Method', 'Property', 'Action', 'Transition']);
+
+/**
+ * Methods TwinCAT calls by itself: they return BOOL and get the inputs it passes (the declaration of a method
+ * added with such a name has them).
+ */
+const SPECIAL_METHODS: Record<string, string> = {
+  FB_INIT: 'VAR_INPUT\n\tbInitRetains : BOOL; // TRUE: the retain variables are initialized (warm or cold start)\n'
+    + '\tbInCopyCode : BOOL; // TRUE: the instance is moved into the copy code afterwards (online change)\nEND_VAR\n',
+  FB_EXIT: 'VAR_INPUT\n\tbInCopyCode : BOOL; // TRUE: the instance is copied afterwards (online change)\nEND_VAR\n',
+  FB_REINIT: 'VAR_INPUT\nEND_VAR\n',
+};
+
+/** Whether a new method of the object gets the fixed declaration of FB_init, FB_reinit or FB_exit. */
+export function isSpecialMethod(owner: TcObject, name: string): boolean {
+  return owner.pouKind === 'FB' && SPECIAL_METHODS[name.toUpperCase()] !== undefined;
+}
+
+/** A new object id as TwinCAT writes it: a lower case GUID in braces. */
+export function newGuid(): string {
+  return `{${randomUUID()}}`;
+}
+
+/** Why a new member of the POU or interface cannot have this name; undefined when it can. */
+export function memberNameProblem(owner: TcObject, name: string): string | undefined {
+  if (!name) return 'Enter a name';
+  if (!/^[A-Za-z_]\w*$/.test(name)) return `'${name}' is not an identifier: letters, digits and underscores, not starting with a digit`;
+  const upper = name.toUpperCase();
+  const clash = owner.members.find(m => m.name.toUpperCase() === upper);
+  return clash ? `${owner.name} already has a ${clash.kind} named ${clash.name}` : undefined;
+}
+
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** The whitespace before an offset on its line, or undefined when something else is there. */
+function indentBefore(text: string, offset: number): string | undefined {
+  const lead = text.slice(text.lastIndexOf('\n', offset - 1) + 1, offset);
+  return /^[ \t]*$/.test(lead) ? lead : undefined;
+}
+
+function memberDeclaration(owner: TcObject, spec: MemberSpec): string | undefined {
+  if (spec.kind === 'action') return undefined;
+  const keyword = spec.kind === 'method' ? 'METHOD' : 'PROPERTY';
+  if (spec.declaration !== undefined) {
+    // The Name attribute and the declaration header agree, as in every member XAE writes.
+    if (declaredName(spec.declaration)?.toUpperCase() !== spec.name.toUpperCase()
+      || !new RegExp(`\\b${keyword}\\b`, 'i').test(stripTrivia(spec.declaration))) {
+      throw new SpliceError(`The declaration given for ${spec.name} does not declare the ${spec.kind} ${spec.name}`);
+    }
+    return spec.declaration;
+  }
+  const type = (spec.type ?? '').trim();
+  if (/[\r\n]/.test(type)) throw new SpliceError('The type must be on one line');
+  if (spec.kind === 'property') {
+    if (!type) throw new SpliceError(`The property ${spec.name} needs a type`);
+    return `PROPERTY ${spec.name} : ${type}`;
+  }
+  if (isSpecialMethod(owner, spec.name)) return `METHOD ${spec.name} : BOOL\n${SPECIAL_METHODS[spec.name.toUpperCase()]}`;
+  return `METHOD ${spec.name}${type ? ` : ${type}` : ''}\nVAR_INPUT\nEND_VAR\n`;
+}
+
+/**
+ * The file with a new method, property or action in its POU or interface, as XAE writes one: a new GUID, the
+ * declaration and an empty Structured Text implementation (none in an interface; for a property, its Get and
+ * Set have them), with the indentation and line breaks of the file. The rest of the file stays byte-identical;
+ * the caller writes it back with the BOM it had (`encodeText(text, file.bom)`).
+ *
+ * The member goes at its place in name order (case aside) when the members of the POU are in that order, else
+ * after the last one; without members, after the declaration, implementation and folders. No LineIds are
+ * written for it: XAE writes them when it saves the file.
+ */
+export function addMember(file: TcSourceFile, ownerId: string, spec: MemberSpec, newId: () => string = newGuid): string {
+  if (file.error) throw new SpliceError(`${file.path} cannot be read: ${file.error}`);
+  const owner = file.objects.get(ownerId);
+  if (!owner) throw new SpliceError(`The object no longer exists in ${file.path}`);
+  if (owner !== file.root || (owner.kind !== 'pou' && owner.kind !== 'itf')) {
+    throw new SpliceError('Methods, properties and actions are added to a POU or an interface');
+  }
+  const itf = owner.kind === 'itf';
+  if (!itf && owner.pouKind !== 'FB' && owner.pouKind !== 'PRG') {
+    throw new SpliceError(`${owner.name} is not a function block or a program: it cannot have methods, properties or actions`);
+  }
+  if (itf && spec.kind === 'action') throw new SpliceError(`${owner.name} is an interface: interfaces have no actions`);
+  const problem = memberNameProblem(owner, spec.name);
+  if (problem) throw new SpliceError(problem);
+  const accessors = (['Get', 'Set'] as const).filter(a => !spec.accessors || spec.accessors.includes(a));
+  if (spec.kind === 'property' && accessors.length === 0) throw new SpliceError(`The property ${spec.name} needs a Get or a Set`);
+  const declaration = memberDeclaration(owner, spec);
+
+  const text = file.text;
+  const eol = file.eol;
+  const root = owner.element;
+  const members = root.children.filter(c => MEMBER_ELEMENTS.has(c.name));
+  const names = members.map(m => (m.attrs.get('Name') ?? '').toUpperCase());
+  const key = spec.name.toUpperCase();
+  let before: XmlElement | undefined;
+  let after: XmlElement | undefined;
+  if (members.length) {
+    if (names.every((n, i) => i === 0 || names[i - 1] <= n)) before = members.find((_, i) => names[i] > key);
+    if (!before) after = members[members.length - 1];
+  } else {
+    before = root.children.find(c => c.name === 'LineIds');
+    if (!before) after = root.children[root.children.length - 1];
+  }
+  const rootIndent = indentBefore(text, root.start) ?? '';
+  const first = root.children[0];
+  const anchor = before ?? after;
+  const indent = (anchor && indentBefore(text, anchor.start)) ?? (first && indentBefore(text, first.start)) ?? `${rootIndent}  `;
+  const step = indent.length > rootIndent.length && indent.startsWith(rootIndent) ? indent.slice(rootIndent.length) : '  ';
+
+  const cdata = (s: string) => `<![CDATA[${escapeCdata(toEol(s, eol))}]]>`;
+  const lines: [depth: number, line: string][] = [];
+  const implementation = (depth: number) => {
+    lines.push([depth, '<Implementation>'], [depth + 1, `<ST>${cdata('')}</ST>`], [depth, '</Implementation>']);
+  };
+  const tag = MEMBER_TAGS[spec.kind];
+  const folder = spec.folderPath?.length ? ` FolderPath="${escapeAttr(`${spec.folderPath.join('\\')}\\`)}"` : '';
+  lines.push([0, `<${tag} Name="${spec.name}" Id="${newId()}"${folder}>`]);
+  if (declaration !== undefined) lines.push([1, `<Declaration>${cdata(declaration)}</Declaration>`]);
+  if (spec.kind === 'property') {
+    for (const acc of accessors) {
+      lines.push([1, `<${acc} Name="${acc}" Id="${newId()}">`], [2, `<Declaration>${cdata(itf ? '' : 'VAR\nEND_VAR\n')}</Declaration>`]);
+      if (!itf) implementation(2);
+      lines.push([1, `</${acc}>`]);
+    }
+  } else if (!itf) {
+    implementation(1);
+  }
+  lines.push([0, `</${tag}>`]);
+  const element = lines.map(([depth, line], i) => (i === 0 ? '' : indent + step.repeat(depth)) + line).join(eol);
+
+  let out: string;
+  if (before) out = text.slice(0, before.start) + element + eol + indent + text.slice(before.start);
+  else if (after) out = text.slice(0, after.end) + eol + indent + element + text.slice(after.end);
+  else if (!root.selfClosing) out = text.slice(0, root.contentStart) + eol + indent + element + eol + rootIndent + text.slice(root.contentEnd);
+  else throw new SpliceError(`${owner.name} has no declaration`);
+
+  // The file reads back with the new member and every section as it was.
+  const check = parseTcText(file.path, out, file.bom);
+  const added = check.root?.members.find(m => m.name === spec.name && m.kind === spec.kind);
+  if (check.error || !added || [...file.sections].some(([k, s]) => check.sections.get(k)?.text !== s.text)) {
+    throw new SpliceError(`${spec.name} could not be added to ${file.path}`);
+  }
+  return out;
 }

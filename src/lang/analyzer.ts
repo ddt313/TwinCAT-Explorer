@@ -107,7 +107,7 @@ export class Analyzer {
     }
   }
 
-  private resolveGlobalName(parts: A.Ident[], scope: Scope): GlobalSym | undefined {
+  resolveGlobalName(parts: A.Ident[], scope: Scope): GlobalSym | undefined {
     if (parts.length === 1) return this.index.lookupGlobal(scope, parts[0].upper);
     const ns = this.index.lookupNamespace(scope, parts[0].upper);
     if (!ns) return this.index.lookupGlobal(scope, parts[parts.length - 1].upper);

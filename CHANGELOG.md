@@ -5,9 +5,20 @@ All notable changes to Explorer for TwinCAT. The format follows
 
 ## Unreleased
 
+### Added
+- `Add Method...`, `Add Property...` and `Add Action...` in the context menu of a POU or interface in
+  the TwinCAT tree, and of a folder inside a POU; in the Command Palette for the object of the active
+  editor. They ask for the name and type, write the new member as XAE does (a new GUID, a declaration,
+  an empty implementation) in the file's indentation, line breaks and BOM, and open it. The rest of the
+  file stays byte-identical. A file with unsaved changes in an editor is refused.
+- `Implement Interfaces...` on a function block with `IMPLEMENTS`: adds the methods and properties of
+  its interfaces, and of the interfaces these extend, that neither it nor a function block it extends
+  has, with the declarations of the interface.
+
 ### Fixed
 - At start-up the TwinCAT view shows the content of every TwinCAT project. With VS Code 1.142, only the
   first one had its PLC projects until Refresh.
+- The folders inside a POU without methods or properties show in the TwinCAT tree.
 
 ## 0.11.0 - 2026-10-17
 

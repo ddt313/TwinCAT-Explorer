@@ -380,6 +380,26 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.addMethod",
+        "title": "Add Method...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.addProperty",
+        "title": "Add Property...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.addAction",
+        "title": "Add Action...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.implementInterfaces",
+        "title": "Implement Interfaces...",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.hideNotebookToolbars",
         "title": "Hide Notebook Toolbars (XAE-like Layout)",
         "category": "TwinCAT"
@@ -398,6 +418,22 @@
         {
           "command": "twincatExplorer.copyName",
           "when": "false"
+        },
+        {
+          "command": "twincatExplorer.addMethod",
+          "when": "resourceScheme == twincat || resourceExtname =~ /^\\.(TcPOU|TcIO)$/i"
+        },
+        {
+          "command": "twincatExplorer.addProperty",
+          "when": "resourceScheme == twincat || resourceExtname =~ /^\\.(TcPOU|TcIO)$/i"
+        },
+        {
+          "command": "twincatExplorer.addAction",
+          "when": "resourceScheme == twincat || resourceExtname =~ /^\\.TcPOU$/i"
+        },
+        {
+          "command": "twincatExplorer.implementInterfaces",
+          "when": "resourceScheme == twincat || resourceExtname =~ /^\\.TcPOU$/i"
         },
         {
           "command": "twincatExplorer.openXml",
@@ -597,6 +633,26 @@
           "command": "twincatExplorer.history.show",
           "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
           "group": "navigation@5"
+        },
+        {
+          "command": "twincatExplorer.addMethod",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addMember/",
+          "group": "2_add@1"
+        },
+        {
+          "command": "twincatExplorer.addProperty",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addMember/",
+          "group": "2_add@2"
+        },
+        {
+          "command": "twincatExplorer.addAction",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addAction/",
+          "group": "2_add@3"
+        },
+        {
+          "command": "twincatExplorer.implementInterfaces",
+          "when": "view == twincatExplorer.tree && viewItem =~ /implements/",
+          "group": "2_add@4"
         },
         {
           "command": "twincatExplorer.copyName",

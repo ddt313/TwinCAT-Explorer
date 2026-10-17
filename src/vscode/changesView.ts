@@ -14,8 +14,9 @@ import { TcWorkspace, fileKey } from '../core/workspace';
 import { PathChange, changesSince, headCommit, mergeBase, openNotebookDiff, restoreFromHead, revision, showAtRef } from './git';
 import { GitChanges } from './gitChanges';
 import { CompareBase, HEAD_BASE } from './objectEditor';
+import { hasUnsavedEdits } from './openDocs';
 import { KIND_WORD, compareLabels, objectIcon, objectTreeLabel, viewIcon } from './tree';
-import { SOURCE_EXTENSIONS, ST_LANGUAGE, isSourcePath, realPathOf } from './uris';
+import { SOURCE_EXTENSIONS, ST_LANGUAGE, isSourcePath } from './uris';
 
 export type ChangesScope = { kind: 'head' } | { kind: 'branch'; ref: string };
 
@@ -460,22 +461,11 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
     if (n.fsPath && n.base) await openNotebookDiff(n.fsPath, this.scope.kind === 'head' ? 'HEAD' : n.base);
   }
 
-  /** An editor holds unsaved edits of the file (a split editor, a notebook, its XML). */
-  private hasUnsavedEdits(fsPath: string): boolean {
-    const key = fileKey(fsPath);
-    const same = (u: vscode.Uri) => {
-      const p = realPathOf(u);
-      return !!p && fileKey(p) === key;
-    };
-    return vscode.workspace.textDocuments.some(d => d.isDirty && same(d.uri))
-      || vscode.workspace.notebookDocuments.some(nb => nb.isDirty && same(nb.uri));
-  }
-
   /** Discard Changes: an object view (or a whole file) back to HEAD, after a confirmation. */
   async discard(n: ChangeNode): Promise<void> {
     if (this.scope.kind !== 'head' || !n.fsPath || !n.discard) return;
     const name = path.basename(n.fsPath);
-    if (this.hasUnsavedEdits(n.fsPath)) {
+    if (hasUnsavedEdits(n.fsPath)) {
       void vscode.window.showWarningMessage(`${name} has unsaved changes in an editor. Save or revert them first.`);
       return;
     }

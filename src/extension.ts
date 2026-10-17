@@ -15,7 +15,8 @@ import { parseObjectText, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
-import { TreeNode, TwinCatTree } from './vscode/tree';
+import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree';
+import { MemberCommands, NewMemberKind } from './vscode/members';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
 import { DiffFileSystem, GitDirWatcher, firstParent, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
 import { GitChanges } from './vscode/gitChanges';
@@ -768,7 +769,45 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   const lastRefKey = 'twincatExplorer.lastCompareRef';
 
+  const members = new MemberCommands(ws, index, {
+    written: fsPath => {
+      onSourceChanged(fsPath);
+      // At once, so that the new member has its node when it opens and is revealed.
+      tree.rebuild();
+    },
+    open: (fsPath, objectId, accessor) => openDefault(fsPath, objectId, { accessor, preview: false }),
+  });
+  /** Where a new member goes: the POU, interface or folder of a tree node, or the POU or interface of the active editor. */
+  const memberTarget = (arg: unknown): MemberTarget | undefined => {
+    if (arg instanceof TreeNode && arg.memberTarget) return arg.memberTarget;
+    const t = target(arg);
+    const root = t && ws.getFile(t.fsPath)?.root;
+    const kinds = root && memberKinds(root);
+    return t && root && kinds?.members ? { fsPath: t.fsPath, objectId: root.id, folderPath: [], actions: kinds.actions } : undefined;
+  };
+  const addMember = (kind: NewMemberKind) => async (arg?: unknown) => {
+    const t = memberTarget(arg);
+    if (!t || (kind === 'action' && !t.actions)) {
+      void vscode.window.showInformationMessage(kind === 'action'
+        ? 'Actions are added to function blocks and programs: open one, or pick it in the TwinCAT tree.'
+        : `Add ${kind === 'method' ? 'Method' : 'Property'} works on function blocks, programs and interfaces: open one, or pick it in the TwinCAT tree.`);
+      return;
+    }
+    await members.add(kind, t);
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('twincatExplorer.addMethod', addMember('method')),
+    vscode.commands.registerCommand('twincatExplorer.addProperty', addMember('property')),
+    vscode.commands.registerCommand('twincatExplorer.addAction', addMember('action')),
+    vscode.commands.registerCommand('twincatExplorer.implementInterfaces', async (arg?: unknown) => {
+      const t = target(arg);
+      if (!t) {
+        void vscode.window.showInformationMessage('Implement Interfaces works on function blocks: open one, or pick it in the TwinCAT tree.');
+        return;
+      }
+      await members.implementInterfaces(t.fsPath);
+    }),
     vscode.commands.registerCommand('twincatExplorer.refresh', () => loadProjects()),
     vscode.commands.registerCommand('twincatExplorer.open', (node?: TreeNode) => openNode(node)),
     vscode.commands.registerCommand('twincatExplorer.openToSide', (node?: TreeNode) => openNode(node, true)),

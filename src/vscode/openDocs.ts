@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { fileKey } from '../core/workspace';
 import { cellMeta } from './serializers';
-import { OBJECT_NOTEBOOK, ObjectInfo, objectUri, parseObjectUri } from './uris';
+import { OBJECT_NOTEBOOK, ObjectInfo, objectUri, parseObjectUri, realPathOf } from './uris';
 
 let revision = 0;
 const session = Date.now().toString(36);
@@ -75,6 +75,17 @@ export function anyTabShows(uri: vscode.Uri): boolean {
     }
   }
   return shownInTab(uri);
+}
+
+/** An editor holds unsaved edits of the file (a split editor, a notebook, its XML). */
+export function hasUnsavedEdits(fsPath: string): boolean {
+  const key = fileKey(fsPath);
+  const same = (u: vscode.Uri) => {
+    const p = realPathOf(u);
+    return !!p && fileKey(p) === key;
+  };
+  return vscode.workspace.textDocuments.some(d => d.isDirty && same(d.uri))
+    || vscode.workspace.notebookDocuments.some(nb => nb.isDirty && same(nb.uri));
 }
 
 /** Disk signature (mtime and size) at the last generation bump, by file. */

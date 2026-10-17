@@ -28,12 +28,10 @@ function ids(...guids: string[]): () => string {
   return () => guids[i++] ?? assert.fail('more ids asked for than expected');
 }
 
+// Members as TwinCAT 3.1.4026 makes them (its accessors also have PUBLIC before the VAR block).
 const method = (guid: string, name: string, type?: string) => `
     <Method Name="${name}" Id="${guid}">
-      <Declaration><![CDATA[METHOD ${name}${type ? ` : ${type}` : ''}
-VAR_INPUT
-END_VAR
-]]></Declaration>
+      <Declaration><![CDATA[METHOD ${name}${type ? ` : ${type}` : ''}]]></Declaration>
       <Implementation>
         <ST><![CDATA[]]></ST>
       </Implementation>
@@ -41,11 +39,10 @@ END_VAR
 
 const property = (guid: string, name: string, type: string, accessors: [string, string][]) => `
     <Property Name="${name}" Id="${guid}">
-      <Declaration><![CDATA[PROPERTY ${name} : ${type}]]></Declaration>${accessors.map(([acc, g]) => `
+      <Declaration><![CDATA[PROPERTY PUBLIC ${name} : ${type}]]></Declaration>${accessors.map(([acc, g]) => `
       <${acc} Name="${acc}" Id="${g}">
         <Declaration><![CDATA[VAR
-END_VAR
-]]></Declaration>
+END_VAR]]></Declaration>
         <Implementation>
           <ST><![CDATA[]]></ST>
         </Implementation>
@@ -117,6 +114,20 @@ test('members in name order get the new one at its place, other members get it l
   assert.equal(add(pou(unsorted), { kind: 'action', name: 'Pause' }, A), pou(unsorted + action(A, 'Pause')));
 });
 
+test("XAE's name order: case aside, underscores before digits before letters, whatever the kind", () => {
+  // The order TwinCAT 3.1.4026 wrote these members in, created in another order.
+  const xae = ['_Under', 'a', 'b_low', 'C_Up', 'FB_exit', 'Get_Value', 'Get2', 'getAll', 'GetValue', 'M1_a', 'M10', 'M1a', 'm1B', 'M9', 'Z'];
+  const guid = (i: number) => `{bbbbbbbb-0000-4000-8000-${String(i).padStart(12, '0')}}`;
+  for (let i = 0; i < xae.length; i++) {
+    // Each name, left out of the others, goes back to its place among them.
+    const others = xae.map((name, j) => (j === i ? '' : name === 'C_Up' ? property(guid(j), name, 'INT', [['Get', guid(99)]])
+      : name === 'b_low' ? action(guid(j), name) : method(guid(j), name))).join('');
+    const spec: MemberSpec = { kind: 'method', name: xae[i] };
+    const placed = parse(add(pou(others), spec, A)).root!.members.map(m => m.name);
+    assert.deepEqual(placed, xae, xae[i]);
+  }
+});
+
 test('a property gets a Get and a Set, each with an id of its own, or the one asked for', () => {
   const both = add(pou(), { kind: 'property', name: 'Speed', type: 'LREAL' }, A, B, C);
   assert.equal(both, pou(property(A, 'Speed', 'LREAL', [['Get', B], ['Set', C]])));
@@ -154,8 +165,7 @@ test('an interface gets methods and properties without implementations, and no a
     <Method Name="Start" Id="${A}">
       <Declaration><![CDATA[METHOD Start : BOOL
 VAR_INPUT
-END_VAR
-]]></Declaration>
+END_VAR]]></Declaration>
     </Method>`));
   // Speed comes before Start in name order.
   const withProperty = addMember(parse(withMethod, 'I_Pump.TcIO'), id(ITF), { kind: 'property', name: 'Speed', type: 'LREAL', accessors: ['Get'] }, ids(B, C));
@@ -163,15 +173,17 @@ END_VAR
     <Property Name="Speed" Id="${B}">
       <Declaration><![CDATA[PROPERTY Speed : LREAL]]></Declaration>
       <Get Name="Get" Id="${C}">
-        <Declaration><![CDATA[]]></Declaration>
+        <Declaration><![CDATA[VAR
+END_VAR]]></Declaration>
       </Get>
     </Property>
     <Method Name="Start" Id="${A}">
       <Declaration><![CDATA[METHOD Start : BOOL
 VAR_INPUT
-END_VAR
-]]></Declaration>
+END_VAR]]></Declaration>
     </Method>`));
+  assert.equal(parse(addMember(file, id(ITF), { kind: 'method', name: 'Stop' }, ids(A)), 'I_Pump.TcIO').sections.get(`${id(A)}:decl`)?.text,
+    'METHOD Stop\nVAR_INPUT\nEND_VAR');
   assert.deepEqual(parse(withProperty, 'I_Pump.TcIO').root!.members.map(m => `${m.kind} ${m.name}`), ['property Speed', 'method Start']);
   assert.throws(() => addMember(file, id(ITF), { kind: 'action', name: 'Reset' }, ids(A)), SpliceError);
 });
@@ -212,13 +224,14 @@ test('the indentation of the file, a folder of the POU, and the methods TwinCAT 
   assert.match(inFolder, new RegExp(`<Method Name="OnEnter" Id="\\${A}" FolderPath="Methods\\\\States\\\\">`));
   assert.deepEqual(parse(inFolder).objects.get(id(A))?.folderPath, ['Methods', 'States']);
 
-  const init = parse(add(pou(), { kind: 'method', name: 'FB_init', type: 'INT' }, A)).sections.get(`${id(A)}:decl`)!.text;
-  assert.match(init, /^METHOD FB_init : BOOL\nVAR_INPUT\n\tbInitRetains : BOOL;.*\n\tbInCopyCode : BOOL;.*\nEND_VAR\n$/);
-  const exit = parse(add(pou(), { kind: 'method', name: 'FB_exit' }, A)).sections.get(`${id(A)}:decl`)!.text;
-  assert.match(exit, /^METHOD FB_exit : BOOL\nVAR_INPUT\n\tbInCopyCode : BOOL;.*\nEND_VAR\n$/);
+  // XAE's own template has no inputs, which the compiler refuses (C0119, C0120).
+  const declarationOf = (text: string, spec: MemberSpec) => parse(add(text, spec, A)).sections.get(`${id(A)}:decl`)!.text;
+  assert.match(declarationOf(pou(), { kind: 'method', name: 'FB_init', type: 'INT' }),
+    /^METHOD FB_init : BOOL\nVAR_INPUT\n\tbInitRetains : BOOL;.*\n\tbInCopyCode : BOOL;.*\nEND_VAR$/);
+  assert.match(declarationOf(pou(), { kind: 'method', name: 'FB_exit' }), /^METHOD FB_exit : BOOL\nVAR_INPUT\n\tbInCopyCode : BOOL;.*\nEND_VAR$/);
+  assert.equal(declarationOf(pou(), { kind: 'method', name: 'fb_reinit' }), 'METHOD fb_reinit : BOOL');
   // Only a function block has them.
-  assert.equal(parse(add(pou('', '', 'PROGRAM FB_Pump'), { kind: 'method', name: 'FB_init' }, A)).sections.get(`${id(A)}:decl`)!.text,
-    'METHOD FB_init\nVAR_INPUT\nEND_VAR\n');
+  assert.equal(declarationOf(pou('', '', 'PROGRAM FB_Pump'), { kind: 'method', name: 'FB_init' }), 'METHOD FB_init');
 });
 
 test('Implement Interfaces: what the function block and the ones it extends lack, declared like in the interface', () => {

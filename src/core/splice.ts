@@ -153,14 +153,21 @@ const MEMBER_TAGS = { method: 'Method', property: 'Property', action: 'Action' }
 const MEMBER_ELEMENTS = new Set(['Method', 'Property', 'Action', 'Transition']);
 
 /**
- * Methods TwinCAT calls by itself: they return BOOL and get the inputs it passes (the declaration of a method
- * added with such a name has them).
+ * The order XAE keeps the members of a POU in, whatever their kind, in the file as in its tree: case aside,
+ * underscores before digits before letters, character by character (`Get_Value`, `Get2`, `getAll`, `GetValue`;
+ * `M10` before `M9`), as TwinCAT 3.1.4026 writes them.
+ */
+const memberOrder = new Intl.Collator('en', { sensitivity: 'base' }).compare;
+
+/**
+ * Methods TwinCAT calls by itself: they return BOOL and need the inputs it passes, or the compiler refuses them
+ * (C0119, C0120), so their declaration has them.
  */
 const SPECIAL_METHODS: Record<string, string> = {
-  FB_INIT: 'VAR_INPUT\n\tbInitRetains : BOOL; // TRUE: the retain variables are initialized (warm or cold start)\n'
-    + '\tbInCopyCode : BOOL; // TRUE: the instance is moved into the copy code afterwards (online change)\nEND_VAR\n',
-  FB_EXIT: 'VAR_INPUT\n\tbInCopyCode : BOOL; // TRUE: the instance is copied afterwards (online change)\nEND_VAR\n',
-  FB_REINIT: 'VAR_INPUT\nEND_VAR\n',
+  FB_INIT: '\nVAR_INPUT\n\tbInitRetains : BOOL; // TRUE: the retain variables are initialized (warm or cold start)\n'
+    + '\tbInCopyCode : BOOL; // TRUE: the instance is moved into the copy code afterwards (online change)\nEND_VAR',
+  FB_EXIT: '\nVAR_INPUT\n\tbInCopyCode : BOOL; // TRUE: the instance is copied afterwards (online change)\nEND_VAR',
+  FB_REINIT: '',
 };
 
 /** Whether a new method of the object gets the fixed declaration of FB_init, FB_reinit or FB_exit. */
@@ -192,6 +199,11 @@ function indentBefore(text: string, offset: number): string | undefined {
   return /^[ \t]*$/.test(lead) ? lead : undefined;
 }
 
+/**
+ * The declaration of a new member, as TwinCAT 3.1.4026 makes it: `METHOD Start : BOOL` in a POU,
+ * `METHOD Start : BOOL` with an empty VAR_INPUT in an interface, `PROPERTY PUBLIC Speed : LREAL` in a POU and
+ * `PROPERTY Speed : LREAL` in an interface.
+ */
 function memberDeclaration(owner: TcObject, spec: MemberSpec): string | undefined {
   if (spec.kind === 'action') return undefined;
   const keyword = spec.kind === 'method' ? 'METHOD' : 'PROPERTY';
@@ -203,25 +215,26 @@ function memberDeclaration(owner: TcObject, spec: MemberSpec): string | undefine
     }
     return spec.declaration;
   }
+  const itf = owner.kind === 'itf';
   const type = (spec.type ?? '').trim();
   if (/[\r\n]/.test(type)) throw new SpliceError('The type must be on one line');
   if (spec.kind === 'property') {
     if (!type) throw new SpliceError(`The property ${spec.name} needs a type`);
-    return `PROPERTY ${spec.name} : ${type}`;
+    return `PROPERTY ${itf ? '' : 'PUBLIC '}${spec.name} : ${type}`;
   }
-  if (isSpecialMethod(owner, spec.name)) return `METHOD ${spec.name} : BOOL\n${SPECIAL_METHODS[spec.name.toUpperCase()]}`;
-  return `METHOD ${spec.name}${type ? ` : ${type}` : ''}\nVAR_INPUT\nEND_VAR\n`;
+  if (isSpecialMethod(owner, spec.name)) return `METHOD ${spec.name} : BOOL${SPECIAL_METHODS[spec.name.toUpperCase()]}`;
+  return `METHOD ${spec.name}${type ? ` : ${type}` : ''}${itf ? '\nVAR_INPUT\nEND_VAR' : ''}`;
 }
 
 /**
  * The file with a new method, property or action in its POU or interface, as XAE writes one: a new GUID, the
  * declaration and an empty Structured Text implementation (none in an interface; for a property, its Get and
- * Set have them), with the indentation and line breaks of the file. The rest of the file stays byte-identical;
- * the caller writes it back with the BOM it had (`encodeText(text, file.bom)`).
+ * Set have them, with an empty VAR block), with the indentation and line breaks of the file. The rest of the
+ * file stays byte-identical; the caller writes it back with the BOM it had (`encodeText(text, file.bom)`).
  *
- * The member goes at its place in name order (case aside) when the members of the POU are in that order, else
- * after the last one; without members, after the declaration, implementation and folders. No LineIds are
- * written for it: XAE writes them when it saves the file.
+ * The member goes at its place in XAE's order (see memberOrder) when the members of the POU are in that order,
+ * else after the last one; without members, after the declaration, implementation and folders. No LineIds are
+ * written for it, and TwinCAT 3.1.4026 writes none either.
  */
 export function addMember(file: TcSourceFile, ownerId: string, spec: MemberSpec, newId: () => string = newGuid): string {
   if (file.error) throw new SpliceError(`${file.path} cannot be read: ${file.error}`);
@@ -245,12 +258,13 @@ export function addMember(file: TcSourceFile, ownerId: string, spec: MemberSpec,
   const eol = file.eol;
   const root = owner.element;
   const members = root.children.filter(c => MEMBER_ELEMENTS.has(c.name));
-  const names = members.map(m => (m.attrs.get('Name') ?? '').toUpperCase());
-  const key = spec.name.toUpperCase();
+  const names = members.map(m => m.attrs.get('Name') ?? '');
   let before: XmlElement | undefined;
   let after: XmlElement | undefined;
   if (members.length) {
-    if (names.every((n, i) => i === 0 || names[i - 1] <= n)) before = members.find((_, i) => names[i] > key);
+    if (names.every((n, i) => i === 0 || memberOrder(names[i - 1], n) <= 0)) {
+      before = members.find((_, i) => memberOrder(names[i], spec.name) > 0);
+    }
     if (!before) after = members[members.length - 1];
   } else {
     before = root.children.find(c => c.name === 'LineIds');
@@ -273,7 +287,9 @@ export function addMember(file: TcSourceFile, ownerId: string, spec: MemberSpec,
   if (declaration !== undefined) lines.push([1, `<Declaration>${cdata(declaration)}</Declaration>`]);
   if (spec.kind === 'property') {
     for (const acc of accessors) {
-      lines.push([1, `<${acc} Name="${acc}" Id="${newId()}">`], [2, `<Declaration>${cdata(itf ? '' : 'VAR\nEND_VAR\n')}</Declaration>`]);
+      // TwinCAT 3.1.4026 writes PUBLIC before the VAR block, the access the accessor has anyway (the property's);
+      // left out, since the language parser does not take an access specifier there.
+      lines.push([1, `<${acc} Name="${acc}" Id="${newId()}">`], [2, `<Declaration>${cdata('VAR\nEND_VAR')}</Declaration>`]);
       if (!itf) implementation(2);
       lines.push([1, `</${acc}>`]);
     }

@@ -9,8 +9,10 @@ All notable changes to Explorer for TwinCAT. The format follows
 - `Add Method...`, `Add Property...` and `Add Action...` in the context menu of a POU or interface in
   the TwinCAT tree, and of a folder inside a POU; in the Command Palette for the object of the active
   editor. They ask for the name and type, write the new member as XAE does (a new GUID, a declaration,
-  an empty implementation) in the file's indentation, line breaks and BOM, and open it. The rest of the
-  file stays byte-identical. A file with unsaved changes in an editor is refused.
+  an empty implementation, at its place in XAE's name order) in the file's indentation, line breaks and
+  BOM, and open it. The rest of the file stays byte-identical. A file with unsaved changes in an editor
+  is refused. Checked with TwinCAT XAE 3.1.4026: the new members compile, and XAE keeps them as written
+  when it saves the file again.
 - `Implement Interfaces...` on a function block with `IMPLEMENTS`: adds the methods and properties of
   its interfaces, and of the interfaces these extend, that neither it nor a function block it extends
   has, with the declarations of the interface.

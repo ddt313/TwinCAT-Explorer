@@ -92,12 +92,17 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **What they ask:** the name, checked against the other members (case aside); the return type of a
   method (empty for none) or the type of a property; and whether a property gets `Get` and `Set` or one
   of them.
-- **What they write**, as XAE does: a new GUID, a declaration (`METHOD Start : BOOL`, `VAR_INPUT`,
-  `END_VAR`) and an empty Structured Text implementation. Methods and properties of an interface have
-  no implementation. `FB_init`, `FB_reinit` and `FB_exit` get the inputs TwinCAT passes them.
+- **What they write**, as TwinCAT XAE 3.1.4026 does:
+  - A new GUID and the declaration XAE gives a new member: `METHOD Start : BOOL` (with an empty
+    `VAR_INPUT` in an interface), `PROPERTY PUBLIC Speed : LREAL` (`PROPERTY Speed : LREAL` in an
+    interface), an empty `VAR` block in `Get` and `Set`.
+  - An empty Structured Text implementation. Members of an interface have none.
+  - `FB_init` and `FB_exit` get the inputs the compiler requires (`bInitRetains`, `bInCopyCode`).
   - The new element takes the file's indentation and line breaks, and the file keeps its BOM. The rest
     of the file stays byte-identical.
-  - It goes at its place in name order when the members are in name order, else after the last one.
+  - It goes where XAE keeps it: XAE orders the members by name whatever their kind (case aside,
+    underscores before digits before letters). In a file whose members are not in that order, it goes
+    after the last one.
 - **Then:** the tree shows the new member and it opens in the split editor, or the notebook if
   `twincatExplorer.editor` says so. A new property opens at its `Get` (or `Set`).
 - **Implement Interfaces...** on a function block with `IMPLEMENTS`: picks from the methods and
@@ -357,8 +362,8 @@ sources.
   placeholders.
 - Methods, properties and actions can be added here. POUs, DUTs, GVLs, interfaces, folders and
   transitions are created in TwinCAT XAE, and objects are renamed, moved and deleted there.
-- A member added here has no `LineIds` element yet, the line map XAE keeps for breakpoints and online
-  change. XAE writes the line map when it saves the file.
+- A member added here has no `LineIds` element, the line map for breakpoints that some XAE versions
+  keep in the file. TwinCAT 3.1.4026 writes none either.
 - If TwinCAT XAE has the same project open, it keeps its own copy in memory and can overwrite changes
   saved from VS Code. Reload the project in XAE after editing here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.

@@ -63,15 +63,13 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
 
   // ------------------------------------------------------------------ repositories and HEAD
 
-  /** Root of the repository of a file (spelled like the file's path); undefined outside a repository. */
+  /**
+   * Root of the repository of a file (spelled like the file's path); undefined outside a repository, or while git
+   * fails otherwise (missing, an unsafe repository), which is asked again next time.
+   */
   root(fsPath: string): Promise<string | undefined> {
     const dir = path.dirname(fsPath);
-    let root = this.roots.get(fileKey(dir));
-    if (!root) {
-      root = repositoryRoot(dir);
-      this.roots.set(fileKey(dir), root);
-    }
-    return root;
+    return cached(this.roots, fileKey(dir), () => repositoryRoot(dir), 5000).catch(() => undefined);
   }
 
   private headOf(root: string): Promise<string> {

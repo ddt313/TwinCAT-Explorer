@@ -43,13 +43,19 @@ export interface ObjectInfo {
  * and, for the Get or Set accessor of a property, `acc`.
  */
 export function objectUri(fsPath: string, obj: ObjectInfo, rev?: string, accessor?: Accessor): vscode.Uri {
-  const filePath = vscode.Uri.file(fsPath).path;
+  const file = vscode.Uri.file(fsPath);
   const segments = [...obj.folderPath, obj.name, ...(accessor ? [accessor] : [])].map(safeName).join('/');
   // `rev` makes a fresh notebook document when the object is opened again (see openDocs.ts); it is not part of the identity.
   const query: Record<string, string> = { label: viewLabel(obj, accessor), id: obj.id };
   if (accessor) query.acc = accessor;
   if (rev) query.rev = rev;
-  return vscode.Uri.from({ scheme: OBJECT_SCHEME, path: `${filePath}/${segments}.tcobj`, query: JSON.stringify(query) });
+  // The authority is the server of a UNC path (\\server\share\...).
+  return vscode.Uri.from({ scheme: OBJECT_SCHEME, authority: file.authority, path: `${file.path}/${segments}.tcobj`, query: JSON.stringify(query) });
+}
+
+/** The file behind one of our URIs: the path up to `filePath`, on the server of a UNC path. */
+function fileUnder(uri: vscode.Uri, filePath: string): string {
+  return vscode.Uri.from({ scheme: 'file', authority: uri.authority, path: filePath }).fsPath;
 }
 
 /**
@@ -99,7 +105,7 @@ export function parseObjectUri(uri: vscode.Uri, scheme = OBJECT_SCHEME): ObjectR
   const fileIndex = segments.findIndex(isSourcePath);
   if (!objectId || fileIndex < 0) return undefined;
   const filePath = segments.slice(0, fileIndex + 1).join('/');
-  const ref: ObjectRef = { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, objectId, accessor };
+  const ref: ObjectRef = { fsPath: fileUnder(uri, filePath), objectId, accessor };
   if (section !== undefined) ref.section = section;
   return ref;
 }
@@ -126,11 +132,11 @@ export const EMPTY = ':empty';
  * rename has to be looked up.
  */
 export function diffUri(fsPath: string, ref: string, label: string, against?: string, at?: string): vscode.Uri {
-  const filePath = vscode.Uri.file(fsPath).path;
+  const file = vscode.Uri.file(fsPath);
   const query: Record<string, string> = { ref, label };
   if (against) query.against = against;
   if (at) query.at = at;
-  return vscode.Uri.from({ scheme: DIFF_SCHEME, path: `${filePath}.tcfile`, query: JSON.stringify(query) });
+  return vscode.Uri.from({ scheme: DIFF_SCHEME, authority: file.authority, path: `${file.path}.tcfile`, query: JSON.stringify(query) });
 }
 
 /**
@@ -138,7 +144,8 @@ export function diffUri(fsPath: string, ref: string, label: string, against?: st
  * it opens as read-only text, not as a notebook.
  */
 export function revisionUri(fsPath: string, ref: string, label: string, at: string): vscode.Uri {
-  return vscode.Uri.from({ scheme: DIFF_SCHEME, path: vscode.Uri.file(fsPath).path, query: JSON.stringify({ ref, label, at }) });
+  const file = vscode.Uri.file(fsPath);
+  return vscode.Uri.from({ scheme: DIFF_SCHEME, authority: file.authority, path: file.path, query: JSON.stringify({ ref, label, at }) });
 }
 
 export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string; against?: string; at?: string } | undefined {
@@ -154,8 +161,7 @@ export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string; ag
   } catch {
     // keep defaults
   }
-  const filePath = uri.path.replace(/\.tcfile$/, '');
-  return { fsPath: vscode.Uri.from({ scheme: 'file', path: filePath }).fsPath, ref, against, at };
+  return { fsPath: fileUnder(uri, uri.path.replace(/\.tcfile$/, '')), ref, against, at };
 }
 
 /** Real file behind any of our URIs (or a plain file URI). */

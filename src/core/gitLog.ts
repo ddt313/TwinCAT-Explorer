@@ -56,7 +56,7 @@ export function parseNameStatus(out: string): NameStatus[] {
  * changes come with the merged commits.
  */
 export function fileLogArgs(relPath: string): string[] {
-  return ['--literal-pathspecs', 'log', '--follow', '-M', '--raw', '--no-abbrev', '-z',
+  return ['--literal-pathspecs', 'log', '--no-show-signature', '--follow', '-M', '--raw', '--no-abbrev', '-z',
     `--format=${COMMIT_FORMAT}`, 'HEAD', '--', relPath];
 }
 

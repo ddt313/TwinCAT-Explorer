@@ -40,6 +40,8 @@ export class CommitDiffPanel implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private ready = false;
   private content: Content | undefined;
+  /** The last show() asked for; an earlier one that finishes later is dropped. */
+  private showRequest = 0;
   private readonly probes = new Map<number, (v: unknown) => void>();
   private probeId = 0;
   private readonly disposables: vscode.Disposable[] = [];
@@ -74,8 +76,10 @@ export class CommitDiffPanel implements vscode.Disposable {
 
   /** Shows an object as a commit changed it, in the panel (created on first use). */
   async show(item: CommitObject, preserveFocus = true): Promise<void> {
+    const request = ++this.showRequest;
     const content = await this.load(item);
-    if (!content) return;
+    // Another object was picked while this one was read: that one is shown instead.
+    if (!content || request !== this.showRequest) return;
     this.content = content;
     if (this.panel) {
       this.panel.title = content.title;
@@ -185,28 +189,33 @@ export class CommitDiffPanel implements vscode.Disposable {
 
   /** Hovers and go to definition, from what the working tree knows about the names. */
   private answer(m: Extract<WebviewMessage, { type: 'request' }>): void {
-    const live = this.content?.livePath;
-    const ctx = live ? this.provider.index.context(fileKey(live), m.key) : undefined;
     let result: unknown;
-    if (ctx) {
-      const features = this.provider.features;
-      switch (m.kind) {
-        case 'definition': {
-          const loc = features.definitionAt(ctx, m.text, m.offset);
-          result = loc ? this.provider.target(loc) : undefined;
-          break;
+    try {
+      const live = this.content?.livePath;
+      const ctx = live ? this.provider.index.context(fileKey(live), m.key) : undefined;
+      if (ctx) {
+        const features = this.provider.features;
+        switch (m.kind) {
+          case 'definition': {
+            const loc = features.definitionAt(ctx, m.text, m.offset);
+            result = loc ? this.provider.target(loc) : undefined;
+            break;
+          }
+          case 'hover':
+            result = features.hoverAt(ctx, m.text, m.offset);
+            break;
+          case 'references':
+            result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
+              .map(loc => this.provider.target(loc)).filter(t => t !== undefined);
+            break;
+          case 'completion':
+            result = [];
+            break;
         }
-        case 'hover':
-          result = features.hoverAt(ctx, m.text, m.offset);
-          break;
-        case 'references':
-          result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
-            .map(loc => this.provider.target(loc)).filter(t => t !== undefined);
-          break;
-        case 'completion':
-          result = [];
-          break;
       }
+    } catch (e) {
+      // The webview waits for an answer to every request: it gets an empty one.
+      this.provider.log?.(`Commit diff webview: answering ${m.kind} failed: ${(e as Error).stack ?? e}`);
     }
     this.post({ type: 'response', id: m.id, result: result ?? null });
   }

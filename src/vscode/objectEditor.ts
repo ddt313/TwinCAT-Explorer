@@ -552,27 +552,35 @@ export class EditorSession implements vscode.Disposable {
   }
 
   private async answer(m: Extract<WebviewMessage, { type: 'request' }>): Promise<void> {
-    const features = this.provider.features;
-    const ctx = this.provider.index.context(this.fileKey, m.key);
     let result: unknown;
-    if (ctx) {
-      switch (m.kind) {
-        case 'definition': {
-          const loc = features.definitionAt(ctx, m.text, m.offset);
-          result = loc ? this.provider.target(loc, this, m.key, m.text) : undefined;
-          break;
+    try {
+      const features = this.provider.features;
+      const ctx = this.provider.index.context(this.fileKey, m.key);
+      if (ctx) {
+        switch (m.kind) {
+          case 'definition': {
+            const loc = features.definitionAt(ctx, m.text, m.offset);
+            // The declaration under the cursor comes in the request's text; any other location in the index's.
+            const atCursor = loc?.fileKey === this.fileKey && loc.sectionKey === m.key && loc.start <= m.offset && m.offset <= loc.end;
+            result = !loc ? undefined : atCursor ? this.provider.target(loc, this, m.key, m.text) : this.provider.target(loc, this);
+            break;
+          }
+          case 'hover':
+            result = features.hoverAt(ctx, m.text, m.offset);
+            break;
+          case 'completion':
+            result = features.completionsAt(ctx, m.text, m.offset);
+            break;
+          case 'references':
+            // Found in the index's texts of all sections, this one included.
+            result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
+              .map(loc => this.provider.target(loc, this)).filter(t => t !== undefined);
+            break;
         }
-        case 'hover':
-          result = features.hoverAt(ctx, m.text, m.offset);
-          break;
-        case 'completion':
-          result = features.completionsAt(ctx, m.text, m.offset);
-          break;
-        case 'references':
-          result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
-            .map(loc => this.provider.target(loc, this, m.key, m.text)).filter(t => t !== undefined);
-          break;
       }
+    } catch (e) {
+      // The webview waits for an answer to every request: it gets an empty one.
+      this.provider.log?.(`Split editor: answering ${m.kind} failed: ${(e as Error).stack ?? e}`);
     }
     this.post({ type: 'response', id: m.id, result: result ?? null });
   }
@@ -814,8 +822,8 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
   }
 
   /**
-   * The section range of a location, with what the webview needs to show and open it. Offsets in the
-   * requesting section (`requestKey`) refer to the text sent with the request.
+   * The section range of a location, with what the webview needs to show and open it. Offsets refer to the
+   * index's text of the section, except in `requestKey`'s section, where they refer to `requestText`.
    */
   target(loc: Loc, from?: EditorSession, requestKey?: string, requestText?: string): TargetRange | undefined {
     const ctx = this.index.context(loc.fileKey, loc.sectionKey);

@@ -12,7 +12,7 @@ import {
 } from '../core/gitLog';
 import { findOnPath } from '../core/paths';
 import { fileKey } from '../core/workspace';
-import { EMPTY, INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri } from './uris';
+import { EMPTY, INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri, revisionUri } from './uris';
 
 export type { CommitInfo } from '../core/gitLog';
 
@@ -200,7 +200,8 @@ function folderOf(fsPath: string): string {
 }
 
 /**
- * Root folder of the repository a file or folder is in, or undefined outside a repository (or without git).
+ * Root folder of the repository a file or folder is in, or undefined outside a repository. Other failures (git
+ * missing, a repository git calls unsafe) are thrown: they can go away, unlike not being in a repository.
  * It is spelled like the given path: git's own top level can differ (long instead of 8.3 short names), and
  * file paths joined to it would then not match the workspace's.
  */
@@ -209,8 +210,9 @@ export async function repositoryRoot(fsPath: string): Promise<string | undefined
   try {
     const up = (await git(['rev-parse', '--show-cdup'], cwd)).toString('utf8').trim();
     return path.resolve(cwd, up);
-  } catch {
-    return undefined;
+  } catch (e) {
+    if (/not a git repository/i.test((e as Error).message)) return undefined;
+    throw e;
   }
 }
 
@@ -303,7 +305,8 @@ export async function restoreFromHead(fsPath: string): Promise<void> {
 
 /** The first `count` commits reachable from HEAD, newest first, like `git log`. */
 export async function commitLog(root: string, count: number): Promise<CommitInfo[]> {
-  const out = await git(['log', `-n${count}`, `--format=${COMMIT_FORMAT}`, 'HEAD', '--'], root);
+  // No signature checks (log.showSignature): slow, and their text would land in the commit messages.
+  const out = await git(['log', '--no-show-signature', `-n${count}`, `--format=${COMMIT_FORMAT}`, 'HEAD', '--'], root);
   return out.toString('utf8').split('\x1e').slice(1).map(parseCommit);
 }
 
@@ -495,11 +498,13 @@ export class DiffFileSystem implements vscode.FileSystemProvider {
     // A commit's file comes with its path there.
     if (ref.at) return showAtRef(ref.fsPath, ref.ref, ref.at);
     // Resolved at every read, so a rename committed later still shows the right file.
+    const version = this.refVersion;
     const cached = this.origCache.get(uri.toString());
-    let orig = cached?.version === this.refVersion ? cached.orig : undefined;
-    if (cached?.version !== this.refVersion) {
+    let orig = cached?.version === version ? cached.orig : undefined;
+    if (cached?.version !== version) {
       orig = await originalPath(ref.fsPath, ref.ref, ref.against === INDEX);
-      this.origCache.set(uri.toString(), { version: this.refVersion, orig });
+      // Labelled with the version it was looked up at: when the refs changed meanwhile, the next read looks again.
+      this.origCache.set(uri.toString(), { version, orig });
     }
     return showAtRef(ref.fsPath, ref.ref, orig);
   }
@@ -562,6 +567,20 @@ function isFullSha(ref: string): boolean {
 function refLabel(ref: string): string {
   if (ref === INDEX) return 'Index';
   return isFullSha(ref) ? ref.slice(0, 7) : ref;
+}
+
+/**
+ * A file (repository-relative path) as a commit has it, or an empty file when `ref` is undefined (not there).
+ * The git extension's URI when it has the repository open (a git document, as VS Code's own diffs and GitLens
+ * know it), else this extension's: the git extension's URIs of a repository it has not opened do not resolve.
+ */
+export async function revision(root: string, rel: string, ref: string | undefined): Promise<vscode.Uri> {
+  const fsPath = path.join(root, rel);
+  const label = `${path.posix.basename(rel)} (${ref ? ref.slice(0, 7) : 'empty'})`;
+  if (!ref) return revisionUri(fsPath, EMPTY, label, rel);
+  const api = await gitApi();
+  const file = vscode.Uri.file(fsPath);
+  return api?.getRepository(file) ? api.toGitUri(file, ref) : revisionUri(fsPath, ref, label, rel);
 }
 
 /**

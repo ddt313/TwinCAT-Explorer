@@ -11,7 +11,7 @@ import { viewSections } from '../core/objectText';
 import { removeMember, restoreView } from '../core/splice';
 import { TcObject, encodeText, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
-import { PathChange, changesSince, gitApi, headCommit, mergeBase, openNotebookDiff, restoreFromHead, showAtRef } from './git';
+import { PathChange, changesSince, headCommit, mergeBase, openNotebookDiff, restoreFromHead, revision, showAtRef } from './git';
 import { GitChanges } from './gitChanges';
 import { CompareBase, HEAD_BASE } from './objectEditor';
 import { KIND_WORD, compareLabels, objectIcon, objectTreeLabel, viewIcon } from './tree';
@@ -443,12 +443,12 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
   /** A file without object changes (project files, build output): VS Code's text diff of the XML. */
   private async openText(n: ChangeNode): Promise<void> {
     const file = vscode.Uri.file(n.fsPath!);
-    const api = await gitApi();
-    const at = (ref: string) => api?.toGitUri(n.from && n.root ? vscode.Uri.file(path.join(n.root, n.from)) : file, ref);
-    const left = at(n.base!);
-    if (!left || n.status === 'A') {
+    if (n.status === 'A' || !n.root || !n.base) {
       await vscode.commands.executeCommand('vscode.open', file, { preview: true });
-    } else if (n.status === 'D') {
+      return;
+    }
+    const left = await revision(n.root, n.from ?? path.relative(n.root, n.fsPath!).split(path.sep).join('/'), n.base);
+    if (n.status === 'D') {
       await vscode.commands.executeCommand('vscode.open', left, { preview: true });
     } else {
       await vscode.commands.executeCommand('vscode.diff', left, file, `${path.basename(n.fsPath!)} (${this.baseLabel()} ↔ Working Tree)`, { preview: true });

@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { PlcProject, TsProject, parsePlcProject, parseTsProject } from './project';
-import { TcSourceFile, parseTcFile } from './tcfile';
+import { TcSourceFile, parseTcFile, parseTcText } from './tcfile';
 
 export function fileKey(p: string): string {
   const resolved = path.resolve(p);
@@ -111,13 +111,26 @@ export class TcWorkspace {
     }
     const cached = this.cache.get(k);
     if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.file;
-    const file = parseTcFile(p, fs.readFileSync(p));
+    let bytes: Buffer;
+    try {
+      bytes = fs.readFileSync(p);
+    } catch (e) {
+      // Held by another program (XAE saving, a virus scanner) or gone since the stat: the version read before
+      // until a read succeeds (the stat is not stored, so the next call reads again).
+      if (cached) return cached.file;
+      const unreadable = parseTcText(p, '');
+      unreadable.error = (e as Error).message;
+      return unreadable;
+    }
+    const file = parseTcFile(p, bytes);
     this.cache.set(k, { mtimeMs: stat.mtimeMs, size: stat.size, file });
     return file;
   }
 
   invalidate(p: string): void {
-    this.cache.delete(fileKey(p));
+    // Read again by the next getFile; the version read before stays while the file cannot be read.
+    const cached = this.cache.get(fileKey(p));
+    if (cached) cached.mtimeMs = -1;
     this.version++;
   }
 }

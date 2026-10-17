@@ -371,9 +371,13 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
     ]));
     n.status = rootChange?.change === 'added' ? 'A' : 'M';
     const live = this.ws.getFile(h.target.fsPath);
+    const seen = new Set<string>();
     for (const v of f.views) {
       const item = viewChangeItem(v, live?.objects.get(v.objectId), h.label);
       const vn = new HistoryNode(`hview:${c.sha}:${v.objectId}:${v.accessor ?? ''}`, 'view', item.label);
+      // Two objects with one GUID (XML copied by hand) would give two equal ids, and VS Code shows nothing.
+      if (seen.has(vn.id)) continue;
+      seen.add(vn.id);
       Object.assign(vn, item, { commit: c, path: n.path, fromPath: n.fromPath, objectId: v.objectId, accessor: v.accessor, parent: n });
       vn.live = viewExists(live, v.objectId, v.accessor);
       n.children.push(vn);
@@ -402,9 +406,12 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
       return n;
     }
     const live = this.ws.getFile(h.target.fsPath);
+    const seen = new Set<string>();
     for (const v of views) {
       const short = v.label.startsWith(`${h.label}.`) ? v.label.slice(h.label.length + 1) : v.label;
       const vn = new HistoryNode(`hworking:${v.objectId}:${v.accessor ?? ''}`, 'working', short);
+      if (seen.has(vn.id)) continue;
+      seen.add(vn.id);
       Object.assign(vn, { objectId: v.objectId, accessor: v.accessor, parent: n });
       vn.status = changeLetter(v.change);
       vn.icon = viewIcon(live?.objects.get(v.objectId), v.kind, v.accessor);

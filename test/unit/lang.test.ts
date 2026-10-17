@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { TcWorkspace } from '../../src/core/workspace';
+import { LanguageIndex } from '../../src/lang/index';
+import { analyze } from '../../src/lang/analyzer';
 import { parseBody, parseDeclaration } from '../../src/lang/parser';
+import { BUNDLED_STUBS } from '../../src/lang/stubs';
 
 test('parser handles TwinCAT declarations and statements', () => {
   const d = parseDeclaration(`{attribute 'qualified_only'}
@@ -54,4 +61,62 @@ test('finds the expression before a dot for member completion', async () => {
   assert.equal(at('IF pObj^.|'), 'pObj^');
   assert.equal(at('x := 1..|'), undefined);
   assert.equal(at('x := y |'), undefined);
+});
+
+test('a file changed without an event of its own is indexed again at the next change of another file', () => {
+  // Workspace folder A, and a PLC project B outside it whose files no watcher reports.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-index-'));
+  const write = (rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  const pou = (name: string, id: string, decl: string, impl: string) => `<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="${name}" Id="{${id}}" SpecialFunc="None">
+    <Declaration><![CDATA[${decl}]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[${impl}]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>`;
+  const plcproj = (name: string, include: string, refs = '') => `<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup><Name>${name}</Name></PropertyGroup>
+  <ItemGroup><Compile Include="${include}"><SubType>Code</SubType></Compile></ItemGroup>${refs}
+</Project>`;
+  try {
+    write('A/A.tsproj', `<?xml version="1.0"?>
+<TcSmProject><Project><Plc>
+  <Project Name="Sim" PrjFilePath="Sim\\Sim.plcproj"/>
+  <Project Name="Machine" PrjFilePath="..\\B\\Machine\\Machine.plcproj"/>
+</Plc></Project></TcSmProject>`);
+    write('A/Sim/Sim.plcproj', plcproj('Sim', 'POUs\\MAIN.TcPOU', `
+  <ItemGroup><PlaceholderReference Include="Machine"><DefaultResolution>Machine, * (X)</DefaultResolution><Namespace>Machine</Namespace></PlaceholderReference></ItemGroup>`));
+    write('B/Machine/Machine.plcproj', plcproj('Machine', 'POUs\\FB_Machine.TcPOU'));
+    write('B/Machine/POUs/FB_Machine.TcPOU', pou('FB_Machine', 'aaaaaaaa-0000-0000-0000-000000000001',
+      'FUNCTION_BLOCK FB_Machine\nVAR_INPUT\n\tbOld : BOOL;\nEND_VAR', ''));
+    write('A/Sim/POUs/MAIN.TcPOU', pou('MAIN', 'bbbbbbbb-0000-0000-0000-000000000001',
+      'PROGRAM MAIN\nVAR\n\tfb : FB_Machine;\nEND_VAR', 'fb.bOld := TRUE;'));
+    const w = new TcWorkspace();
+    w.load([path.join(root, 'A/A.tsproj')]);
+    const idx = new LanguageIndex(w);
+    idx.setStubs(BUNDLED_STUBS);
+    const fbVars = () => (idx.allGlobals().find(g => g.name === 'FB_Machine') as { vars: { name: string }[] }).vars.map(v => v.name);
+    assert.deepEqual(fbVars(), ['bOld']);
+    // XAE or a checkout renames the input of FB_Machine: no event, B is outside the workspace folder.
+    const fbPath = path.join(root, 'B/Machine/POUs/FB_Machine.TcPOU');
+    fs.writeFileSync(fbPath, fs.readFileSync(fbPath, 'utf8').replace('bOld', 'bNewInput'));
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(fbPath, later, later);
+    // MAIN, in the workspace, changes too, and its event arrives (what onSourceChanged does).
+    const mainPath = path.join(root, 'A/Sim/POUs/MAIN.TcPOU');
+    fs.writeFileSync(mainPath, fs.readFileSync(mainPath, 'utf8').replace('fb.bOld', 'fb.bNewInput'));
+    w.invalidate(mainPath);
+    idx.invalidateFile(mainPath);
+    assert.deepEqual(fbVars(), ['bNewInput']);
+    const main = idx.allContexts().find(c => c.object.name === 'MAIN' && c.role === 'impl')!;
+    assert.deepEqual(analyze(idx, main, idx.sectionText(main.fileKey, main.sectionKey)!).problems.map(p => p.message), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

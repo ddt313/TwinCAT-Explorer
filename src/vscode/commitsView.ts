@@ -9,10 +9,10 @@ import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { ViewChange, metadataChange, viewChanges } from '../core/objectChanges';
 import { Status, statusUri, viewChangeItem } from './changesView';
 import { CommitObject } from './commitDiff';
-import { CommitInfo, commitChanges, commitLog, gitApi, headCommit, localOnlyCommits, openNotebookDiff, readBlobs, userEmail } from './git';
+import { CommitInfo, commitChanges, commitLog, headCommit, localOnlyCommits, openNotebookDiff, readBlobs, revision, userEmail } from './git';
 import { GitChanges } from './gitChanges';
 import { compareLabels, objectIcon, objectTreeLabel } from './tree';
-import { EMPTY, isSourcePath, revisionUri } from './uris';
+import { isSourcePath } from './uris';
 import { escapeMarkdown } from '../shared/markdown';
 import { relativeTime } from '../shared/time';
 
@@ -325,20 +325,6 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     if (this.timer) clearTimeout(this.timer);
     this.emitter.dispose();
   }
-}
-
-/**
- * A file (repository-relative path) as a commit has it, or an empty file when `ref` is undefined (not there).
- * The git extension's URI when it has the repository open (a git document, as VS Code's own diffs and GitLens
- * know it), else this extension's.
- */
-async function revision(root: string, rel: string, ref: string | undefined): Promise<vscode.Uri> {
-  const fsPath = path.join(root, rel);
-  const label = `${path.posix.basename(rel)} (${ref ? ref.slice(0, 7) : 'empty'})`;
-  if (!ref) return revisionUri(fsPath, EMPTY, label, rel);
-  const api = await gitApi();
-  const file = vscode.Uri.file(fsPath);
-  return api?.getRepository(file) ? api.toGitUri(file, ref) : revisionUri(fsPath, ref, label, rel);
 }
 
 

@@ -10,7 +10,7 @@ import {
 } from './symbols';
 import { Builtins } from './builtins';
 import { TcWorkspace, SourceEntry, fileKey } from '../core/workspace';
-import { ObjectKind, Section, TcObject } from '../core/tcfile';
+import { ObjectKind, Section, TcObject, TcSourceFile } from '../core/tcfile';
 import { PlcProject, resolutionLibraryName } from '../core/project';
 
 export interface SectionContext {
@@ -31,6 +31,8 @@ export interface SectionContext {
 interface FileSyms {
   key: string;
   path: string;
+  /** The parsed file the symbols were built from (TcWorkspace.getFile gives a new one when the file changed). */
+  source: TcSourceFile | undefined;
   scope: Scope;
   pous: PouSym[];
   types: TypeSym[];
@@ -160,9 +162,16 @@ export class LanguageIndex {
 
   ensure(): void {
     if (this.builtWorkspaceVersion !== this.ws.version && !this.allDirty) {
-      // Projects reloaded: everything is built again. (A file that changed is marked by invalidateFile.)
+      // Projects reloaded: everything is built again.
       this.allDirty = this.projectScopes.size !== this.ws.plcProjects.length ||
         this.ws.plcProjects.some(p => !this.projectScopes.has(p));
+      // Files that changed without an event of their own (outside the watched folders, an event dropped):
+      // getFile reads them again by modification time and size.
+      if (!this.allDirty) {
+        for (const e of this.ws.sourceEntries) {
+          if (this.files.get(e.key)?.source !== this.ws.getFile(e.path)) this.dirty.add(e.key);
+        }
+      }
     }
     if (!this.allDirty && this.dirty.size === 0) return;
     if (this.allDirty) {
@@ -213,7 +222,7 @@ export class LanguageIndex {
   private addStubDeclarations(scope: Scope, text: string, key: string): void {
     const parsed = this.parseDecl(text);
     const fake: FileSyms = {
-      key, path: key, scope, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(), texts: new Map(),
+      key, path: key, source: undefined, scope, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(), texts: new Map(),
     };
     for (const unit of parsed.units) {
       if (unit.header && POU_KIND[unit.header.pouKind]) {
@@ -290,10 +299,11 @@ export class LanguageIndex {
   }
 
   private buildFile(entry: SourceEntry, scope: Scope): FileSyms {
-    const f: FileSyms = {
-      key: entry.key, path: entry.path, scope, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(), texts: new Map(),
-    };
     const file = this.ws.getFile(entry.path);
+    const f: FileSyms = {
+      key: entry.key, path: entry.path, source: file, scope, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(),
+      texts: new Map(),
+    };
     if (!file?.root) return f;
     const overlay = this.overlays.get(entry.key);
     const textOf = (s: Section) => overlay?.get(s.key) ?? s.text;

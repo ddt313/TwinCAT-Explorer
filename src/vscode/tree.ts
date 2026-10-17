@@ -160,7 +160,12 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     const refs = this.add(new TreeNode(`refs:${prefix}`, 'references', 'References', node));
     refs.icon = icon('references');
     refs.sortGroup = 0;
+    // Node ids must be unique (VS Code refuses or replaces a repeated one): a library referenced twice (placeholder and
+    // library reference), a file the .plcproj lists twice (a merge) and an object whose GUID is repeated appear once.
+    const libraries = new Set<string>();
     for (const lib of [...plc.libraries].sort((a, b) => a.name.localeCompare(b.name))) {
+      if (libraries.has(lib.name)) continue;
+      libraries.add(lib.name);
       const l = this.add(new TreeNode(`lib:${prefix}|${lib.name}`, 'library', lib.name, refs));
       l.icon = icon('library');
       const resolved = resolutionLibraryName(lib);
@@ -185,10 +190,13 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       return f;
     };
     for (const folder of plc.folders) ensureFolder(folder);
+    const files = new Set<string>();
     for (const include of plc.compile) {
+      const fsPath = path.join(plc.dir, include.replace(/\\/g, path.sep));
+      if (files.has(fileKey(fsPath))) continue;
+      files.add(fileKey(fsPath));
       const dir = include.includes('\\') ? include.slice(0, include.lastIndexOf('\\')) : '';
-      const parentNode = ensureFolder(dir);
-      this.buildFile(parentNode, path.join(plc.dir, include.replace(/\\/g, path.sep)), prefix);
+      this.buildFile(ensureFolder(dir), fsPath, prefix);
     }
     this.sortTree(node, vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('foldersFirst', true));
   }
@@ -236,6 +244,8 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     };
     walk(root.innerFolders);
     for (const m of root.members) {
+      // A second object with the same GUID (XML copied by hand): the file model keeps one of them, shown alone.
+      if (file.objects.get(m.id) !== m) continue;
       const p = ensureInner(m.folderPath);
       const mn = this.add(new TreeNode(`obj:${prefix}|${fk}|${m.id}`, 'object', m.name, p));
       mn.fsPath = fsPath;

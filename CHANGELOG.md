@@ -6,61 +6,22 @@ All notable changes to Explorer for TwinCAT. The format follows
 ## 0.12.0 - 2026-10-19
 
 ### Added
-- `Add Method...`, `Add Property...` and `Add Action...` in the context menu of a POU or interface in
-  the TwinCAT tree, and of a folder inside a POU; in the Command Palette for the object of the active
-  editor. They ask for the name and type, write the new member as XAE does (a new GUID, a declaration,
-  an empty implementation, at its place in XAE's name order) in the file's indentation, line breaks and
-  BOM, and open it. The rest of the file stays byte-identical. A file with unsaved changes in an editor
-  is refused. Checked with TwinCAT XAE 3.1.4026: the new members compile, and XAE keeps them as written
-  when it saves the file again.
-- `Implement Interfaces...` on a function block with `IMPLEMENTS`: adds the methods and properties of
-  its interfaces, and of the interfaces these extend, that neither it nor a function block it extends
-  has, with the declarations of the interface.
-- `Add POU...`, `Add DUT...`, `Add Global Variable List...`, `Add Interface...` and `New Folder...` in
-  the context menu of a PLC project and of its folders in the TwinCAT tree, and in the Command Palette.
-  A function block can extend another and implement interfaces (it then gets their methods and
-  properties), a structure and an interface can extend others. They write the file of the new object as
-  XAE 3.1.4026 makes it, with the XML header, line breaks and BOM of the project's files, and add its
-  item to the `.plcproj` where XAE puts it; the rest of the `.plcproj` stays byte-identical. A
-  `.plcproj` with unsaved changes in an editor is refused. Checked with TwinCAT XAE 3.1.4026: the new
-  objects compile and show in its tree, and XAE keeps them as written when it saves again.
-- `Rename...` (F2) and `Delete` (Delete) on a method, property, action or transition in the TwinCAT
-  tree, and `Delete` on the `Get` or `Set` of a property. Rename changes the name of the member, in its
-  declaration and where the name stands for the member inside it (a method's return value, a property's
-  value in its `Get` and `Set`), renames its `LineIds` and moves it to its place in XAE's name order.
-  What uses it elsewhere keeps the old name: the message says how many uses the language index finds,
-  and Show Uses lists them. Delete asks first, then removes the member or accessor with its `LineIds`.
-  Open tabs of the member follow it. A file with unsaved changes in an editor is refused. Checked with
-  TwinCAT XAE 3.1.4026: after renames and deletes, with the calls changed to match, Check all objects
-  finds no error, XAE's tree shows the new names, and XAE keeps the files as written when it saves them
-  again.
-- `Rename...` (F2), `Move to Folder...` and `Delete` (Delete) on a POU, DUT, GVL or interface in the
-  TwinCAT tree; dragging one onto a folder of its PLC project moves it there. Rename renames the file,
-  the object in it (its declaration, its `LineIds`, a function's return value) and its `<Compile>` item
-  in place, as XAE does, and the calls of the tasks that call a renamed program. Move moves the file on
-  disk and changes its `<Compile>` item in place. Delete asks first, moves the file to the Recycle Bin
-  and removes its item. What uses the object elsewhere keeps the old name: the message says how many
-  uses the language index finds, and Show Uses lists them. `Delete` on an empty folder removes its
-  `<Folder>` item and the folder. Open tabs follow the file. A file, `.plcproj` or task with unsaved
-  changes in an editor is refused. Checked with TwinCAT XAE 3.1.4026: after renames of each kind of
-  object, two moves, two deletes and a deleted folder, with the calls changed to match, Check all
-  objects finds no error, XAE's tree shows the result, and XAE keeps the files, the `.plcproj` and the
-  task as written when it saves them again.
-- `Rename...` (F2) and `Move to Folder...` on a folder of a PLC project in the TwinCAT tree, and dragging
-  it onto another folder or the project: the folder moves on disk, and its `<Folder>` item and the
-  items of everything in it take the new path in place, as XAE 3.1.4026 renames a folder. Open tabs of
-  its files follow. Checked with TwinCAT XAE 3.1.4026: after a rename, a change of case and two moves of
-  folders (one with a folder in it), Check all objects finds no error, XAE's tree shows the result, and
-  XAE keeps the `.plcproj` as written when it saves again.
-- PLC projects saved as Independent Project Files are read: the `.tsproj` then names an `.xti`
-  (`<Project File="Plc.xti"/>`), which XAE saves in `_Config\PLC` and which holds the PLC project. The
-  tree, the language features and the git views show them as they show the others, and Add, Rename,
-  Move and Delete write their `.plcproj`. A `.tsproj` can hold PLC projects of both kinds. An `.xti`
-  that is not there or cannot be read shows as a PLC project that could not be loaded. A change of an
-  `.xti` reloads the projects, as one of a `.tsproj` does; the TwinCAT Changes view lists it under
-  Project files, or under Build output when a build only rewrote its `TmcHash`. Checked with TwinCAT
-  XAE 3.1.4026 on a project it saved so: the extension's adds, renames and moves compile, show in its
-  tree, and stay as written when XAE saves again.
+- `Add Method...`, `Add Property...` and `Add Action...` on a POU, an interface or a folder inside a POU
+  in the TwinCAT tree, and `Implement Interfaces...` on a function block with `IMPLEMENTS`. Members are
+  written as TwinCAT XAE 3.1.4026 writes them, and the rest of the file stays as it was.
+- `Add POU...`, `Add DUT...`, `Add Global Variable List...`, `Add Interface...` and `New Folder...` on a
+  PLC project and its folders. The new file and its `.plcproj` item follow XAE 3.1.4026; a function
+  block can extend another and gets the methods and properties of its interfaces.
+- `Rename...` (F2) and `Delete` on methods, properties, actions and transitions, and `Delete` on a
+  property's `Get` or `Set`. Uses in other objects keep the old name: the message says how many the
+  language index finds, and Show Uses lists them.
+- `Rename...` (F2), `Move to Folder...` and `Delete` on POUs, DUTs, GVLs and interfaces, also by
+  dragging onto a folder. Delete moves the file to the Recycle Bin. The tasks that call a renamed
+  program call it by its new name; other uses keep the old one, as for members.
+- `Rename...`, `Move to Folder...` and dragging for the folders of a PLC project, and `Delete` on an
+  empty one.
+- PLC projects saved as Independent Project Files (`.xti`) are read: they show in the tree, with the
+  language features and the git views, like the others.
 
 ### Fixed
 - At start-up the TwinCAT view shows the content of every TwinCAT project. With VS Code 1.142, only the

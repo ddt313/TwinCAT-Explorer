@@ -364,8 +364,10 @@ sources.
   transitions are created in TwinCAT XAE, and objects are renamed, moved and deleted there.
 - A member added here has no `LineIds` element, the line map for breakpoints that some XAE versions
   keep in the file. TwinCAT 3.1.4026 writes none either.
-- If TwinCAT XAE has the same project open, it keeps its own copy in memory and can overwrite changes
-  saved from VS Code. Reload the project in XAE after editing here.
+- If TwinCAT XAE has the same project open: XAE 3.1.4026 reloads a source file changed on disk by
+  itself, within about a second, when it has no unsaved changes in it (checked with the object not
+  open in XAE), and asks before it reloads a changed `.plcproj` or `.tsproj`. Unsaved changes in XAE
+  can still overwrite what VS Code saved: save or undo them in XAE before editing the same object here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.
 - PLC projects saved as independent project files (`<Project File="X.xti"/>` in the `.tsproj`) are
   not read yet.

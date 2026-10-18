@@ -20,6 +20,7 @@ import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { ShownTab } from './vscode/tabs';
 import { itemOrder } from './core/project';
+import { isInFolder } from './lang/objects';
 import { Loc } from './lang/symbols';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
 import { DiffFileSystem, GitDirWatcher, firstParent, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
@@ -101,36 +102,49 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const diffFs = new DiffFileSystem(gitDirs);
   const gitChanges = new GitChanges(ws, gitDirs);
   const tree = new TwinCatTree(ws);
-  // Dragging the file of a POU, DUT, GVL or interface onto a folder of its PLC project moves it there.
+  // Dragging the file of a POU, DUT, GVL or interface, or a folder, onto a folder of its PLC project moves it there.
   const treeMime = 'application/vnd.code.tree.twincatexplorer.tree';
+  type Dragged = { fsPath: string } | { folder: ObjectTarget };
+  const parentOf = (include: string) => include.slice(0, Math.max(include.lastIndexOf('\\'), 0));
   const dragAndDropController: vscode.TreeDragAndDropController<TreeNode> = {
     dragMimeTypes: [treeMime],
     dropMimeTypes: [treeMime],
     handleDrag: (nodes, data) => {
-      const files = nodes.filter(n => n.objectFile && n.fsPath).map(n => n.fsPath!);
-      if (files.length) data.set(treeMime, new vscode.DataTransferItem(files));
+      const dragged = nodes.flatMap((n): Dragged[] => (n.objectFile && n.fsPath ? [{ fsPath: n.fsPath }]
+        : n.kind === 'folder' && n.objectTarget ? [{ folder: n.objectTarget }] : []));
+      if (dragged.length) data.set(treeMime, new vscode.DataTransferItem(dragged));
     },
     handleDrop: async (target, data) => {
-      const files = data.get(treeMime)?.value;
+      const dragged = data.get(treeMime)?.value as Dragged[] | undefined;
       let dest = target;
       while (dest && !dest.objectTarget) dest = dest.parent;
       const to = dest?.objectTarget;
-      if (!Array.isArray(files) || !to) return;
-      const entries = (files as string[]).map(f => ({ f, entry: ws.entry(f) }));
-      const sameProject = entries.filter(e => e.entry && fileKey(e.entry.project.path) === fileKey(to.plcprojPath));
-      if (sameProject.length < files.length) void vscode.window.showInformationMessage('A file moves to a folder of its own PLC project only.');
-      // Not into the folder it is in.
-      const movable = sameProject.filter(e => {
-        const include = e.entry!.include;
-        return itemOrder(include.slice(0, Math.max(include.lastIndexOf('\\'), 0)), to.folder) !== 0;
-      }).map(e => e.f);
-      if (movable.length === 0) return;
+      if (!Array.isArray(dragged) || !to) return;
+      const moves: { name: string; run: () => Promise<void> }[] = [];
+      let elsewhere = false;
+      for (const d of dragged) {
+        const project = 'fsPath' in d ? ws.entry(d.fsPath)?.project.path : d.folder.plcprojPath;
+        if (!project || fileKey(project) !== fileKey(to.plcprojPath)) {
+          elsewhere = true;
+        } else if ('fsPath' in d) {
+          // Not into the folder it is in.
+          if (itemOrder(parentOf(ws.entry(d.fsPath)!.include), to.folder) !== 0) {
+            moves.push({ name: path.basename(d.fsPath), run: () => objects.move(d.fsPath, to.folder) });
+          }
+        } else if (!isInFolder(to.folder, d.folder.folder) && itemOrder(parentOf(d.folder.folder), to.folder) !== 0) {
+          // Not into itself, nor into the folder it is in.
+          const { folder } = d.folder;
+          moves.push({ name: folder.slice(folder.lastIndexOf('\\') + 1), run: () => objects.moveFolder(d.folder, to.folder) });
+        }
+      }
+      if (elsewhere) void vscode.window.showInformationMessage('A file or folder moves within its own PLC project only.');
+      if (moves.length === 0) return;
       const where = to.folder || ws.plcProject(to.plcprojPath)?.name || path.basename(to.plcprojPath);
-      const choice = await vscode.window.showWarningMessage(`Move ${movable.map(f => path.basename(f)).join(', ')} to ${where}?`, {
-        modal: true, detail: 'The file moves on disk, and its item in the .plcproj with it.',
+      const choice = await vscode.window.showWarningMessage(`Move ${moves.map(m => m.name).join(', ')} to ${where}?`, {
+        modal: true, detail: 'It moves on disk, and its items in the .plcproj with it.',
       }, 'Move');
       if (choice !== 'Move') return;
-      for (const f of movable) await objects.move(f, to.folder);
+      for (const m of moves) await m.run();
     },
   };
   const treeView = vscode.window.createTreeView('twincatExplorer.tree', { treeDataProvider: tree, showCollapseAll: true, dragAndDropController });
@@ -931,6 +945,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       const node = arg instanceof TreeNode ? arg : treeView.selection[0];
       if (node?.kind === 'object' && node.fsPath && node.objectId) await members.rename(node.fsPath, node.objectId);
       else if (node?.objectFile && node.fsPath) await objects.rename(node.fsPath);
+      else if (node?.kind === 'folder' && node.objectTarget) await objects.renameFolder(node.objectTarget);
     }),
     vscode.commands.registerCommand('twincatExplorer.delete', async (arg?: unknown) => {
       const node = arg instanceof TreeNode ? arg : treeView.selection[0];
@@ -945,6 +960,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.commands.registerCommand('twincatExplorer.moveToFolder', async (arg?: unknown) => {
       const node = arg instanceof TreeNode ? arg : treeView.selection[0];
       if (node?.objectFile && node.fsPath) await objects.move(node.fsPath);
+      else if (node?.kind === 'folder' && node.objectTarget) await objects.moveFolder(node.objectTarget);
     }),
     vscode.commands.registerCommand('twincatExplorer.refresh', () => loadProjects()),
     vscode.commands.registerCommand('twincatExplorer.open', (node?: TreeNode) => openNode(node)),

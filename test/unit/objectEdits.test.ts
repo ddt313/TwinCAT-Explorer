@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { PlcProjectEditError, moveCompileItem, parsePlcProject, removeItem, renameCompileItem, renameTaskCalls, taskCalls } from '../../src/core/project';
+import {
+  PlcProjectEditError, parsePlcProject, removeItem, renameCompileItem, renameFolderItems, renameTaskCalls, taskCalls,
+} from '../../src/core/project';
 import { SpliceError, nameRanges, renameObject } from '../../src/core/splice';
 import { encodeText, parseTcFile, parseTcText } from '../../src/core/tcfile';
-import { projectFolderList } from '../../src/lang/objects';
+import { folderNameProblem, isInFolder, projectFolderList } from '../../src/lang/objects';
 
 const ID = '{aaaaaaaa-0000-4000-8000-000000000001}';
 const RUN = '{aaaaaaaa-0000-4000-8000-000000000002}';
@@ -113,29 +115,58 @@ function plcproj(compile: string[], folders: string[] = [], eol = '\r\n'): strin
   ].join(eol);
 }
 
-test('.plcproj: a renamed file keeps its item where it is, a moved one goes where XAE puts a new one, a deleted one goes', () => {
+test('.plcproj: a renamed or moved file keeps its item where it is, with its new path; a deleted one goes', () => {
   for (const eol of ['\r\n', '\n']) {
     const three = plcproj(['POUs\\FB_A.TcPOU', 'POUs\\FB_B.TcPOU', 'POUs\\MAIN.TcPOU'], ['POUs', 'POUs\\Sub'], eol);
     // The Include case aside, as XAE compares paths.
     assert.equal(renameCompileItem(three, 'pous\\fb_a.tcpou', 'POUs\\FB_Z.TcPOU'),
       plcproj(['POUs\\FB_Z.TcPOU', 'POUs\\FB_B.TcPOU', 'POUs\\MAIN.TcPOU'], ['POUs', 'POUs\\Sub'], eol));
-    assert.equal(moveCompileItem(three, 'POUs\\FB_A.TcPOU', 'POUs\\Sub\\FB_A.TcPOU'),
-      plcproj(['POUs\\FB_B.TcPOU', 'POUs\\MAIN.TcPOU', 'POUs\\Sub\\FB_A.TcPOU'], ['POUs', 'POUs\\Sub'], eol));
-    assert.equal(moveCompileItem(three, 'POUs\\MAIN.TcPOU', 'MAIN.TcPOU'),
-      plcproj(['MAIN.TcPOU', 'POUs\\FB_A.TcPOU', 'POUs\\FB_B.TcPOU'], ['POUs', 'POUs\\Sub'], eol), 'to the PLC project itself');
+    assert.equal(renameCompileItem(three, 'POUs\\FB_A.TcPOU', 'POUs\\Sub\\FB_A.TcPOU'),
+      plcproj(['POUs\\Sub\\FB_A.TcPOU', 'POUs\\FB_B.TcPOU', 'POUs\\MAIN.TcPOU'], ['POUs', 'POUs\\Sub'], eol), 'into a folder');
+    assert.equal(renameCompileItem(three, 'POUs\\MAIN.TcPOU', 'MAIN.TcPOU'),
+      plcproj(['POUs\\FB_A.TcPOU', 'POUs\\FB_B.TcPOU', 'MAIN.TcPOU'], ['POUs', 'POUs\\Sub'], eol), 'to the PLC project itself');
     assert.equal(removeItem(three, 'Compile', 'POUs\\FB_B.TcPOU'), plcproj(['POUs\\FB_A.TcPOU', 'POUs\\MAIN.TcPOU'], ['POUs', 'POUs\\Sub'], eol));
     assert.equal(removeItem(three, 'Folder', 'POUs\\Sub'), plcproj(['POUs\\FB_A.TcPOU', 'POUs\\FB_B.TcPOU', 'POUs\\MAIN.TcPOU'], ['POUs'], eol));
   }
-  // A moved item keeps what it holds besides its SubType.
+  // What else an item holds stays.
   const linked = plcproj(['POUs\\FB_A.TcPOU', 'POUs\\FB_B.TcPOU']).replace('<SubType>Code</SubType>', '<SubType>Code</SubType>\r\n      <Link>X</Link>');
-  assert.match(moveCompileItem(linked, 'POUs\\FB_A.TcPOU', 'Zone\\FB_A.TcPOU'),
-    /<Compile Include="POUs\\FB_B.TcPOU">\r\n {6}<SubType>Code<\/SubType>\r\n {4}<\/Compile>\r\n {4}<Compile Include="Zone\\FB_A.TcPOU">\r\n {6}<SubType>Code<\/SubType>\r\n {6}<Link>X<\/Link>\r\n {4}<\/Compile>/);
+  assert.equal(renameCompileItem(linked, 'POUs\\FB_A.TcPOU', 'Zone\\FB_A.TcPOU'), linked.replace('"POUs\\FB_A.TcPOU"', '"Zone\\FB_A.TcPOU"'));
   assert.equal(removeItem(plcproj([], ['POUs\\Sub\\']), 'Folder', 'POUs\\Sub'), plcproj([], []), 'a folder item written with a backslash at the end');
   // What is refused.
   const two = plcproj(['POUs\\FB_A.TcPOU', 'POUs\\FB_B.TcPOU']);
   assert.throws(() => renameCompileItem(two, 'POUs\\FB_A.TcPOU', 'pous\\fb_b.TcPOU'), /already has POUs\\FB_B.TcPOU/);
-  assert.throws(() => moveCompileItem(two, 'POUs\\FB_X.TcPOU', 'FB_X.TcPOU'), /has no item POUs\\FB_X.TcPOU/);
+  assert.throws(() => renameCompileItem(two, 'POUs\\FB_X.TcPOU', 'FB_X.TcPOU'), /has no item POUs\\FB_X.TcPOU/);
   assert.throws(() => removeItem(two, 'Folder', 'POUs'), PlcProjectEditError);
+});
+
+test('.plcproj: a renamed or moved folder takes everything in it along, each item where it is, as XAE renames a folder', () => {
+  // The items TwinCAT 3.1.4026 wrote, and what it made of them when it renamed POUs\Valves to Zvalves.
+  const files = ['Area\\FB_Area.TcPOU', 'PlcTask.TcTTO', 'POUs\\FB_A.TcPOU', 'POUs\\MAIN.TcPOU', 'POUs\\Pumps\\FB_P.TcPOU',
+    'POUs\\Valves\\Deep\\FB_D.TcPOU', 'POUs\\Valves\\FB_V1.TcPOU', 'POUs\\Valves\\FB_V2.TcPOU'];
+  const folders = ['Area', 'DUTs', 'GVLs', 'POUs\\Pumps', 'POUs\\Valves', 'POUs\\Valves\\Deep', 'VISUs', 'POUs'];
+  const renamed = (list: string[], from: string, to: string) => list.map(f => (f === from || f.startsWith(`${from}\\`) ? to + f.slice(from.length) : f));
+  for (const eol of ['\r\n', '\n']) {
+    const text = plcproj(files, folders, eol);
+    const expect = (from: string, to: string) => plcproj(renamed(files, from, to), renamed(folders, from, to), eol);
+    assert.equal(renameFolderItems(text, 'POUs\\Valves', 'POUs\\Zvalves'), expect('POUs\\Valves', 'POUs\\Zvalves'));
+    assert.equal(renameFolderItems(text, 'pous\\valves\\', 'POUs\\VALVES'), expect('POUs\\Valves', 'POUs\\VALVES'), 'a change of case');
+    assert.equal(renameFolderItems(text, 'Area', 'POUs\\Pumps\\Area'), expect('Area', 'POUs\\Pumps\\Area'), 'moved into a folder');
+    assert.equal(renameFolderItems(text, 'POUs\\Valves\\Deep', 'Deep'), expect('POUs\\Valves\\Deep', 'Deep'), 'moved to the project');
+  }
+  // A folder that only the paths of its files name, and one with a backslash at the end.
+  assert.equal(renameFolderItems(plcproj(['Sub\\FB_X.TcPOU'], []), 'Sub', 'Other'), plcproj(['Other\\FB_X.TcPOU'], []));
+  assert.equal(renameFolderItems(plcproj([], ['Sub\\']), 'Sub', 'Other'), plcproj([], ['Other\\']));
+  // What is refused: into itself, a path taken, a folder that is not there.
+  const text = plcproj(files, folders);
+  assert.throws(() => renameFolderItems(text, 'POUs\\Valves', 'POUs\\Valves\\Deep\\Valves'), /cannot go into itself/);
+  assert.throws(() => renameFolderItems(text, 'POUs\\Valves', 'POUs\\Pumps'), /already has POUs\\Pumps/);
+  assert.throws(() => renameFolderItems(text, 'POUs\\Nothing', 'POUs\\Other'), /has no folder POUs\\Nothing/);
+  // The name checks of the commands: the folder itself aside, a change of case allowed.
+  const plc = parsePlcProject('Plc.plcproj', text);
+  assert.equal(folderNameProblem(plc, 'POUs', 'VALVES', 'POUs\\Valves'), undefined);
+  assert.equal(folderNameProblem(plc, 'POUs', 'Pumps', 'POUs\\Valves'), 'Plc already has the folder POUs\\Pumps');
+  assert.ok(isInFolder('POUs\\Valves\\Deep', 'pous\\valves') && isInFolder('POUs\\Valves', 'POUs\\Valves'));
+  assert.ok(!isInFolder('POUs\\ValvesX', 'POUs\\Valves') && !isInFolder('POUs', 'POUs\\Valves'));
 });
 
 test('a task calls a renamed program by its new name', () => {

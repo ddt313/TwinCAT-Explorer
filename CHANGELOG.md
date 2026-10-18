@@ -38,14 +38,20 @@ All notable changes to Explorer for TwinCAT. The format follows
   TwinCAT tree; dragging one onto a folder of its PLC project moves it there. Rename renames the file,
   the object in it (its declaration, its `LineIds`, a function's return value) and its `<Compile>` item
   in place, as XAE does, and the calls of the tasks that call a renamed program. Move moves the file on
-  disk, and its `<Compile>` item to where XAE puts a new one. Delete asks first, moves the file to the
-  Recycle Bin and removes its item. What uses the object elsewhere keeps the old name: the message says
-  how many uses the language index finds, and Show Uses lists them. `Delete` on an empty folder removes
-  its `<Folder>` item and the folder. Open tabs follow the file. A file, `.plcproj` or task with unsaved
+  disk and changes its `<Compile>` item in place. Delete asks first, moves the file to the Recycle Bin
+  and removes its item. What uses the object elsewhere keeps the old name: the message says how many
+  uses the language index finds, and Show Uses lists them. `Delete` on an empty folder removes its
+  `<Folder>` item and the folder. Open tabs follow the file. A file, `.plcproj` or task with unsaved
   changes in an editor is refused. Checked with TwinCAT XAE 3.1.4026: after renames of each kind of
   object, two moves, two deletes and a deleted folder, with the calls changed to match, Check all
   objects finds no error, XAE's tree shows the result, and XAE keeps the files, the `.plcproj` and the
   task as written when it saves them again.
+- `Rename...` (F2) and `Move to Folder...` on a folder of a PLC project in the TwinCAT tree, and dragging
+  it onto another folder or the project: the folder moves on disk, and its `<Folder>` item and the
+  items of everything in it take the new path in place, as XAE 3.1.4026 renames a folder. Open tabs of
+  its files follow. Checked with TwinCAT XAE 3.1.4026: after a rename, a change of case and two moves of
+  folders (one with a folder in it), Check all objects finds no error, XAE's tree shows the result, and
+  XAE keeps the `.plcproj` as written when it saves again.
 
 ### Fixed
 - At start-up the TwinCAT view shows the content of every TwinCAT project. With VS Code 1.142, only the

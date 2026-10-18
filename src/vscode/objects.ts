@@ -1,14 +1,14 @@
 // Add POU, Add DUT, Add Global Variable List, Add Interface and New Folder: they ask for what the new object
 // needs, write its file as XAE 3.1.4026 does (see newObjects.ts) and its item into the .plcproj (see project.ts),
-// then open it. Rename, Move to Folder and Delete of a POU, DUT, GVL or interface change its file and its item
-// the way XAE does, and close or move its tabs.
+// then open it. Rename, Move to Folder and Delete of a POU, DUT, GVL or interface, and of a folder, change the
+// files and the items the way XAE does, and close or move the tabs.
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { FileStyle, NewObjectKind, NewObjectSpec, XAE_FILE_STYLE, fileStyleOf, newObjectText, objectExtension } from '../core/newObjects';
 import {
-  PlcProject, addCompileItem, addFolderItem, itemOrder, moveCompileItem, removeItem, renameCompileItem, renameTaskCalls, taskCalls,
+  PlcProject, addCompileItem, addFolderItem, itemOrder, removeItem, renameCompileItem, renameFolderItems, renameTaskCalls, taskCalls,
 } from '../core/project';
 import { SectionRange, addMember, nameRanges, renameObject } from '../core/splice';
 import { TcObject, decodeBytes, encodeText, fileKindFromPath, parseTcFile, parseTcText } from '../core/tcfile';
@@ -16,7 +16,7 @@ import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
 import { typeProblem, usesLeftByRename } from '../lang/members';
 import {
-  BaseProblem, baseProblem, folderNameProblem, newObjectStubs, objectNameProblem, projectFolderList, projectObjectNames,
+  BaseProblem, baseProblem, folderNameProblem, isInFolder, newObjectStubs, objectNameProblem, projectFolderList, projectObjectNames,
 } from '../lang/objects';
 import { Loc } from '../lang/symbols';
 import { reportReferences } from './members';
@@ -326,7 +326,7 @@ export class ObjectCommands {
 
   /**
    * Moves the file of a POU, DUT, GVL or interface to another folder of its PLC project (one picked when not
-   * given): on disk, and its <Compile> item, which goes where XAE puts a new one. Its tabs open again there.
+   * given): on disk, and its <Compile> item, in place as XAE changes the path of an item. Its tabs open again there.
    */
   async move(fsPath: string, folder?: string): Promise<void> {
     const source = this.sourceOf(fsPath);
@@ -357,7 +357,7 @@ export class ObjectCommands {
     let plcproj: Written;
     try {
       const read = decodeBytes(fs.readFileSync(project.path));
-      plcproj = { fsPath: project.path, text: moveCompileItem(read.text, entry.include, newInclude), bom: read.bom };
+      plcproj = { fsPath: project.path, text: renameCompileItem(read.text, entry.include, newInclude), bom: read.bom };
     } catch (e) {
       void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
       return;
@@ -442,6 +442,94 @@ export class ObjectCommands {
       }
     }
     await this.hooks.written();
+  }
+
+  /** The files of the project in a folder (`POUs\Valves`) or under it. */
+  private filesIn(project: PlcProject, folder: string): SourceEntry[] {
+    return this.ws.sourceEntries.filter(e => e.project === project && isInFolder(e.include, folder));
+  }
+
+  /** Renames a folder of a PLC project as XAE does: on disk, and its item and those of everything in it, in place. */
+  async renameFolder(target: ObjectTarget): Promise<void> {
+    const project = this.project(target);
+    if (!project) return;
+    const { folder } = target;
+    const slash = folder.lastIndexOf('\\');
+    const parent = folder.slice(0, Math.max(slash, 0));
+    const old = folder.slice(slash + 1);
+    if (this.refuseUnsavedFiles([project.path, ...this.filesIn(project, folder).map(e => e.path)])) return;
+    const name = (await vscode.window.showInputBox({
+      title: `Rename ${folder}`, prompt: 'New name of the folder', value: old,
+      validateInput: v => folderNameProblem(project, parent, v.trim(), folder),
+    }))?.trim();
+    if (!name || name === old) return;
+    await this.changeFolder(project, folder, parent ? `${parent}\\${name}` : name);
+  }
+
+  /** Moves a folder of a PLC project, with everything in it, into another of its folders (one picked when not given). */
+  async moveFolder(target: ObjectTarget, to?: string): Promise<void> {
+    const project = this.project(target);
+    if (!project) return;
+    const { folder } = target;
+    const slash = folder.lastIndexOf('\\');
+    const parent = folder.slice(0, Math.max(slash, 0));
+    const name = folder.slice(slash + 1);
+    if (this.refuseUnsavedFiles([project.path, ...this.filesIn(project, folder).map(e => e.path)])) return;
+    if (to === undefined) {
+      const items = [
+        { label: `$(root-folder) ${project.name}`, description: 'the PLC project itself', folder: '' },
+        ...projectFolderList(project).map(f => ({ label: `$(folder) ${f}`, description: '', folder: f })),
+      ].filter(i => !isInFolder(i.folder, folder) && itemOrder(i.folder, parent) !== 0);
+      const pick = await vscode.window.showQuickPick(items, { title: `Move ${folder} to Folder`, placeHolder: `The folder of ${project.name} to move it into` });
+      if (!pick) return;
+      to = pick.folder;
+    }
+    if (itemOrder(to, parent) === 0) return;
+    const problem = isInFolder(to, folder) ? `${folder} cannot go into itself.` : folderNameProblem(project, to, name);
+    if (problem) {
+      void vscode.window.showWarningMessage(problem);
+      return;
+    }
+    await this.changeFolder(project, folder, to ? `${to}\\${name}` : name);
+  }
+
+  /**
+   * Gives a folder a new path, renamed or moved: the folder on disk, its item and those of everything in it in the
+   * .plcproj (see renameFolderItems). The tabs of its files open again at their new paths.
+   */
+  private async changeFolder(project: PlcProject, folder: string, newFolder: string): Promise<void> {
+    const files = this.filesIn(project, folder);
+    // An editor may have been edited while the question was asked.
+    if (this.refuseUnsavedFiles([project.path, ...files.map(e => e.path)])) return;
+    const dir = path.join(project.dir, ...folder.split('\\'));
+    const newDir = path.join(project.dir, ...newFolder.split('\\'));
+    if (fileKey(dir) !== fileKey(newDir) && fs.existsSync(newDir)) {
+      void vscode.window.showWarningMessage(`${path.basename(newDir)} is already on disk in ${path.dirname(newDir)}.`);
+      return;
+    }
+    let plcproj: Written;
+    try {
+      const read = decodeBytes(fs.readFileSync(project.path));
+      plcproj = { fsPath: project.path, text: renameFolderItems(read.text, folder, newFolder), bom: read.bom };
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      return;
+    }
+    const moved = files.map(e => ({ fsPath: path.join(newDir, path.relative(dir, e.path)), tabs: tabsOf(e.path) }));
+    const shown = moved.map(m => shownTabs(m.tabs));
+    await closeTabs(moved.flatMap(m => m.tabs));
+    try {
+      fs.mkdirSync(path.dirname(newDir), { recursive: true });
+      if (fs.existsSync(dir)) fs.renameSync(dir, newDir);
+      else fs.mkdirSync(newDir, { recursive: true });
+      fs.writeFileSync(plcproj.fsPath, encodeText(plcproj.text, plcproj.bom));
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      await this.hooks.written();
+      return;
+    }
+    await this.hooks.written();
+    for (let i = 0; i < moved.length; i++) await this.hooks.reopen(moved[i].fsPath, shown[i]);
   }
 
   /**

@@ -58,15 +58,26 @@ function projectFolders(project: PlcProject): Set<string> {
   return new Set(projectFolderList(project).map(f => f.toLowerCase()));
 }
 
-/** Why a new folder in `parent` (`POUs\Sub`, empty for the project itself) cannot have this name; undefined when it can. */
-export function folderNameProblem(project: PlcProject, parent: string, name: string): string | undefined {
+/**
+ * Why a new folder in `parent` (`POUs\Sub`, empty for the project itself), or the folder `self` renamed or moved
+ * there, cannot have this name; undefined when it can.
+ */
+export function folderNameProblem(project: PlcProject, parent: string, name: string, self?: string): string | undefined {
   if (!name) return 'Enter a name';
   if (/[\\/:*?"<>|\x00-\x1f]/.test(name)) return 'A folder name has none of \\ / : * ? " < > |';
   if (/[. ]$/.test(name) || /^\.+$/.test(name)) return 'A folder name does not end with a dot or a space';
   if (/^(CON|PRN|AUX|NUL|COM\d|LPT\d)(\..*)?$/i.test(name)) return `${name} is a name Windows keeps for itself`;
   const include = parent ? `${parent}\\${name}` : name;
+  if (self !== undefined && include.toLowerCase() === self.toLowerCase()) return undefined;
   if (projectFolders(project).has(include.toLowerCase())) return `${project.name} already has the folder ${include}`;
   return undefined;
+}
+
+/** Whether a path of the project (`POUs\Sub`, `POUs\Sub\FB_X.TcPOU`) is the folder `folder` or in it, case aside. */
+export function isInFolder(include: string, folder: string): boolean {
+  const p = include.toLowerCase();
+  const f = folder.toLowerCase();
+  return p === f || p.startsWith(`${f}\\`);
 }
 
 /**

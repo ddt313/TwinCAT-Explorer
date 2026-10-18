@@ -135,12 +135,12 @@ export class PlcProjectEditError extends Error {}
  * ones the same way. Without an item of the kind, a new ItemGroup holds it: Compile items come first, then the
  * folders. The rest of the file stays byte-identical.
  */
-function addItem(text: string, kind: 'Compile' | 'Folder', include: string, given?: string): string {
+function addItem(text: string, kind: 'Compile' | 'Folder', include: string): string {
   const project = projectElement(text);
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const groups = children(project, 'ItemGroup');
   const group = groups.find(g => g.children.some(c => c.name === kind));
-  const element = (indent: string, step: string) => given ?? (kind === 'Compile'
+  const element = (indent: string, step: string) => (kind === 'Compile'
     ? [`<Compile Include="${escapeAttr(include)}">`, `${indent}${step}<SubType>Code</SubType>`, `${indent}</Compile>`].join(eol)
     : `<Folder Include="${escapeAttr(include)}" />`);
   if (group) {
@@ -187,49 +187,70 @@ function projectElement(text: string): XmlElement {
   return project;
 }
 
-/** The items of a kind with this Include, case aside, as XAE compares them. */
-function itemsOf(project: XmlElement, kind: 'Compile' | 'Folder', include: string): XmlElement[] {
-  const wanted = include.replace(/[\\/]+$/, '');
-  return findAll(project, kind).filter(c => itemOrder((c.attrs.get('Include') ?? '').replace(/[\\/]+$/, ''), wanted) === 0);
+/** The items of a .plcproj that are paths: source files, folders and the other files it lists. */
+const PATH_ITEMS = ['Compile', 'Folder', 'None', 'Content'];
+
+/** Whether two paths of items are the same, as XAE compares them: case aside, a backslash at the end aside. */
+function samePath(a: string, b: string): boolean {
+  return itemOrder(a.replace(/[\\/]+$/, ''), b.replace(/[\\/]+$/, '')) === 0;
+}
+
+/** The items of these kinds with this Include. */
+function itemsOf(project: XmlElement, kinds: string[], include: string): XmlElement[] {
+  return kinds.flatMap(k => findAll(project, k)).filter(c => samePath(c.attrs.get('Include') ?? '', include));
 }
 
 function theItem(project: XmlElement, kind: 'Compile' | 'Folder', include: string): XmlElement {
-  const items = itemsOf(project, kind, include);
+  const items = itemsOf(project, [kind], include);
   if (items.length === 0) throw new PlcProjectEditError(`The project has no item ${include}`);
   if (items.length > 1) throw new PlcProjectEditError(`The project lists ${include} ${items.length} times`);
   return items[0];
 }
 
-/** The item with its Include changed, refused when another item has the new one. */
-function renamedItem(text: string, project: XmlElement, item: XmlElement, newInclude: string): { start: number; end: number; element: string } {
-  const clash = itemsOf(project, 'Compile', newInclude).find(c => c !== item);
-  if (clash) throw new PlcProjectEditError(`The project already has ${clash.attrs.get('Include')}`);
-  const range = attributeRange(text, item, 'Include');
-  if (!range) throw new PlcProjectEditError(`The item of ${item.attrs.get('Include')} has no Include attribute`);
-  const element = text.slice(item.start, range.start) + escapeAttr(newInclude) + text.slice(range.end, item.end);
-  return { start: item.start, end: item.end, element };
+/** The text with the Include of each item replaced. */
+function withIncludes(text: string, changes: { item: XmlElement; include: string }[]): string {
+  const edits = changes.map(({ item, include }) => {
+    const range = attributeRange(text, item, 'Include');
+    if (!range) throw new PlcProjectEditError(`The item of ${item.attrs.get('Include')} has no Include attribute`);
+    return { ...range, value: escapeAttr(include) };
+  });
+  return edits.sort((a, b) => b.start - a.start).reduce((t, e) => t.slice(0, e.start) + e.value + t.slice(e.end), text);
 }
 
 /**
- * The .plcproj with the `<Compile>` item of a renamed source file (`POUs\FB_A.TcPOU` to `POUs\FB_B.TcPOU`), in
- * place: XAE 3.1.4026 leaves it where it was when it renames an object. The rest of the file stays byte-identical.
+ * The .plcproj with the `<Compile>` item of a renamed or moved source file (`POUs\FB_A.TcPOU` to
+ * `POUs\FB_B.TcPOU` or `POUs\Valves\FB_A.TcPOU`), in place: XAE 3.1.4026 leaves the items where they are when their
+ * path changes (a renamed object, a renamed folder). The rest of the file stays byte-identical.
  */
 export function renameCompileItem(text: string, include: string, newInclude: string): string {
   const project = projectElement(text);
-  const r = renamedItem(text, project, theItem(project, 'Compile', include), newInclude);
-  return text.slice(0, r.start) + r.element + text.slice(r.end);
+  const item = theItem(project, 'Compile', include);
+  const clash = itemsOf(project, PATH_ITEMS, newInclude).find(c => c !== item);
+  if (clash) throw new PlcProjectEditError(`The project already has ${clash.attrs.get('Include')}`);
+  return withIncludes(text, [{ item, include: newInclude }]);
 }
 
 /**
- * The .plcproj with the `<Compile>` item of a source file moved to another folder (`POUs\FB_A.TcPOU` to
- * `POUs\Valves\FB_A.TcPOU`): the item, as it was but for its Include, goes where XAE puts a new item (see addItem).
+ * The .plcproj with a folder renamed or moved (`POUs\Valves` to `POUs\Pumps` or `Area\Valves`): its `<Folder>`
+ * item and the items of everything under it take the new path, in place, as XAE 3.1.4026 renames a folder. A
+ * folder known only by the paths of its files has no `<Folder>` item. The rest stays byte-identical.
  */
-export function moveCompileItem(text: string, include: string, newInclude: string): string {
+export function renameFolderItems(text: string, folder: string, newFolder: string): string {
+  const from = folder.replace(/[\\/]+$/, '');
+  const to = newFolder.replace(/[\\/]+$/, '');
+  const under = (p: string) => samePath(p, from) || samePath(p.slice(0, from.length + 1), `${from}\\`);
+  if (!from || !to) throw new PlcProjectEditError('A folder of the project has a name');
+  if (under(to) && !samePath(to, from)) throw new PlcProjectEditError(`${from} cannot go into itself`);
   const project = projectElement(text);
-  const item = theItem(project, 'Compile', include);
-  const { element } = renamedItem(text, project, item, newInclude);
-  const lines = elementLines(text, item);
-  return addItem(text.slice(0, lines.start) + text.slice(lines.end), 'Compile', newInclude, element);
+  const all = PATH_ITEMS.flatMap(k => findAll(project, k));
+  const moved = all.filter(i => under(i.attrs.get('Include') ?? ''));
+  if (moved.length === 0) throw new PlcProjectEditError(`The project has no folder ${from}`);
+  const changes = moved.map(item => ({ item, include: to + item.attrs.get('Include')!.slice(from.length) }));
+  for (const { include } of changes) {
+    const clash = all.find(i => !moved.includes(i) && samePath(i.attrs.get('Include') ?? '', include));
+    if (clash) throw new PlcProjectEditError(`The project already has ${clash.attrs.get('Include')}`);
+  }
+  return withIncludes(text, changes);
 }
 
 /** The .plcproj without the `<Compile>` item of a source file, as when XAE deletes the object, or the `<Folder>` item of a folder. */

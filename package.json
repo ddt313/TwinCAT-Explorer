@@ -753,12 +753,12 @@
         },
         {
           "command": "twincatExplorer.rename",
-          "when": "view == twincatExplorer.tree && viewItem =~ /^object |objectFile/",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^object |^folder |objectFile/",
           "group": "7_modification@1"
         },
         {
           "command": "twincatExplorer.moveToFolder",
-          "when": "view == twincatExplorer.tree && viewItem =~ /objectFile/",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^folder |objectFile/",
           "group": "7_modification@2"
         },
         {

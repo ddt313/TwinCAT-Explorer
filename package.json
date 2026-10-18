@@ -380,6 +380,31 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.addPou",
+        "title": "Add POU...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.addDut",
+        "title": "Add DUT...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.addGvl",
+        "title": "Add Global Variable List...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.addInterface",
+        "title": "Add Interface...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.newFolder",
+        "title": "New Folder...",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.addMethod",
         "title": "Add Method...",
         "category": "TwinCAT"
@@ -418,6 +443,26 @@
         {
           "command": "twincatExplorer.copyName",
           "when": "false"
+        },
+        {
+          "command": "twincatExplorer.addPou",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.addDut",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.addGvl",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.addInterface",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.newFolder",
+          "when": "twincatExplorer.hasProjects"
         },
         {
           "command": "twincatExplorer.addMethod",
@@ -633,6 +678,31 @@
           "command": "twincatExplorer.history.show",
           "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
           "group": "navigation@5"
+        },
+        {
+          "command": "twincatExplorer.addPou",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
+          "group": "2_add@1"
+        },
+        {
+          "command": "twincatExplorer.addDut",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
+          "group": "2_add@2"
+        },
+        {
+          "command": "twincatExplorer.addGvl",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
+          "group": "2_add@3"
+        },
+        {
+          "command": "twincatExplorer.addInterface",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
+          "group": "2_add@4"
+        },
+        {
+          "command": "twincatExplorer.newFolder",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
+          "group": "2_add@5"
         },
         {
           "command": "twincatExplorer.addMethod",

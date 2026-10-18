@@ -6,8 +6,8 @@
 
 import { randomUUID } from 'crypto';
 import { Accessor, viewSections } from './objectText';
-import { Section, TcObject, TcSourceFile, normalizeEol, parseTcText, stripTrivia } from './tcfile';
-import { XmlElement } from './xml';
+import { Section, TcObject, TcSourceFile, normalizeEol, parseTcText, stripTrivia, toEol } from './tcfile';
+import { XmlElement, escapeAttr, indentBefore } from './xml';
 
 export interface SectionEdit {
   key: string;
@@ -35,11 +35,6 @@ export function declaredName(declaration: string): string | undefined {
 
 export function escapeCdata(text: string): string {
   return text.split(']]>').join(']]]]><![CDATA[>');
-}
-
-function toEol(text: string, eol: string): string {
-  const lf = normalizeEol(text);
-  return eol === '\n' ? lf : lf.replace(/\n/g, eol);
 }
 
 /** Throws if the edit renames the object through its declaration header. */
@@ -180,23 +175,20 @@ export function newGuid(): string {
   return `{${randomUUID()}}`;
 }
 
-/** Why a new member of the POU or interface cannot have this name; undefined when it can. */
-export function memberNameProblem(owner: TcObject, name: string): string | undefined {
+/** Why a text cannot name an object or member (empty, not an identifier); undefined when it can. */
+export function identifierProblem(name: string): string | undefined {
   if (!name) return 'Enter a name';
   if (!/^[A-Za-z_]\w*$/.test(name)) return `'${name}' is not an identifier: letters, digits and underscores, not starting with a digit`;
+  return undefined;
+}
+
+/** Why a new member of the POU or interface cannot have this name; undefined when it can. */
+export function memberNameProblem(owner: TcObject, name: string): string | undefined {
+  const problem = identifierProblem(name);
+  if (problem) return problem;
   const upper = name.toUpperCase();
   const clash = owner.members.find(m => m.name.toUpperCase() === upper);
   return clash ? `${owner.name} already has a ${clash.kind} named ${clash.name}` : undefined;
-}
-
-function escapeAttr(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-/** The whitespace before an offset on its line, or undefined when something else is there. */
-function indentBefore(text: string, offset: number): string | undefined {
-  const lead = text.slice(text.lastIndexOf('\n', offset - 1) + 1, offset);
-  return /^[ \t]*$/.test(lead) ? lead : undefined;
 }
 
 /**

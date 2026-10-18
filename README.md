@@ -36,6 +36,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   like the Explorer marks files.
 - Right-click a POU, an interface or a folder inside a POU to add a method, property or action (see
   [Adding methods, properties and actions](#adding-methods-properties-and-actions)).
+- Right-click a PLC project or one of its folders to add a POU, DUT, GVL, interface or folder (see
+  [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 
 ### Split editor
@@ -111,6 +113,34 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   implementation.
 - A file with unsaved changes in an editor is refused: save or revert them first. To take back a new
   member, use Discard Changes in the TwinCAT Changes view.
+
+### Adding POUs, DUTs, GVLs, interfaces and folders
+
+- **Add POU...**, **Add DUT...**, **Add Global Variable List...**, **Add Interface...** and **New
+  Folder...** are in the context menu of a PLC project and of its folders in the TwinCAT tree. From the
+  Command Palette they add to the folder of the active editor's object, or to a PLC project picked.
+- **What they ask:**
+  - Add POU: function block, program or function; the name; the return type of a function; the
+    function block a function block extends and the interfaces it implements (both may stay empty).
+  - Add DUT: structure (and the structure it extends), enumeration, union or alias (and its type); the
+    name.
+  - Add Global Variable List: the name. Add Interface: the name and the interfaces it extends.
+  - The name must be an identifier that no POU, DUT, GVL or interface of the PLC project has (case
+    aside), with no file of that name in the folder. A base the project does not know only gets a
+    warning: it may come from a library without a stub.
+- **What they write**, as TwinCAT XAE 3.1.4026 does:
+  - The file of the object (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`) in the folder, with a new GUID and
+    the declaration XAE gives a new object: for example `FUNCTION_BLOCK FB_Pump EXTENDS FB_Base
+    IMPLEMENTS I_Pump` with empty `VAR_INPUT`, `VAR_OUTPUT` and `VAR` blocks, `TYPE ST_Data:` with an
+    empty `STRUCT`, or `VAR_GLOBAL` and `END_VAR`.
+  - The file gets the XML header, line breaks and BOM of the other files of the project.
+  - A function block that implements interfaces gets their methods and properties, as with Implement
+    Interfaces.
+  - The `.plcproj` gets the `<Compile>` item of the file, or the `<Folder>` item of a folder, where XAE
+    puts it; the rest of the `.plcproj` stays byte-identical. New Folder also makes the folder on disk.
+- **Then:** the tree shows the new object or folder, and a new object opens in the split editor.
+- A `.plcproj` with unsaved changes in an editor is refused. A TwinCAT XAE 3.1.4026 that has the
+  project open asks whether to reload the changed `.plcproj`: answer Yes.
 
 ### Structured Text language features
 
@@ -282,6 +312,8 @@ title bars and context menus, for example Discard Changes, Copy Commit SHA and C
 | `TwinCAT: Go to Object...` | Pick any object of the workspace and open it (Ctrl+Alt+T). |
 | `TwinCAT: Reveal in TwinCAT Explorer` / `TwinCAT: Reveal Active Editor` | Select the object or file in the TwinCAT tree. |
 | `TwinCAT: Open XML` | Open the object's file as XML text, at the object. |
+| `TwinCAT: Add POU...` / `TwinCAT: Add DUT...` / `TwinCAT: Add Global Variable List...` / `TwinCAT: Add Interface...` | Add an object to a PLC project or one of its folders (see [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)). |
+| `TwinCAT: New Folder...` | Add a folder to a PLC project or one of its folders, on disk and in the `.plcproj`. |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as inline diffs against `HEAD`, or back as normal panes. |
@@ -360,14 +392,17 @@ sources.
 **Editing and projects**
 - Only Structured Text is editable; other implementation languages are shown as read-only
   placeholders.
-- Methods, properties and actions can be added here. POUs, DUTs, GVLs, interfaces, folders and
-  transitions are created in TwinCAT XAE, and objects are renamed, moved and deleted there.
+- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here.
+  Transitions, visualizations and the other kinds of objects are created in TwinCAT XAE, and objects
+  are renamed, moved and deleted there.
 - A member added here has no `LineIds` element, the line map for breakpoints that some XAE versions
-  keep in the file. TwinCAT 3.1.4026 writes none either.
+  keep in the file. TwinCAT 3.1.4026 writes none either in the projects it creates (their option
+  `WriteLineIDs` is off).
 - If TwinCAT XAE has the same project open: XAE 3.1.4026 reloads a source file changed on disk by
   itself, within about a second, when it has no unsaved changes in it (checked with the object not
-  open in XAE), and asks before it reloads a changed `.plcproj` or `.tsproj`. Unsaved changes in XAE
-  can still overwrite what VS Code saved: save or undo them in XAE before editing the same object here.
+  open in XAE), and asks before it reloads a changed `.plcproj` or `.tsproj`, as after Add POU or New
+  Folder here (answer Yes). Unsaved changes in XAE can still overwrite what VS Code saved: save or undo
+  them in XAE before editing the same object here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.
 - PLC projects saved as independent project files (`<Project File="X.xti"/>` in the `.tsproj`) are
   not read yet.

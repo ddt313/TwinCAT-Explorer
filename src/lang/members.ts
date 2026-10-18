@@ -2,24 +2,28 @@
 // in, and the methods and properties a function block lacks to implement its interfaces.
 
 import * as A from './ast';
-import { Analyzer } from './analyzer';
 import { ELEMENTARY } from './builtins';
 import { LanguageIndex } from './index';
 import { RESERVED, parseDeclaration } from './parser';
 import { MemberSym, PouSym, Scope } from './symbols';
-import { MemberSpec, memberNameProblem } from '../core/splice';
+import { MemberSpec, identifierProblem, memberNameProblem } from '../core/splice';
 import { TcObject, TcSourceFile } from '../core/tcfile';
 import { fileKey } from '../core/workspace';
 
-/** Words that cannot name a member although they look like identifiers. */
+/** Words that cannot name a member or object although they look like identifiers. */
 const NOT_NAMES = new Set([
   ...RESERVED, ...ELEMENTARY, 'STRING', 'WSTRING', 'TRUE', 'FALSE', 'THIS', 'SUPER', 'ACTION',
   'PUBLIC', 'PRIVATE', 'PROTECTED', 'INTERNAL', 'FINAL', 'ABSTRACT',
 ]);
 
+/** Why a text cannot name a member or object (empty, not an identifier, a keyword); undefined when it can. */
+export function nameProblem(name: string): string | undefined {
+  return identifierProblem(name) ?? (NOT_NAMES.has(name.toUpperCase()) ? `${name} is a keyword` : undefined);
+}
+
 /** Why a new member of the POU or interface cannot have this name (not an identifier, a keyword, taken); undefined when it can. */
 export function newMemberNameProblem(owner: TcObject, name: string): string | undefined {
-  return memberNameProblem(owner, name) ?? (NOT_NAMES.has(name.toUpperCase()) ? `${name} is a keyword` : undefined);
+  return memberNameProblem(owner, name) ?? nameProblem(name);
 }
 
 /** Why the text is not a data type (a return type, the type of a property); undefined when it is one. */
@@ -75,23 +79,32 @@ function stubSpec(index: LanguageIndex, m: MemberSym): MemberSpec {
 export function interfaceStubs(index: LanguageIndex, file: TcSourceFile): InterfaceStubs {
   const root = file.root;
   const decl = root?.sections.find(s => s.role === 'decl' && !s.accessor);
-  const ctx = decl && index.context(fileKey(file.path), decl.key);
-  const pou = ctx?.pou;
-  if (!root || !ctx || !pou) throw new Error(`${file.path} is not a POU of a PLC project of the workspace`);
-  const analyzer = new Analyzer(index, ctx, '');
-  const taken = new Set(root.members.map(m => m.name.toUpperCase()));
+  const pou = decl && index.context(fileKey(file.path), decl.key)?.pou;
+  if (!root || !pou) throw new Error(`${file.path} is not a POU of a PLC project of the workspace`);
+  return stubsFor(index, pou.scope, pou.implementsNames, [pou], root.members.map(m => m.name));
+}
+
+/**
+ * The methods and properties of the interfaces a function block implements (and of those they extend), less
+ * the ones it has (`own`) or gets from `bases`, the function blocks it is or extends, and their bases.
+ */
+export function stubsFor(index: LanguageIndex, scope: Scope, implementsNames: A.QualName[], bases: PouSym[], own: string[]): InterfaceStubs {
+  const taken = new Set(own.map(n => n.toUpperCase()));
   const pous = new Set<PouSym>();
   const take = (p: PouSym, depth: number) => {
     if (depth > 20 || pous.has(p)) return;
     pous.add(p);
     for (const m of p.members) taken.add(m.name.toUpperCase());
-    for (const b of analyzer.basesOf(p)) take(b, depth + 1);
+    for (const q of p.extendsNames) {
+      const b = index.resolveGlobal(q.parts, p.scope);
+      if (b?.kind === 'pou') take(b, depth + 1);
+    }
   };
-  take(pou, 0);
+  for (const b of bases) take(b, 0);
   const out: InterfaceStubs = { stubs: [], interfaces: [], missing: [] };
   const interfaces = new Set<PouSym>();
   const visit = (q: A.QualName, scope: Scope, depth: number) => {
-    const itf = analyzer.resolveGlobalName(q.parts, scope);
+    const itf = index.resolveGlobal(q.parts, scope);
     if (itf?.kind !== 'pou' || itf.pouKind !== 'ITF') {
       const name = q.parts.map(p => p.name).join('.');
       if (!out.missing.includes(name)) out.missing.push(name);
@@ -107,6 +120,6 @@ export function interfaceStubs(index: LanguageIndex, file: TcSourceFile): Interf
     }
     for (const e of itf.extendsNames) visit(e, itf.scope, depth + 1);
   };
-  for (const q of pou.implementsNames) visit(q, pou.scope, 0);
+  for (const q of implementsNames) visit(q, scope, 0);
   return out;
 }

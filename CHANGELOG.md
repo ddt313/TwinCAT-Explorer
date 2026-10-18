@@ -16,6 +16,14 @@ All notable changes to Explorer for TwinCAT. The format follows
 - `Implement Interfaces...` on a function block with `IMPLEMENTS`: adds the methods and properties of
   its interfaces, and of the interfaces these extend, that neither it nor a function block it extends
   has, with the declarations of the interface.
+- `Add POU...`, `Add DUT...`, `Add Global Variable List...`, `Add Interface...` and `New Folder...` in
+  the context menu of a PLC project and of its folders in the TwinCAT tree, and in the Command Palette.
+  A function block can extend another and implement interfaces (it then gets their methods and
+  properties), a structure and an interface can extend others. They write the file of the new object as
+  XAE 3.1.4026 makes it, with the XML header, line breaks and BOM of the project's files, and add its
+  item to the `.plcproj` where XAE puts it; the rest of the `.plcproj` stays byte-identical. A
+  `.plcproj` with unsaved changes in an editor is refused. Checked with TwinCAT XAE 3.1.4026: the new
+  objects compile and show in its tree, and XAE keeps them as written when it saves again.
 
 ### Fixed
 - At start-up the TwinCAT view shows the content of every TwinCAT project. With VS Code 1.142, only the

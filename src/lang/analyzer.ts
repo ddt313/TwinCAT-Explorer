@@ -107,11 +107,8 @@ export class Analyzer {
     }
   }
 
-  resolveGlobalName(parts: A.Ident[], scope: Scope): GlobalSym | undefined {
-    if (parts.length === 1) return this.index.lookupGlobal(scope, parts[0].upper);
-    const ns = this.index.lookupNamespace(scope, parts[0].upper);
-    if (!ns) return this.index.lookupGlobal(scope, parts[parts.length - 1].upper);
-    return this.index.lookupGlobal(ns, parts[parts.length - 1].upper);
+  private resolveGlobalName(parts: A.Ident[], scope: Scope): GlobalSym | undefined {
+    return this.index.resolveGlobal(parts, scope);
   }
 
   instanceType(g: GlobalSym, depth = 0): Ty {

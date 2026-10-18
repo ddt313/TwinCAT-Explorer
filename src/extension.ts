@@ -17,6 +17,7 @@ import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
 import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree';
 import { MemberCommands, NewMemberKind } from './vscode/members';
+import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
 import { DiffFileSystem, GitDirWatcher, firstParent, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
 import { GitChanges } from './vscode/gitChanges';
@@ -796,7 +797,36 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     await members.add(kind, t);
   };
 
+  const objects = new ObjectCommands(ws, index, {
+    // At once, not after the .plcproj watcher's delay: the new object has its node when it opens.
+    written: () => loadProjects(),
+    open: (fsPath, objectId) => openDefault(fsPath, objectId, { preview: false }),
+  });
+  /**
+   * Where a new object goes: the PLC project or folder of a tree node; else the folder of the active editor's
+   * object, or a PLC project picked.
+   */
+  const objectTarget = async (arg: unknown): Promise<ObjectTarget | undefined> => {
+    if (arg instanceof TreeNode && arg.objectTarget) return arg.objectTarget;
+    const t = target(arg);
+    const entry = t && ws.entry(t.fsPath);
+    if (entry) return { plcprojPath: entry.project.path, folder: entry.include.includes('\\') ? entry.include.slice(0, entry.include.lastIndexOf('\\')) : '' };
+    if (t && ws.plcProject(t.fsPath)) return { plcprojPath: t.fsPath, folder: '' };
+    if (ws.plcProjects.length <= 1) return ws.plcProjects[0] && { plcprojPath: ws.plcProjects[0].path, folder: '' };
+    const pick = await vscode.window.showQuickPick(ws.plcProjects.map(p => ({ label: p.name, description: p.path, p })), { placeHolder: 'PLC project' });
+    return pick && { plcprojPath: pick.p.path, folder: '' };
+  };
+  const addObject = (run: (t: ObjectTarget) => Promise<void>) => async (arg?: unknown) => {
+    const t = await objectTarget(arg);
+    if (t) await run(t);
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('twincatExplorer.addPou', addObject(t => objects.addPou(t))),
+    vscode.commands.registerCommand('twincatExplorer.addDut', addObject(t => objects.addDut(t))),
+    vscode.commands.registerCommand('twincatExplorer.addGvl', addObject(t => objects.addGvl(t))),
+    vscode.commands.registerCommand('twincatExplorer.addInterface', addObject(t => objects.addInterface(t))),
+    vscode.commands.registerCommand('twincatExplorer.newFolder', addObject(t => objects.newFolder(t))),
     vscode.commands.registerCommand('twincatExplorer.addMethod', addMember('method')),
     vscode.commands.registerCommand('twincatExplorer.addProperty', addMember('property')),
     vscode.commands.registerCommand('twincatExplorer.addAction', addMember('action')),

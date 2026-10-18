@@ -73,6 +73,12 @@ export function normalizeEol(s: string): string {
   return s.replace(/\r\n?/g, '\n');
 }
 
+/** The text with every line break as the given one. */
+export function toEol(text: string, eol: string): string {
+  const lf = normalizeEol(text);
+  return eol === '\n' ? lf : lf.replace(/\n/g, eol);
+}
+
 export function decodeBytes(bytes: Uint8Array): { text: string; bom: boolean } {
   const bom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
   const text = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('utf8', bom ? 3 : 0);

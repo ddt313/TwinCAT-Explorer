@@ -152,6 +152,16 @@ export function cdataText(text: string, el: XmlElement): string {
   return el.cdata.map(c => text.slice(c.contentStart, c.contentEnd)).join('');
 }
 
+export function escapeAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** The whitespace before an offset on its line, or undefined when something else is there. */
+export function indentBefore(text: string, offset: number): string | undefined {
+  const lead = text.slice(text.lastIndexOf('\n', offset - 1) + 1, offset);
+  return /^[ \t]*$/.test(lead) ? lead : undefined;
+}
+
 /** Plain text content of a leaf element (entities decoded). */
 export function elementText(text: string, el: XmlElement | undefined): string | undefined {
   if (!el) return undefined;

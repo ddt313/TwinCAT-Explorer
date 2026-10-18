@@ -44,6 +44,8 @@ export class TreeNode {
   sortGroup = 1;
   /** Members can be added here. */
   memberTarget?: MemberTarget;
+  /** POUs, DUTs, GVLs, interfaces and folders can be added here: a PLC project or one of its folders. */
+  objectTarget?: { plcprojPath: string; folder: string };
   /** A function block that names interfaces after IMPLEMENTS. */
   implementsInterfaces = false;
 
@@ -56,6 +58,7 @@ export class TreeNode {
     if (this.kind === 'file' && this.fsPath && isSourcePath(this.fsPath)) parts.push('stFile');
     if (this.name) parts.push('named');
     if (this.memberTarget) parts.push(this.memberTarget.actions ? 'addMember addAction' : 'addMember');
+    if (this.objectTarget) parts.push('addObject');
     if (this.implementsInterfaces) parts.push('implements');
     return parts.join(' ');
   }
@@ -218,6 +221,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     node.icon = icon('circuit-board');
     node.tooltip = plc.path;
     node.description = 'PLC project';
+    node.objectTarget = { plcprojPath: plc.path, folder: '' };
 
     const refs = this.add(new TreeNode(`refs:${prefix}`, 'references', 'References', node));
     refs.icon = icon('references');
@@ -248,6 +252,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       f.icon = vscode.ThemeIcon.Folder;
       f.sortGroup = 1;
       f.name = f.label;
+      f.objectTarget = { plcprojPath: plc.path, folder: rel };
       folders.set(key, f);
       return f;
     };

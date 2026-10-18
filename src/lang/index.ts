@@ -518,6 +518,20 @@ export class LanguageIndex {
 
   // ------------------------------------------------------------------ lookups
 
+  /** The scope of a PLC project of the workspace: its own POUs, DUTs and GVLs, and the libraries it references. */
+  projectScope(project: PlcProject): Scope | undefined {
+    this.ensure();
+    return this.projectScopes.get(project);
+  }
+
+  /** The global a name (`FB_X`, `Lib.FB_X`) means in a scope. */
+  resolveGlobal(parts: A.Ident[], scope: Scope): GlobalSym | undefined {
+    if (parts.length === 1) return this.lookupGlobal(scope, parts[0].upper);
+    const ns = this.lookupNamespace(scope, parts[0].upper);
+    if (!ns) return this.lookupGlobal(scope, parts[parts.length - 1].upper);
+    return this.lookupGlobal(ns, parts[parts.length - 1].upper);
+  }
+
   lookupGlobal(scope: Scope, upper: string, seen = new Set<Scope>()): GlobalSym | undefined {
     if (seen.has(scope)) return undefined;
     seen.add(scope);

@@ -5,8 +5,8 @@ import * as A from './ast';
 import { ELEMENTARY } from './builtins';
 import { LanguageIndex } from './index';
 import { RESERVED, parseDeclaration } from './parser';
-import { MemberSym, PouSym, Scope } from './symbols';
-import { MemberSpec, identifierProblem, memberNameProblem } from '../core/splice';
+import { Loc, MemberSym, PouSym, Scope } from './symbols';
+import { MemberSpec, SectionRange, identifierProblem, memberNameProblem } from '../core/splice';
 import { TcObject, TcSourceFile } from '../core/tcfile';
 import { fileKey } from '../core/workspace';
 
@@ -21,9 +21,25 @@ export function nameProblem(name: string): string | undefined {
   return identifierProblem(name) ?? (NOT_NAMES.has(name.toUpperCase()) ? `${name} is a keyword` : undefined);
 }
 
-/** Why a new member of the POU or interface cannot have this name (not an identifier, a keyword, taken); undefined when it can. */
-export function newMemberNameProblem(owner: TcObject, name: string): string | undefined {
-  return memberNameProblem(owner, name) ?? nameProblem(name);
+/**
+ * Why a new member of the POU or interface (or `renamed`, given a new name) cannot have this name: not an
+ * identifier, a keyword, taken. Undefined when it can.
+ */
+export function newMemberNameProblem(owner: TcObject, name: string, renamed?: TcObject): string | undefined {
+  return memberNameProblem(owner, name, renamed) ?? nameProblem(name);
+}
+
+/**
+ * The uses found before a rename that it left with the old name, where they are after it: the rename changed the
+ * ranges (in the file `key`) and the length of the name by `delta`, which moves what follows in their sections.
+ */
+export function usesLeftByRename(uses: Loc[], key: string, renamed: SectionRange[], delta: number): Loc[] {
+  return uses.flatMap(u => {
+    const same = u.fileKey === key ? renamed.filter(r => r.section.key === u.sectionKey) : [];
+    if (same.some(r => r.start === u.start)) return [];
+    const shift = delta * same.filter(r => r.end <= u.start).length;
+    return [{ ...u, start: u.start + shift, end: u.end + shift }];
+  });
 }
 
 /** Why the text is not a data type (a return type, the type of a property); undefined when it is one. */

@@ -4,11 +4,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { encodeText, parseTcFile, parseTcText } from '../../src/core/tcfile';
-import { MemberSpec, SpliceError, addMember, removeMember } from '../../src/core/splice';
+import { MemberSpec, SpliceError, addMember, declaredNameRange, memberNameRanges, removeMember, renameMember } from '../../src/core/splice';
 import { viewChanges } from '../../src/core/objectChanges';
 import { TcWorkspace } from '../../src/core/workspace';
 import { LanguageIndex } from '../../src/lang/index';
-import { interfaceStubs, newMemberNameProblem, typeProblem } from '../../src/lang/members';
+import { interfaceStubs, newMemberNameProblem, typeProblem, usesLeftByRename } from '../../src/lang/members';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 
 const FB = '{11111111-1111-1111-1111-111111111111}';
@@ -17,6 +17,7 @@ const RUN = '{22222222-2222-2222-2222-222222222222}';
 const STOP = '{33333333-3333-3333-3333-333333333333}';
 const PROP = '{44444444-4444-4444-4444-444444444444}';
 const GET = '{55555555-5555-5555-5555-555555555555}';
+const SET = '{66666666-6666-6666-6666-666666666666}';
 const A = '{aaaaaaaa-0000-4000-8000-000000000001}';
 const B = '{aaaaaaaa-0000-4000-8000-000000000002}';
 const C = '{aaaaaaaa-0000-4000-8000-000000000003}';
@@ -232,6 +233,124 @@ test('the indentation of the file, a folder of the POU, and the methods TwinCAT 
   assert.equal(declarationOf(pou(), { kind: 'method', name: 'fb_reinit' }), 'METHOD fb_reinit : BOOL');
   // Only a function block has them.
   assert.equal(declarationOf(pou('', '', 'PROGRAM FB_Pump'), { kind: 'method', name: 'FB_init' }), 'METHOD FB_init');
+});
+
+/** LineIds as XAE writes them in projects that keep them in their files. */
+const lineIds = (...names: string[]) => names.map(n => `
+    <LineIds Name="${n}">
+      <LineId Id="2" Count="0" />
+    </LineIds>`).join('');
+
+test('a renamed member: its Name, its declaration, its LineIds, and its place in name order as XAE writes it', () => {
+  const two = method(RUN, 'Run') + method(STOP, 'Stop');
+  // Run renamed Zap comes after Stop, as XAE writes the file after a rename; its LineIds follow the name.
+  assert.equal(renameMember(parse(pou(two, lineIds('FB_Pump', 'FB_Pump.Run'))), id(RUN), 'Zap'),
+    pou(method(STOP, 'Stop') + method(RUN, 'Zap'), lineIds('FB_Pump', 'FB_Pump.Zap')));
+  assert.equal(renameMember(parse(pou(two)), id(STOP), 'Again'), pou(method(STOP, 'Again') + method(RUN, 'Run')));
+  // Where it is already in name order, and a change of case only.
+  assert.equal(renameMember(parse(pou(two)), id(RUN), 'Rest'), pou(method(RUN, 'Rest') + method(STOP, 'Stop')));
+  assert.equal(renameMember(parse(pou(two)), id(RUN), 'RUN'), pou(method(RUN, 'RUN') + method(STOP, 'Stop')));
+  assert.equal(renameMember(parse(pou(two)), id(RUN), 'Run'), pou(two), 'the same name: nothing changes');
+  // The other members not in name order: it stays where it is.
+  const unsorted = method(STOP, 'Stop') + method(RUN, 'Run') + action(A, 'Mid');
+  assert.equal(renameMember(parse(pou(unsorted)), id(A), 'Aaa'), pou(method(STOP, 'Stop') + method(RUN, 'Run') + action(A, 'Aaa')));
+  // A property: the LineIds of its accessors too; an action and a transition have no declaration to rename.
+  const count = (name: string) => property(PROP, name, 'INT', [['Get', GET], ['Set', SET]]);
+  assert.equal(renameMember(parse(pou(count('Count'), lineIds('FB_Pump', 'FB_Pump.Count.Get', 'FB_Pump.Count.Set'))), id(PROP), 'Level'),
+    pou(count('Level'), lineIds('FB_Pump', 'FB_Pump.Level.Get', 'FB_Pump.Level.Set')));
+  assert.equal(renameMember(parse(pou(action(A, 'Reset'))), id(A), 'Clear'), pou(action(A, 'Clear')));
+  const transition = (name: string) => `
+    <Transition Name="${name}" Id="${B}">
+      <Implementation>
+        <ST><![CDATA[bRun]]></ST>
+      </Implementation>
+    </Transition>`;
+  assert.equal(renameMember(parse(pou(transition('T_Go'))), id(B), 'T_Run'), pou(transition('T_Run')));
+});
+
+test('a rename keeps comments, attributes and line breaks, and takes the rules of a new member', () => {
+  const declared = (name: string) => `
+    <Method Name="${name}" Id="${RUN}">
+      <Declaration><![CDATA[// METHOD Run was here (* METHOD Run *)
+{attribute 'monitoring' := 'call'}
+METHOD PROTECTED ${name} : BOOL
+VAR_INPUT
+	bRun : BOOL; // Run
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[${name} := bRun; // Run
+IF NOT ${name} THEN
+	sText := 'Run';
+	${name} := THIS^.Run(bRun := FALSE) OR fbOther. Run;
+END_IF]]></ST>
+      </Implementation>
+    </Method>`;
+  const caller = `
+    <Method Name="Stop" Id="${STOP}">
+      <Declaration><![CDATA[METHOD Stop]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Run();]]></ST>
+      </Implementation>
+    </Method>`;
+  // Its name where it stands for itself inside it (its return value), case aside, as XAE renames it; not the
+  // comments, strings and names after a dot, nor what calls it from elsewhere.
+  const before = pou(declared('Run').replace('IF NOT Run', 'IF NOT run') + caller);
+  const ranges = memberNameRanges(parse(before), id(RUN));
+  assert.deepEqual(ranges.map(r => [r.section.role, r.section.text.slice(r.start, r.end)]),
+    [['decl', 'Run'], ['impl', 'Run'], ['impl', 'run'], ['impl', 'Run']]);
+  assert.equal(renameMember(parse(before), id(RUN), 'Go'), pou(declared('Go') + caller));
+  // The uses left: THIS^.Run, 3 characters earlier after the 3 renamed before it; the call in Stop as it was.
+  const impl = ranges[1].section;
+  const at = (key: string, text: string, word: string, from = 0) => ({ fileKey: 'fb', sectionKey: key, start: text.indexOf(word, from), end: text.indexOf(word, from) + word.length });
+  const self = at(impl.key, impl.text, 'Run(');
+  const call = at(`${id(STOP)}:impl`, 'Run();', 'Run');
+  const own = { fileKey: 'fb', sectionKey: impl.key, start: ranges[3].start, end: ranges[3].end };
+  assert.deepEqual(usesLeftByRename([self, call, own], 'fb', ranges, -1), [{ ...self, start: self.start - 3, end: self.end - 3 }, call]);
+  assert.deepEqual(usesLeftByRename([self], 'other', ranges, -1), [self], 'another file');
+  // The value of a property in its Get and Set.
+  const level = (name: string) => `
+    <Property Name="${name}" Id="${PROP}">
+      <Declaration><![CDATA[PROPERTY PUBLIC ${name} : INT]]></Declaration>
+      <Get Name="Get" Id="${GET}">
+        <Declaration><![CDATA[VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[${name} := nLevel;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="${SET}">
+        <Declaration><![CDATA[VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[nLevel := ${name};]]></ST>
+        </Implementation>
+      </Set>
+    </Property>`;
+  assert.equal(renameMember(parse(pou(level('Count'))), id(PROP), 'Level'), pou(level('Level')));
+  const crlf = (s: string) => s.replace(/\n/g, '\r\n');
+  const file = parseTcFile('FB_Pump.TcPOU', encodeText(crlf(pou(method(RUN, 'Run') + method(STOP, 'Stop'))), true));
+  assert.equal(renameMember(file, id(RUN), 'Zap'), crlf(pou(method(STOP, 'Stop') + method(RUN, 'Zap'))));
+  // An interface member, and what is refused.
+  assert.equal(renameMember(parse(itf(method(A, 'Start')), 'I_Pump.TcIO'), id(A), 'Begin'), itf(method(A, 'Begin')));
+  const text = pou(method(RUN, 'Run') + method(STOP, 'Stop'));
+  assert.throws(() => renameMember(parse(text), id(RUN), 'STOP'), /already has a method named Stop/);
+  assert.throws(() => renameMember(parse(text), id(RUN), '1Run'), SpliceError);
+  assert.throws(() => renameMember(parse(text), id(FB), 'FB_Other'), /no longer exists/, 'not a member');
+  const run = parse(text).objects.get(id(RUN))!;
+  assert.equal(newMemberNameProblem(run.parent!, 'run', run), undefined, 'its own name');
+  assert.equal(newMemberNameProblem(run.parent!, 'stop', run), 'FB_Pump already has a method named Stop');
+  assert.deepEqual(declaredNameRange('(* PROPERTY X *)\nPROPERTY PUBLIC P_Y : INT'), { start: 33, end: 36, name: 'P_Y' });
+});
+
+test('a deleted member takes its LineIds along, a deleted accessor its own', () => {
+  const count = property(PROP, 'Count', 'INT', [['Get', GET], ['Set', SET]]);
+  const all = lineIds('FB_Pump', 'FB_Pump.Run', 'FB_Pump.Count.Get', 'FB_Pump.Count.Set');
+  const text = pou(method(RUN, 'Run') + count, all);
+  assert.equal(removeMember(parse(text), id(RUN)), pou(count, lineIds('FB_Pump', 'FB_Pump.Count.Get', 'FB_Pump.Count.Set')));
+  assert.equal(removeMember(parse(text), id(PROP)), pou(method(RUN, 'Run'), lineIds('FB_Pump', 'FB_Pump.Run')));
+  assert.equal(removeMember(parse(text), id(PROP), 'Set'),
+    pou(method(RUN, 'Run') + property(PROP, 'Count', 'INT', [['Get', GET]]), lineIds('FB_Pump', 'FB_Pump.Run', 'FB_Pump.Count.Get')));
+  assert.throws(() => removeMember(parse(pou(method(RUN, 'Run'))), id(FB)), /whole file/);
 });
 
 test('Implement Interfaces: what the function block and the ones it extends lack, declared like in the interface', () => {

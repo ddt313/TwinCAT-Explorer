@@ -405,6 +405,16 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.rename",
+        "title": "Rename...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.delete",
+        "title": "Delete",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.addMethod",
         "title": "Add Method...",
         "category": "TwinCAT"
@@ -442,6 +452,14 @@
         },
         {
           "command": "twincatExplorer.copyName",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.rename",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.delete",
           "when": "false"
         },
         {
@@ -725,6 +743,16 @@
           "group": "2_add@4"
         },
         {
+          "command": "twincatExplorer.rename",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^object /",
+          "group": "7_modification@1"
+        },
+        {
+          "command": "twincatExplorer.delete",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^(object|accessor) /",
+          "group": "7_modification@2"
+        },
+        {
           "command": "twincatExplorer.copyName",
           "when": "view == twincatExplorer.tree && viewItem =~ /named/",
           "group": "9_copy@1"
@@ -884,6 +912,17 @@
         "command": "twincatExplorer.goToObject",
         "key": "ctrl+alt+t",
         "when": "twincatExplorer.hasProjects"
+      },
+      {
+        "command": "twincatExplorer.rename",
+        "key": "f2",
+        "when": "focusedView == twincatExplorer.tree && !inputFocus"
+      },
+      {
+        "command": "twincatExplorer.delete",
+        "key": "delete",
+        "mac": "cmd+backspace",
+        "when": "focusedView == twincatExplorer.tree && !inputFocus"
       }
     ],
     "configuration": {

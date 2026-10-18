@@ -1,17 +1,21 @@
 // Add Method, Add Property, Add Action and Implement Interfaces: they ask for what the new member needs, write
-// it into the file of its POU or interface (see addMember) and open it, the way XAE adds an object.
+// it into the file of its POU or interface (see addMember) and open it, the way XAE adds an object. Delete and
+// Rename of a member (and Delete of an accessor) change the file the way XAE does (see removeMember and
+// renameMember) and close or move the tabs of the member.
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Accessor } from '../core/objectText';
-import { MemberSpec, addMember, isSpecialMethod } from '../core/splice';
+import { MemberSpec, SectionRange, addMember, isSpecialMethod, memberNameRanges, removeMember, renameMember } from '../core/splice';
 import { TcSourceFile, encodeText, parseTcFile, parseTcText } from '../core/tcfile';
-import { TcWorkspace } from '../core/workspace';
+import { TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
-import { interfaceStubs, newMemberNameProblem, typeProblem } from '../lang/members';
+import { interfaceStubs, newMemberNameProblem, typeProblem, usesLeftByRename } from '../lang/members';
+import { Loc } from '../lang/symbols';
 import { hasUnsavedEdits } from './openDocs';
-import { MemberTarget } from './tree';
+import { ShownTab, closeTabs, shownTabs, tabsOf } from './tabs';
+import { KIND_WORD, MemberTarget } from './tree';
 
 export type NewMemberKind = MemberSpec['kind'];
 
@@ -20,6 +24,26 @@ export interface MemberHooks {
   written(fsPath: string): void;
   /** Opens a new member, or an accessor of a new property. */
   open(fsPath: string, objectId: string, accessor?: Accessor): Promise<void>;
+  /** Where the language index finds an object or member used (not declared). */
+  references(fsPath: string, objectId: string): Loc[];
+  /** Lists places found by references, to open one. */
+  showReferences(title: string, locs: Loc[]): Promise<void>;
+  /** Opens tabs again in a file, where they were. */
+  reopen(fsPath: string, tabs: ShownTab[]): Promise<void>;
+}
+
+/**
+ * The message after a rename that left the uses of the old name as they were: how many the language index
+ * finds, and a button that lists them.
+ */
+export function reportReferences(oldName: string, newName: string, locs: Loc[], show: (title: string, locs: Loc[]) => Promise<void>): void {
+  if (locs.length === 0) {
+    void vscode.window.showInformationMessage(`Renamed ${oldName} to ${newName}. The language index finds no use of ${oldName}.`);
+    return;
+  }
+  const uses = locs.length === 1 ? '1 use' : `${locs.length} uses`;
+  void vscode.window.showInformationMessage(`Renamed ${oldName} to ${newName}. ${uses} of ${oldName} found by the language index still have the old name.`,
+    'Show Uses').then(choice => { if (choice) void show(`Uses of ${oldName}, now ${newName}`, locs); });
 }
 
 const TITLE: Record<NewMemberKind, string> = { method: 'Method', property: 'Property', action: 'Action' };
@@ -70,7 +94,7 @@ export class MemberCommands {
       if (!choice) return;
       spec.accessors = choice.accessors;
     }
-    const file = this.write(fsPath, target.objectId, [spec]);
+    const file = this.addMembers(fsPath, target.objectId, [spec]);
     const added = file?.root?.members.find(m => m.kind === kind && m.name === name);
     if (added) await this.hooks.open(fsPath, added.id, added.accessors[0]?.kind);
   }
@@ -111,24 +135,80 @@ export class MemberCommands {
       placeHolder: `The methods and properties to add${missing.length ? ` (not found: ${missing.join(', ')})` : ''}`,
     });
     if (!picked?.length) return;
-    if (this.write(fsPath, root.id, picked.map(p => p.spec))) {
+    if (this.addMembers(fsPath, root.id, picked.map(p => p.spec))) {
       void vscode.window.showInformationMessage(`Added to ${root.name}: ${picked.map(p => p.spec.name).join(', ')}.${notFound}`);
     }
+  }
+
+  /** Deletes a member, or an accessor of a property, after a confirmation, as XAE does; its tabs close. */
+  async delete(fsPath: string, objectId: string, accessor?: Accessor): Promise<void> {
+    if (this.refuseUnsaved(fsPath)) return;
+    const obj = this.ws.getFile(fsPath)?.objects.get(objectId);
+    if (!obj?.parent || (accessor && !obj.accessors.some(a => a.kind === accessor))) {
+      void vscode.window.showWarningMessage(`TwinCAT object not found in ${path.basename(fsPath)}`);
+      return;
+    }
+    const what = accessor ? `the ${accessor} accessor of ${obj.qualifiedName}` : `the ${KIND_WORD[obj.kind].toLowerCase()} ${obj.qualifiedName}`;
+    const choice = await vscode.window.showWarningMessage(`Delete ${what}?`, {
+      modal: true,
+      detail: `It is removed from ${path.basename(fsPath)}, as when it is deleted in TwinCAT XAE. What uses it is not changed.`,
+    }, 'Delete');
+    if (choice !== 'Delete') return;
+    if (this.write(fsPath, file => removeMember(file, objectId, accessor))) await closeTabs(tabsOf(fsPath, objectId, accessor));
+  }
+
+  /**
+   * Renames a member as XAE does (see renameMember); its tabs open again under the new name. What uses it keeps
+   * the old name, as after a rename in XAE's tree: the message says how many uses the language index finds.
+   */
+  async rename(fsPath: string, objectId: string): Promise<void> {
+    if (this.refuseUnsaved(fsPath)) return;
+    const obj = this.ws.getFile(fsPath)?.objects.get(objectId);
+    const owner = obj?.parent;
+    if (!obj || !owner) {
+      void vscode.window.showWarningMessage(`TwinCAT object not found in ${path.basename(fsPath)}`);
+      return;
+    }
+    const name = (await vscode.window.showInputBox({
+      title: `Rename ${obj.qualifiedName}`, prompt: `New name of the ${KIND_WORD[obj.kind].toLowerCase()}`, value: obj.name,
+      validateInput: v => newMemberNameProblem(owner, v.trim(), obj),
+    }))?.trim();
+    if (!name || name === obj.name) return;
+    const uses = this.hooks.references(fsPath, objectId);
+    const tabs = tabsOf(fsPath, objectId);
+    const shown = shownTabs(tabs);
+    let renamed: SectionRange[] = [];
+    if (!this.write(fsPath, file => {
+      renamed = memberNameRanges(file, objectId);
+      return renameMember(file, objectId, name);
+    })) return;
+    await closeTabs(tabs);
+    await this.hooks.reopen(fsPath, shown);
+    const left = usesLeftByRename(uses, fileKey(fsPath), renamed, name.length - obj.name.length);
+    reportReferences(obj.qualifiedName, `${owner.name}.${name}`, left, this.hooks.showReferences);
   }
 
   /**
    * Adds the members to the file as it is on disk and writes it back with its BOM, or shows why it cannot.
    * Returns the file as written.
    */
-  private write(fsPath: string, ownerId: string, specs: MemberSpec[]): TcSourceFile | undefined {
+  private addMembers(fsPath: string, ownerId: string, specs: MemberSpec[]): TcSourceFile | undefined {
+    return this.write(fsPath, file => {
+      let f = file;
+      for (const spec of specs) f = parseTcText(fsPath, addMember(f, ownerId, spec), file.bom);
+      return f.text;
+    });
+  }
+
+  /** Changes the file as it is on disk and writes it back with its BOM, or shows why it cannot. Returns the file as written. */
+  private write(fsPath: string, change: (file: TcSourceFile) => string): TcSourceFile | undefined {
     // An editor may have been edited while the questions were asked.
     if (this.refuseUnsaved(fsPath)) return undefined;
     let file: TcSourceFile;
     try {
-      file = parseTcFile(fsPath, fs.readFileSync(fsPath));
-      const bom = file.bom;
-      for (const spec of specs) file = parseTcText(fsPath, addMember(file, ownerId, spec), bom);
-      fs.writeFileSync(fsPath, encodeText(file.text, bom));
+      const read = parseTcFile(fsPath, fs.readFileSync(fsPath));
+      file = parseTcText(fsPath, change(read), read.bom);
+      fs.writeFileSync(fsPath, encodeText(file.text, read.bom));
     } catch (e) {
       void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
       return undefined;

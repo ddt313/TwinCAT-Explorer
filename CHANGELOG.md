@@ -24,6 +24,16 @@ All notable changes to Explorer for TwinCAT. The format follows
   item to the `.plcproj` where XAE puts it; the rest of the `.plcproj` stays byte-identical. A
   `.plcproj` with unsaved changes in an editor is refused. Checked with TwinCAT XAE 3.1.4026: the new
   objects compile and show in its tree, and XAE keeps them as written when it saves again.
+- `Rename...` (F2) and `Delete` (Delete) on a method, property, action or transition in the TwinCAT
+  tree, and `Delete` on the `Get` or `Set` of a property. Rename changes the name of the member, in its
+  declaration and where the name stands for the member inside it (a method's return value, a property's
+  value in its `Get` and `Set`), renames its `LineIds` and moves it to its place in XAE's name order.
+  What uses it elsewhere keeps the old name: the message says how many uses the language index finds,
+  and Show Uses lists them. Delete asks first, then removes the member or accessor with its `LineIds`.
+  Open tabs of the member follow it. A file with unsaved changes in an editor is refused. Checked with
+  TwinCAT XAE 3.1.4026: after renames and deletes, with the calls changed to match, Check all objects
+  finds no error, XAE's tree shows the new names, and XAE keeps the files as written when it saves them
+  again.
 
 ### Fixed
 - At start-up the TwinCAT view shows the content of every TwinCAT project. With VS Code 1.142, only the

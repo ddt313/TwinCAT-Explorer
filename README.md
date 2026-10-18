@@ -36,6 +36,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   like the Explorer marks files.
 - Right-click a POU, an interface or a folder inside a POU to add a method, property or action (see
   [Adding methods, properties and actions](#adding-methods-properties-and-actions)).
+- Right-click a method, property, action or transition to rename or delete it (F2, Delete; see
+  [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)).
 - Right-click a PLC project or one of its folders to add a POU, DUT, GVL, interface or folder (see
   [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
@@ -84,7 +86,10 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Reloads:** open tabs without unsaved edits reload when the file changes on disk. Undoing back to
   the text on disk makes the tab clean again.
 - **Renaming is blocked:** changing the name in a declaration header (`METHOD OnEntry` to
-  `METHOD OnEnter`) makes the save fail with a message. Rename objects in TwinCAT XAE.
+  `METHOD OnEnter`) makes the save fail with a message. Rename methods, properties, actions and
+  transitions with Rename... in the TwinCAT tree (see
+  [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)),
+  other objects in TwinCAT XAE.
 
 ### Adding methods, properties and actions
 
@@ -113,6 +118,28 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   implementation.
 - A file with unsaved changes in an editor is refused: save or revert them first. To take back a new
   member, use Discard Changes in the TwinCAT Changes view.
+
+### Renaming and deleting methods, properties and actions
+
+- **Rename...** (F2) and **Delete** (Delete) are in the context menu of a method, property, action or
+  transition in the TwinCAT tree. Delete is also on the `Get` and `Set` of a property.
+- **Rename** asks for the new name, checked like the name of a new member. Then, as TwinCAT XAE
+  3.1.4026 does, it changes:
+  - The name of the member in the file and in its declaration (`METHOD M_Start : BOOL`).
+  - The name inside the member where it stands for the member itself: a method's return value
+    (`M_Start := TRUE;`), a property's value in its `Get` and `Set`.
+  - Its `LineIds` and those of its accessors, in files that have them.
+  - Its place: XAE keeps the members in name order, so a renamed member moves to its new place.
+- **What uses the member elsewhere keeps the old name.** XAE's rename would change it too. The message
+  after the rename says how many uses of the old name the language index finds, and **Show Uses**
+  lists them so that you can open and change each one. The function blocks that implement an
+  interface keep their method or property under the old name: rename it there too.
+- **Delete** asks first. Then it removes the member, or the accessor, from the file with its
+  `LineIds`, as XAE does. What uses it is not changed.
+- The rest of the file stays byte-identical. Open tabs of the member open again under its new name, or
+  close when it is deleted.
+- A file with unsaved changes in an editor is refused. To take back a rename or a delete, use Discard
+  Changes in the TwinCAT Changes view.
 
 ### Adding POUs, DUTs, GVLs, interfaces and folders
 
@@ -304,7 +331,8 @@ code --uninstall-extension thanhdang.explorer-for-twincat --profile <profile>
 ## Commands
 
 All commands are in the Command Palette under the `TwinCAT` categories. The views add more in their
-title bars and context menus, for example Discard Changes, Copy Commit SHA and Copy Name.
+title bars and context menus, for example Rename..., Delete, Discard Changes, Copy Commit SHA and Copy
+Name.
 
 | Command | What it does |
 |---|---|
@@ -336,6 +364,8 @@ title bars and context menus, for example Discard Changes, Copy Commit SHA and C
 |---|---|---|
 | Ctrl+Alt+T | anywhere, with TwinCAT projects open | Go to Object |
 | Ctrl+T | anywhere | Find a POU, method, property, DUT, GVL or global variable |
+| F2 | TwinCAT tree | Rename the selected method, property, action or transition |
+| Delete | TwinCAT tree | Delete the selected method, property, action, transition, `Get` or `Set` |
 | F12, Ctrl+click | split editor, notebook cells | Go to Definition |
 | Shift+F12 | split editor, notebook cells | Find All References (peek view) |
 | Alt+F5 / Shift+Alt+F5 | split editor | Next / previous change vs `HEAD` |
@@ -392,17 +422,27 @@ sources.
 **Editing and projects**
 - Only Structured Text is editable; other implementation languages are shown as read-only
   placeholders.
-- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here.
-  Transitions, visualizations and the other kinds of objects are created in TwinCAT XAE, and objects
-  are renamed, moved and deleted there.
+- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here, and
+  methods, properties, actions and transitions renamed and deleted. Transitions, visualizations and the
+  other kinds of objects are created in TwinCAT XAE, and POUs, DUTs, GVLs, interfaces and folders are
+  renamed, moved and deleted there.
+- Rename changes the member and the code inside it, not what uses it elsewhere, which XAE's rename
+  also changes. The uses it counts are those the language index finds: not uses in implementation
+  languages other than Structured Text, nor uses it cannot resolve.
 - A member added here has no `LineIds` element, the line map for breakpoints that some XAE versions
   keep in the file. TwinCAT 3.1.4026 writes none either in the projects it creates (their option
   `WriteLineIDs` is off).
-- If TwinCAT XAE has the same project open: XAE 3.1.4026 reloads a source file changed on disk by
-  itself, within about a second, when it has no unsaved changes in it (checked with the object not
-  open in XAE), and asks before it reloads a changed `.plcproj` or `.tsproj`, as after Add POU or New
-  Folder here (answer Yes). Unsaved changes in XAE can still overwrite what VS Code saved: save or undo
-  them in XAE before editing the same object here.
+- If TwinCAT XAE has the same project open (checked with XAE 3.1.4026):
+  - XAE reloads a source file changed on disk by itself, within about a second, when the object is not
+    open in one of its editors and has no unsaved changes there.
+  - When the object is open in an XAE editor, XAE asks "File has been changed outside the environment.
+    Reload the new file?". Answer Yes: XAE closes its editor and shows the object as VS Code wrote it.
+    With No, XAE keeps its old copy, and the next edit of the object in XAE writes that copy back over
+    the changes made here (a renamed or deleted member comes back).
+  - XAE asks before it reloads a changed `.plcproj` or `.tsproj`, as after Add POU or New Folder here:
+    answer Yes.
+  - Unsaved changes in XAE can still overwrite what VS Code saved: save or undo them in XAE before
+    editing the same object here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.
 - PLC projects saved as independent project files (`<Project File="X.xti"/>` in the `.tsproj`) are
   not read yet.

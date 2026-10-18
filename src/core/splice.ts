@@ -6,7 +6,7 @@
 
 import { randomUUID } from 'crypto';
 import { Accessor, viewSections } from './objectText';
-import { Section, TcObject, TcSourceFile, normalizeEol, parseTcText, stripTrivia, toEol } from './tcfile';
+import { Section, TcObject, TcSourceFile, normalizeEol, parseTcText, sectionOffsetToFileOffset, stripTrivia, toEol } from './tcfile';
 import { XmlElement, escapeAttr, indentBefore } from './xml';
 
 export interface SectionEdit {
@@ -101,33 +101,79 @@ export function restoreView(file: TcSourceFile, base: TcSourceFile, objectId: st
   return applySectionEdits(file, keys.map(key => ({ key, text: base.sections.get(key)!.text }))).text;
 }
 
-/**
- * The file without one member of its POU (a method, property, action or transition) or one accessor of a
- * property, as when it is deleted in XAE: its element goes, with the indentation and line break around it
- * when it is alone on its lines.
- */
-export function removeMember(file: TcSourceFile, objectId: string, accessor?: 'Get' | 'Set'): string {
-  const obj = file.objects.get(objectId);
-  if (!obj) throw new SpliceError(`The object no longer exists in ${file.path}`);
-  let el: XmlElement | undefined;
-  if (accessor) {
-    // The accessor's Declaration sits directly in its Get or Set element.
-    el = obj.accessors.find(a => a.kind === accessor)?.sections.find(s => s.role === 'decl')?.element.parent;
-    if (el?.name !== accessor) throw new SpliceError(`${obj.qualifiedName} has no ${accessor} accessor to remove`);
-  } else {
-    if (!obj.parent) throw new SpliceError(`${obj.qualifiedName} is a whole file: delete it in TwinCAT XAE`);
-    el = obj.element;
-  }
-  const text = file.text;
+interface TextEdit {
+  start: number;
+  end: number;
+  value: string;
+}
+
+/** The text with the edits (ranges that do not overlap) made. */
+function applyEdits(text: string, edits: TextEdit[]): string {
+  return [...edits].sort((a, b) => b.start - a.start).reduce((t, e) => t.slice(0, e.start) + e.value + t.slice(e.end), text);
+}
+
+/** The range of an element, with the indentation and line break around it when it is alone on its lines. */
+function elementBlock(text: string, el: XmlElement): TextEdit {
   let start = el.start;
   while (start > 0 && (text[start - 1] === ' ' || text[start - 1] === '\t')) start--;
   let end = el.end;
   while (end < text.length && (text[end] === ' ' || text[end] === '\t')) end++;
   const aloneOnLines = (start === 0 || text[start - 1] === '\n') && (end === text.length || text[end] === '\r' || text[end] === '\n');
-  if (!aloneOnLines) return text.slice(0, el.start) + text.slice(el.end);
+  if (!aloneOnLines) return { start: el.start, end: el.end, value: '' };
   if (text.startsWith('\r\n', end)) end += 2;
   else if (text[end] === '\n') end++;
-  return text.slice(0, start) + text.slice(end);
+  return { start, end, value: '' };
+}
+
+/** The range of the value of an attribute in the start tag of an element. */
+function attributeValue(text: string, el: XmlElement, name: string): TextEdit | undefined {
+  const tag = text.slice(el.start, el.selfClosing ? el.end : el.contentStart);
+  const m = new RegExp(`\\s${name}\\s*=\\s*(["'])([^"']*)\\1`).exec(tag);
+  if (!m) return undefined;
+  const start = el.start + m.index + m[0].length - 1 - m[2].length;
+  return { start, end: start + m[2].length, value: m[2] };
+}
+
+/**
+ * The LineIds elements (XAE's line maps, in files of projects that write them) of an object of a POU: `FB_X.M_Run`,
+ * with `prefix` also those under it (`FB_X.P_Speed.Get`, `FB_X.M_Run` under `FB_X`).
+ */
+function lineIdsOf(root: XmlElement, qualifiedName: string, prefix: boolean): XmlElement[] {
+  const upper = qualifiedName.toUpperCase();
+  return root.children.filter(c => {
+    if (c.name !== 'LineIds') return false;
+    const name = (c.attrs.get('Name') ?? '').toUpperCase();
+    return name === upper || (prefix && name.startsWith(`${upper}.`));
+  });
+}
+
+/**
+ * Edits that rename the LineIds of an object: `FB_X.M_Old` and `FB_X.M_Old.Get` become `FB_X.M_New` and
+ * `FB_X.M_New.Get`. `depth` is the number of names before the renamed one (1 for a member, 0 for the POU).
+ */
+function lineIdRenames(text: string, root: XmlElement, qualifiedName: string, depth: number, newName: string): TextEdit[] {
+  return lineIdsOf(root, qualifiedName, true).flatMap(li => {
+    const range = attributeValue(text, li, 'Name');
+    if (!range) return [];
+    const parts = range.value.split('.');
+    parts[depth] = newName;
+    return [{ ...range, value: parts.join('.') }];
+  });
+}
+
+/**
+ * The file without one member of its POU (a method, property, action or transition) or one accessor of a
+ * property, as when it is deleted in XAE: its element goes, with the indentation and line break around it
+ * when it is alone on its lines, and so do its LineIds.
+ */
+export function removeMember(file: TcSourceFile, objectId: string, accessor?: 'Get' | 'Set'): string {
+  const obj = file.objects.get(objectId);
+  if (!obj) throw new SpliceError(`The object no longer exists in ${file.path}`);
+  if (!obj.parent) throw new SpliceError(`${obj.qualifiedName} is a whole file, not a member`);
+  const el = accessor ? obj.element.children.find(c => c.name === accessor) : obj.element;
+  if (!el) throw new SpliceError(`${obj.qualifiedName} has no ${accessor} accessor to remove`);
+  const lineIds = lineIdsOf(obj.parent.element, accessor ? `${obj.qualifiedName}.${accessor}` : obj.qualifiedName, !accessor);
+  return applyEdits(file.text, [el, ...lineIds].map(e => elementBlock(file.text, e)));
 }
 
 /** A member addMember creates: a method, a property with its accessors, or an action. */
@@ -182,13 +228,179 @@ export function identifierProblem(name: string): string | undefined {
   return undefined;
 }
 
-/** Why a new member of the POU or interface cannot have this name; undefined when it can. */
-export function memberNameProblem(owner: TcObject, name: string): string | undefined {
+/** Why a new member of the POU or interface (or `renamed`, given a new name) cannot have this name; undefined when it can. */
+export function memberNameProblem(owner: TcObject, name: string, renamed?: TcObject): string | undefined {
   const problem = identifierProblem(name);
   if (problem) return problem;
   const upper = name.toUpperCase();
-  const clash = owner.members.find(m => m.name.toUpperCase() === upper);
+  const clash = owner.members.find(m => m !== renamed && m.name.toUpperCase() === upper);
   return clash ? `${owner.name} already has a ${clash.kind} named ${clash.name}` : undefined;
+}
+
+/**
+ * Comments, pragmas and strings of a text as spaces, line breaks kept: unlike stripTrivia, offsets stay those of
+ * the text.
+ */
+export function blankTrivia(text: string): string {
+  let out = '';
+  let i = 0;
+  const n = text.length;
+  const blank = (to: number) => {
+    out += text.slice(i, to).replace(/[^\r\n]/g, ' ');
+    i = to;
+  };
+  while (i < n) {
+    const c = text[i];
+    const d = text[i + 1];
+    if (c === '/' && d === '/') {
+      let j = i;
+      while (j < n && text[j] !== '\n' && text[j] !== '\r') j++;
+      blank(j);
+    } else if (c === '(' && d === '*') {
+      let j = i + 2;
+      let depth = 1;
+      while (j < n && depth > 0) {
+        if (text[j] === '(' && text[j + 1] === '*') { depth++; j += 2; continue; }
+        if (text[j] === '*' && text[j + 1] === ')') { depth--; j += 2; continue; }
+        j++;
+      }
+      blank(j);
+    } else if (c === '/' && d === '*') {
+      const close = text.indexOf('*/', i + 2);
+      blank(close < 0 ? n : close + 2);
+    } else if (c === '{') {
+      let j = i + 1;
+      let depth = 1;
+      while (j < n && depth > 0) {
+        if (text[j] === "'") { j++; while (j < n && text[j] !== "'") j++; }
+        else if (text[j] === '{') depth++;
+        else if (text[j] === '}') depth--;
+        j++;
+      }
+      blank(j);
+    } else if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < n && text[j] !== c) j += text[j] === '$' ? 2 : 1;
+      blank(Math.min(j + 1, n));
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+const NAME_PATTERNS: RegExp[] = [
+  new RegExp(`\\b(?:FUNCTION_BLOCK|PROGRAM|FUNCTION|METHOD|PROPERTY|INTERFACE)\\s+${MODIFIERS}([A-Za-z_]\\w*)`, 'i'),
+  /\bTYPE\s+([A-Za-z_]\w*)/i,
+];
+
+/** Where the name of the first header of a declaration is (`METHOD Foo : BOOL`, `TYPE ST_X :`): offsets in the text. */
+export function declaredNameRange(declaration: string): { start: number; end: number; name: string } | undefined {
+  const blanked = blankTrivia(declaration);
+  let best: { start: number; end: number; name: string } | undefined;
+  for (const re of NAME_PATTERNS) {
+    const m = re.exec(blanked);
+    if (!m) continue;
+    const start = m.index + m[0].length - m[1].length;
+    if (!best || start < best.start) best = { start, end: start + m[1].length, name: m[1] };
+  }
+  return best;
+}
+
+/** A range of the text of a section. */
+export interface SectionRange {
+  section: Section;
+  start: number;
+  end: number;
+}
+
+/**
+ * Where the sections of a member hold its name, for a rename: the name its declaration declares (a method's or
+ * property's), and where the name stands for the member itself inside it: a method's return value
+ * (`M_Run := TRUE;`), a property's value in its Get and Set, a call of itself. Not a name after a dot
+ * (`THIS^.M_Run`, `fbOther.M_Run`), nor comments, pragmas and strings. XAE renames these with the member.
+ */
+export function memberNameRanges(file: TcSourceFile, objectId: string): SectionRange[] {
+  const obj = file.objects.get(objectId);
+  if (!obj?.parent) return [];
+  const upper = obj.name.toUpperCase();
+  const header = obj.kind === 'method' || obj.kind === 'property' ? obj.sections.find(s => s.role === 'decl' && !s.accessor) : undefined;
+  if (header && declaredNameRange(header.text)?.name.toUpperCase() !== upper) {
+    throw new SpliceError(`The declaration of ${obj.qualifiedName} does not declare ${obj.name}`);
+  }
+  const out: SectionRange[] = [];
+  for (const section of obj.sections) {
+    const blanked = blankTrivia(section.text);
+    const word = /\w+/g;
+    for (let m = word.exec(blanked); m; m = word.exec(blanked)) {
+      if (m[0].toUpperCase() !== upper) continue;
+      let before = m.index - 1;
+      while (before >= 0 && /\s/.test(blanked[before])) before--;
+      if (blanked[before] === '.' || blanked[before] === '#') continue;
+      out.push({ section, start: m.index, end: m.index + m[0].length });
+    }
+  }
+  return out;
+}
+
+/**
+ * The file with a member of its POU or interface (method, property, action, transition) renamed, as XAE renames
+ * one: its Name attribute, its name in its sections (see memberNameRanges), its LineIds and those of the
+ * accessors of a property. Then it moves to its place in XAE's order when the other members are in that order,
+ * as XAE writes the file after a rename. What refers to the member from elsewhere stays as it is (XAE would
+ * change it too).
+ */
+export function renameMember(file: TcSourceFile, objectId: string, newName: string): string {
+  if (file.error) throw new SpliceError(`${file.path} cannot be read: ${file.error}`);
+  const obj = file.objects.get(objectId);
+  const owner = obj?.parent;
+  if (!obj || !owner) throw new SpliceError(`The member no longer exists in ${file.path}`);
+  const problem = memberNameProblem(owner, newName, obj);
+  if (problem) throw new SpliceError(problem);
+  if (newName === obj.name) return file.text;
+  const text = file.text;
+  const nameAttr = attributeValue(text, obj.element, 'Name');
+  if (!nameAttr) throw new SpliceError(`${obj.qualifiedName} has no Name attribute`);
+  const edits: TextEdit[] = [{ ...nameAttr, value: newName }];
+  const renamed = memberNameRanges(file, objectId);
+  for (const r of renamed) {
+    edits.push({ start: sectionOffsetToFileOffset(file, r.section, r.start), end: sectionOffsetToFileOffset(file, r.section, r.end), value: newName });
+  }
+  edits.push(...lineIdRenames(text, owner.element, obj.qualifiedName, 1, newName));
+  let out = applyEdits(text, edits);
+
+  // XAE keeps the members in its name order: the renamed one moves when the others are in that order.
+  const members = owner.element.children.filter(c => MEMBER_ELEMENTS.has(c.name));
+  const others = members.filter(m => m !== obj.element);
+  const names = others.map(m => m.attrs.get('Name') ?? '');
+  const sorted = names.every((n, i) => i === 0 || memberOrder(names[i - 1], n) <= 0);
+  const next = others.find((_, i) => memberOrder(names[i], newName) > 0);
+  const atPlace = members[members.indexOf(obj.element) + 1] === next;
+  if (sorted && others.length && !atPlace) {
+    const renamed = parseTcText(file.path, out, file.bom);
+    const el = renamed.objects.get(objectId)!.element;
+    const elementText = out.slice(el.start, el.end);
+    out = applyEdits(out, [elementBlock(out, el)]);
+    const without = parseTcText(file.path, out, file.bom);
+    const rest = without.root!.element.children.filter(c => MEMBER_ELEMENTS.has(c.name));
+    const before = next && rest.find(m => m.attrs.get('Name') === next.attrs.get('Name'));
+    const anchor = before ?? rest[rest.length - 1];
+    const indent = indentBefore(out, anchor.start) ?? '    ';
+    out = before
+      ? out.slice(0, before.start) + elementText + file.eol + indent + out.slice(before.start)
+      : out.slice(0, anchor.end) + file.eol + indent + elementText + out.slice(anchor.end);
+  }
+
+  // The file reads back with the member renamed, its sections changed where its name was, the rest as it was.
+  const expected = (s: Section) => applyEdits(s.text, renamed.filter(r => r.section === s).map(r => ({ start: r.start, end: r.end, value: newName })));
+  const check = parseTcText(file.path, out, file.bom);
+  const after = check.objects.get(objectId);
+  if (check.error || after?.name !== newName || after.kind !== obj.kind
+    || [...file.sections].some(([k, s]) => check.sections.get(k)?.text !== expected(s))) {
+    throw new SpliceError(`${obj.qualifiedName} could not be renamed in ${file.path}`);
+  }
+  return out;
 }
 
 /**

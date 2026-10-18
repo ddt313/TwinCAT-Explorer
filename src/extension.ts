@@ -11,13 +11,15 @@ import { debugLog } from './core/debugLog';
 import { LanguageIndex, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
 import { ObjectFileSystem } from './vscode/objectFs';
-import { parseObjectText, viewSections } from './core/objectText';
+import { parseObjectText, positionIn, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
 import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree';
 import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
+import { ShownTab } from './vscode/tabs';
+import { Loc } from './lang/symbols';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
 import { DiffFileSystem, GitDirWatcher, firstParent, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
 import { GitChanges } from './vscode/gitChanges';
@@ -770,6 +772,51 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   const lastRefKey = 'twincatExplorer.lastCompareRef';
 
+  /** Where the language index finds an object or member of a file used: references to it, its declaration aside. */
+  const usesOf = (fsPath: string, objectId: string): Loc[] => {
+    const obj = ws.getFile(fsPath)?.objects.get(objectId);
+    // Any section of it: an action has only its implementation.
+    const ctx = obj?.sections[0] && index.context(fileKey(fsPath), obj.sections[0].key);
+    const sym = ctx && (obj!.parent ? ctx.member : ctx.pou ?? ctx.gvl ?? ctx.types[0]);
+    return sym ? features.referenceLocs(sym, false) : [];
+  };
+  /** The places, to open one in the split editor. */
+  const showUses = async (title: string, locs: Loc[]) => {
+    const items = locs.map(loc => {
+      const ctx = index.context(loc.fileKey, loc.sectionKey);
+      const text = index.sectionText(loc.fileKey, loc.sectionKey) ?? '';
+      const { line } = positionIn(text, loc.start);
+      return {
+        label: ctx ? `${ctx.object.qualifiedName}${ctx.accessor ? `.${ctx.accessor}` : ''}` : '?',
+        description: `${ctx?.label ?? ''}, line ${line + 1}`,
+        detail: text.split('\n')[line]?.trim(),
+        loc, ctx, text,
+      };
+    });
+    const pick = await vscode.window.showQuickPick(items, { title, matchOnDescription: true, matchOnDetail: true });
+    if (!pick?.ctx) return;
+    await openSplit(pick.ctx.filePath, pick.ctx.object.id, {
+      accessor: pick.ctx.accessor, preview: false,
+      reveal: { key: pick.loc.sectionKey, start: pick.loc.start, end: pick.loc.end, focus: true, text: pick.text },
+    });
+  };
+  /** Tabs closed for a rename or move, open again in the file under its new name or path; the active one last. */
+  const reopen = async (fsPath: string, tabs: ShownTab[]) => {
+    const file = ws.getFile(fsPath);
+    for (const t of [...tabs].sort((a, b) => Number(a.active) - Number(b.active))) {
+      const options = { viewColumn: t.viewColumn, preview: t.preview, preserveFocus: !t.active };
+      if (t.kind === 'text') {
+        await vscode.window.showTextDocument(vscode.Uri.file(fsPath), options);
+        continue;
+      }
+      const obj = t.objectId ? file?.objects.get(t.objectId) : undefined;
+      if (!obj || (t.accessor && !obj.accessors.some(a => a.kind === t.accessor))) continue;
+      if (t.kind === 'notebook') await openObject(fsPath, obj.id, { ...options, accessor: t.accessor });
+      // Not openSplit: it would take the URI of the document under the old name, still open for a while.
+      else await vscode.commands.executeCommand('vscode.openWith', objectUri(fsPath, obj, undefined, t.accessor), OBJECT_EDITOR, options);
+    }
+  };
+
   const members = new MemberCommands(ws, index, {
     written: fsPath => {
       onSourceChanged(fsPath);
@@ -777,6 +824,9 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       tree.rebuild();
     },
     open: (fsPath, objectId, accessor) => openDefault(fsPath, objectId, { accessor, preview: false }),
+    references: usesOf,
+    showReferences: showUses,
+    reopen,
   });
   /** Where a new member goes: the POU, interface or folder of a tree node, or the POU or interface of the active editor. */
   const memberTarget = (arg: unknown): MemberTarget | undefined => {
@@ -837,6 +887,17 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
         return;
       }
       await members.implementInterfaces(t.fsPath);
+    }),
+    // Rename and Delete of the tree, from its context menu or with F2 and Delete in it.
+    vscode.commands.registerCommand('twincatExplorer.rename', async (arg?: unknown) => {
+      const node = arg instanceof TreeNode ? arg : treeView.selection[0];
+      if (node?.kind === 'object' && node.fsPath && node.objectId) await members.rename(node.fsPath, node.objectId);
+    }),
+    vscode.commands.registerCommand('twincatExplorer.delete', async (arg?: unknown) => {
+      const node = arg instanceof TreeNode ? arg : treeView.selection[0];
+      if ((node?.kind === 'object' || node?.kind === 'accessor') && node.fsPath && node.objectId) {
+        await members.delete(node.fsPath, node.objectId, node.accessor);
+      }
     }),
     vscode.commands.registerCommand('twincatExplorer.refresh', () => loadProjects()),
     vscode.commands.registerCommand('twincatExplorer.open', (node?: TreeNode) => openNode(node)),

@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { encodeText, parseTcFile, parseTcText } from '../../src/core/tcfile';
-import { MemberSpec, SpliceError, addMember, declaredNameRange, memberNameRanges, removeMember, renameMember } from '../../src/core/splice';
+import { MemberSpec, SpliceError, addMember, declaredNameRange, nameRanges, removeMember, renameMember } from '../../src/core/splice';
 import { viewChanges } from '../../src/core/objectChanges';
 import { TcWorkspace } from '../../src/core/workspace';
 import { LanguageIndex } from '../../src/lang/index';
@@ -295,7 +295,7 @@ END_IF]]></ST>
   // Its name where it stands for itself inside it (its return value), case aside, as XAE renames it; not the
   // comments, strings and names after a dot, nor what calls it from elsewhere.
   const before = pou(declared('Run').replace('IF NOT Run', 'IF NOT run') + caller);
-  const ranges = memberNameRanges(parse(before), id(RUN));
+  const ranges = nameRanges(parse(before), id(RUN));
   assert.deepEqual(ranges.map(r => [r.section.role, r.section.text.slice(r.start, r.end)]),
     [['decl', 'Run'], ['impl', 'Run'], ['impl', 'run'], ['impl', 'Run']]);
   assert.equal(renameMember(parse(before), id(RUN), 'Go'), pou(declared('Go') + caller));

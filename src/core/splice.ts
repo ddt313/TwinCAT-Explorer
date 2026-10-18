@@ -7,7 +7,7 @@
 import { randomUUID } from 'crypto';
 import { Accessor, viewSections } from './objectText';
 import { Section, TcObject, TcSourceFile, normalizeEol, parseTcText, sectionOffsetToFileOffset, stripTrivia, toEol } from './tcfile';
-import { XmlElement, escapeAttr, indentBefore } from './xml';
+import { XmlElement, attributeRange, elementLines, escapeAttr, indentBefore } from './xml';
 
 export interface SectionEdit {
   key: string;
@@ -112,26 +112,9 @@ function applyEdits(text: string, edits: TextEdit[]): string {
   return [...edits].sort((a, b) => b.start - a.start).reduce((t, e) => t.slice(0, e.start) + e.value + t.slice(e.end), text);
 }
 
-/** The range of an element, with the indentation and line break around it when it is alone on its lines. */
+/** The edit that removes an element, with the line it is alone on (see elementLines). */
 function elementBlock(text: string, el: XmlElement): TextEdit {
-  let start = el.start;
-  while (start > 0 && (text[start - 1] === ' ' || text[start - 1] === '\t')) start--;
-  let end = el.end;
-  while (end < text.length && (text[end] === ' ' || text[end] === '\t')) end++;
-  const aloneOnLines = (start === 0 || text[start - 1] === '\n') && (end === text.length || text[end] === '\r' || text[end] === '\n');
-  if (!aloneOnLines) return { start: el.start, end: el.end, value: '' };
-  if (text.startsWith('\r\n', end)) end += 2;
-  else if (text[end] === '\n') end++;
-  return { start, end, value: '' };
-}
-
-/** The range of the value of an attribute in the start tag of an element. */
-function attributeValue(text: string, el: XmlElement, name: string): TextEdit | undefined {
-  const tag = text.slice(el.start, el.selfClosing ? el.end : el.contentStart);
-  const m = new RegExp(`\\s${name}\\s*=\\s*(["'])([^"']*)\\1`).exec(tag);
-  if (!m) return undefined;
-  const start = el.start + m.index + m[0].length - 1 - m[2].length;
-  return { start, end: start + m[2].length, value: m[2] };
+  return { ...elementLines(text, el), value: '' };
 }
 
 /**
@@ -153,7 +136,7 @@ function lineIdsOf(root: XmlElement, qualifiedName: string, prefix: boolean): Xm
  */
 function lineIdRenames(text: string, root: XmlElement, qualifiedName: string, depth: number, newName: string): TextEdit[] {
   return lineIdsOf(root, qualifiedName, true).flatMap(li => {
-    const range = attributeValue(text, li, 'Name');
+    const range = attributeRange(text, li, 'Name');
     if (!range) return [];
     const parts = range.value.split('.');
     parts[depth] = newName;
@@ -316,19 +299,23 @@ export interface SectionRange {
 }
 
 /**
- * Where the sections of a member hold its name, for a rename: the name its declaration declares (a method's or
- * property's), and where the name stands for the member itself inside it: a method's return value
- * (`M_Run := TRUE;`), a property's value in its Get and Set, a call of itself. Not a name after a dot
- * (`THIS^.M_Run`, `fbOther.M_Run`), nor comments, pragmas and strings. XAE renames these with the member.
+ * Where the sections of an object hold its name, for a rename: the name its declaration declares (a method's,
+ * property's, POU's, DUT's or interface's; a GVL declares none), and inside a member or a function, where the name
+ * stands for the object itself: a method's or function's return value (`M_Run := TRUE;`), a property's value in its
+ * Get and Set, a call of itself. Not a name after a dot (`THIS^.M_Run`, `fbOther.M_Run`), nor comments, pragmas and
+ * strings. XAE renames these with the object.
  */
-export function memberNameRanges(file: TcSourceFile, objectId: string): SectionRange[] {
+export function nameRanges(file: TcSourceFile, objectId: string): SectionRange[] {
   const obj = file.objects.get(objectId);
-  if (!obj?.parent) return [];
+  if (!obj) return [];
   const upper = obj.name.toUpperCase();
-  const header = obj.kind === 'method' || obj.kind === 'property' ? obj.sections.find(s => s.role === 'decl' && !s.accessor) : undefined;
-  if (header && declaredNameRange(header.text)?.name.toUpperCase() !== upper) {
+  const decl = obj.sections.find(s => s.role === 'decl' && !s.accessor);
+  const declares = obj.kind !== 'gvl' && obj.kind !== 'action' && obj.kind !== 'transition';
+  const header = declares && decl ? declaredNameRange(decl.text) : undefined;
+  if (declares && decl && header?.name.toUpperCase() !== upper) {
     throw new SpliceError(`The declaration of ${obj.qualifiedName} does not declare ${obj.name}`);
   }
+  if (!obj.parent && obj.pouKind !== 'FUN') return header ? [{ section: decl!, start: header.start, end: header.end }] : [];
   const out: SectionRange[] = [];
   for (const section of obj.sections) {
     const blanked = blankTrivia(section.text);
@@ -344,9 +331,47 @@ export function memberNameRanges(file: TcSourceFile, objectId: string): SectionR
   return out;
 }
 
+/** The edits that put the new name at the ranges. */
+function nameEdits(file: TcSourceFile, ranges: SectionRange[], newName: string): TextEdit[] {
+  return ranges.map(r => ({ start: sectionOffsetToFileOffset(file, r.section, r.start), end: sectionOffsetToFileOffset(file, r.section, r.end), value: newName }));
+}
+
+/** Whether the file reads back with the object renamed and its sections changed at the ranges only. */
+function renamedAsExpected(file: TcSourceFile, out: string, objectId: string, newName: string, ranges: SectionRange[]): boolean {
+  const expected = (s: Section) => applyEdits(s.text, ranges.filter(r => r.section === s).map(r => ({ start: r.start, end: r.end, value: newName })));
+  const check = parseTcText(file.path, out, file.bom);
+  const before = file.objects.get(objectId)!;
+  const after = check.objects.get(objectId);
+  return !check.error && after?.name === newName && after.kind === before.kind
+    && [...file.sections].every(([k, s]) => check.sections.get(k)?.text === expected(s));
+}
+
+/**
+ * The file of a POU, DUT, GVL or interface with the object renamed, as XAE renames one: the Name attribute of its
+ * root element, its name in its sections (see nameRanges), and the LineIds of it and of its members (`FB_X`,
+ * `FB_X.M_Run`). Its members follow, their qualified names coming from it. What refers to it from elsewhere stays
+ * as it is (XAE would change it too). The file itself and its <Compile> item are the caller's to rename.
+ */
+export function renameObject(file: TcSourceFile, newName: string): string {
+  if (file.error) throw new SpliceError(`${file.path} cannot be read: ${file.error}`);
+  const root = file.root;
+  if (!root) throw new SpliceError(`${file.path} has no POU, DUT, GVL or interface`);
+  const problem = identifierProblem(newName);
+  if (problem) throw new SpliceError(problem);
+  if (newName === root.name) return file.text;
+  const nameAttr = attributeRange(file.text, root.element, 'Name');
+  if (!nameAttr) throw new SpliceError(`${root.name} has no Name attribute`);
+  const ranges = nameRanges(file, root.id);
+  const out = applyEdits(file.text, [
+    { ...nameAttr, value: newName }, ...nameEdits(file, ranges, newName), ...lineIdRenames(file.text, root.element, root.name, 0, newName),
+  ]);
+  if (!renamedAsExpected(file, out, root.id, newName, ranges)) throw new SpliceError(`${root.name} could not be renamed in ${file.path}`);
+  return out;
+}
+
 /**
  * The file with a member of its POU or interface (method, property, action, transition) renamed, as XAE renames
- * one: its Name attribute, its name in its sections (see memberNameRanges), its LineIds and those of the
+ * one: its Name attribute, its name in its sections (see nameRanges), its LineIds and those of the
  * accessors of a property. Then it moves to its place in XAE's order when the other members are in that order,
  * as XAE writes the file after a rename. What refers to the member from elsewhere stays as it is (XAE would
  * change it too).
@@ -360,14 +385,12 @@ export function renameMember(file: TcSourceFile, objectId: string, newName: stri
   if (problem) throw new SpliceError(problem);
   if (newName === obj.name) return file.text;
   const text = file.text;
-  const nameAttr = attributeValue(text, obj.element, 'Name');
+  const nameAttr = attributeRange(text, obj.element, 'Name');
   if (!nameAttr) throw new SpliceError(`${obj.qualifiedName} has no Name attribute`);
-  const edits: TextEdit[] = [{ ...nameAttr, value: newName }];
-  const renamed = memberNameRanges(file, objectId);
-  for (const r of renamed) {
-    edits.push({ start: sectionOffsetToFileOffset(file, r.section, r.start), end: sectionOffsetToFileOffset(file, r.section, r.end), value: newName });
-  }
-  edits.push(...lineIdRenames(text, owner.element, obj.qualifiedName, 1, newName));
+  const renamed = nameRanges(file, objectId);
+  const edits: TextEdit[] = [
+    { ...nameAttr, value: newName }, ...nameEdits(file, renamed, newName), ...lineIdRenames(text, owner.element, obj.qualifiedName, 1, newName),
+  ];
   let out = applyEdits(text, edits);
 
   // XAE keeps the members in its name order: the renamed one moves when the others are in that order.
@@ -393,13 +416,7 @@ export function renameMember(file: TcSourceFile, objectId: string, newName: stri
   }
 
   // The file reads back with the member renamed, its sections changed where its name was, the rest as it was.
-  const expected = (s: Section) => applyEdits(s.text, renamed.filter(r => r.section === s).map(r => ({ start: r.start, end: r.end, value: newName })));
-  const check = parseTcText(file.path, out, file.bom);
-  const after = check.objects.get(objectId);
-  if (check.error || after?.name !== newName || after.kind !== obj.kind
-    || [...file.sections].some(([k, s]) => check.sections.get(k)?.text !== expected(s))) {
-    throw new SpliceError(`${obj.qualifiedName} could not be renamed in ${file.path}`);
-  }
+  if (!renamedAsExpected(file, out, objectId, newName, renamed)) throw new SpliceError(`${obj.qualifiedName} could not be renamed in ${file.path}`);
   return out;
 }
 

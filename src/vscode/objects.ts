@@ -1,19 +1,27 @@
 // Add POU, Add DUT, Add Global Variable List, Add Interface and New Folder: they ask for what the new object
 // needs, write its file as XAE 3.1.4026 does (see newObjects.ts) and its item into the .plcproj (see project.ts),
-// then open it.
+// then open it. Rename, Move to Folder and Delete of a POU, DUT, GVL or interface change its file and its item
+// the way XAE does, and close or move its tabs.
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { FileStyle, NewObjectKind, NewObjectSpec, XAE_FILE_STYLE, fileStyleOf, newObjectText, objectExtension } from '../core/newObjects';
-import { PlcProject, addCompileItem, addFolderItem } from '../core/project';
-import { addMember } from '../core/splice';
-import { decodeBytes, encodeText, fileKindFromPath, parseTcText } from '../core/tcfile';
-import { TcWorkspace } from '../core/workspace';
+import {
+  PlcProject, addCompileItem, addFolderItem, itemOrder, moveCompileItem, removeItem, renameCompileItem, renameTaskCalls, taskCalls,
+} from '../core/project';
+import { SectionRange, addMember, nameRanges, renameObject } from '../core/splice';
+import { TcObject, decodeBytes, encodeText, fileKindFromPath, parseTcFile, parseTcText } from '../core/tcfile';
+import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
-import { typeProblem } from '../lang/members';
-import { BaseProblem, baseProblem, folderNameProblem, newObjectStubs, objectNameProblem, projectObjectNames } from '../lang/objects';
+import { typeProblem, usesLeftByRename } from '../lang/members';
+import {
+  BaseProblem, baseProblem, folderNameProblem, newObjectStubs, objectNameProblem, projectFolderList, projectObjectNames,
+} from '../lang/objects';
+import { Loc } from '../lang/symbols';
+import { reportReferences } from './members';
 import { hasUnsavedEdits } from './openDocs';
+import { ShownTab, closeTabs, shownTabs, tabsOf } from './tabs';
 
 /** Where a new object or folder goes: a PLC project and one of its folders (`POUs\Sub`, empty for the project). */
 export interface ObjectTarget {
@@ -26,6 +34,19 @@ export interface ObjectHooks {
   written(): Promise<void>;
   /** Opens a new object. */
   open(fsPath: string, objectId: string): Promise<void>;
+  /** Where the language index finds an object used (not declared). */
+  references(fsPath: string, objectId: string): Loc[];
+  /** Lists places found by references, to open one. */
+  showReferences(title: string, locs: Loc[]): Promise<void>;
+  /** Opens tabs again in a file, where they were. */
+  reopen(fsPath: string, tabs: ShownTab[]): Promise<void>;
+}
+
+/** A file to write, with its text and BOM. */
+interface Written {
+  fsPath: string;
+  text: string;
+  bom: boolean;
 }
 
 type Choice<T> = vscode.QuickPickItem & { value: T };
@@ -47,6 +68,12 @@ const KIND_WORDS: Record<NewObjectKind, string> = {
   fb: 'function block', prg: 'program', fun: 'function', itf: 'interface', struct: 'structure', enum: 'enumeration',
   union: 'union', alias: 'alias', gvl: 'global variable list',
 };
+
+/** What a POU, DUT, GVL or interface is, in a question: `function block`, `DUT`, `interface`. */
+function objectWord(obj: TcObject): string {
+  if (obj.kind === 'pou') return obj.pouKind === 'PRG' ? 'program' : obj.pouKind === 'FUN' ? 'function' : obj.pouKind === 'FB' ? 'function block' : 'POU';
+  return obj.kind === 'itf' ? 'interface' : obj.kind.toUpperCase();
+}
 
 /** An input box check: a blocking error, or a warning that still lets the value through. */
 function asValidation(problem: BaseProblem | undefined): vscode.InputBoxValidationMessage | undefined {
@@ -186,6 +213,235 @@ export class ObjectCommands {
     if (this.write(project, text => addFolderItem(text, include), () => fs.mkdirSync(path.join(project.dir, ...include.split('\\')), { recursive: true }))) {
       await this.hooks.written();
     }
+  }
+
+  /** The entry and root object of the file of a POU, DUT, GVL or interface of a PLC project, or a message why it is none. */
+  private sourceOf(fsPath: string): { entry: SourceEntry; root: TcObject } | undefined {
+    const entry = this.ws.entry(fsPath);
+    const root = this.ws.getFile(fsPath)?.root;
+    if (entry && root && ['pou', 'dut', 'gvl', 'itf'].includes(root.kind)) return { entry, root };
+    void vscode.window.showWarningMessage(`${path.basename(fsPath)} is not a POU, DUT, GVL or interface of a PLC project of the workspace.`);
+    return undefined;
+  }
+
+  /** Refuses, with a message, when an editor holds unsaved edits of one of the files: they would be saved over it. */
+  private refuseUnsavedFiles(paths: string[]): boolean {
+    const dirty = paths.find(p => hasUnsavedEdits(p));
+    if (dirty) void vscode.window.showWarningMessage(`${path.basename(dirty)} has unsaved changes in an editor. Save or revert them first.`);
+    return !!dirty;
+  }
+
+  /** The tasks (.TcTTO) of the project and what each calls. */
+  private tasksOf(project: PlcProject): { fsPath: string; text: string; bom: boolean; calls: string[] }[] {
+    return this.ws.sourceEntries.filter(e => e.project === project && fileKindFromPath(e.path) === 'task').flatMap(e => {
+      try {
+        const { text, bom } = decodeBytes(fs.readFileSync(e.path));
+        return [{ fsPath: e.path, text, bom, calls: taskCalls(text) }];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  private static taskNames(tasks: { fsPath: string }[]): string {
+    return tasks.map(t => path.basename(t.fsPath, path.extname(t.fsPath))).join(', ');
+  }
+
+  /**
+   * Renames a POU, DUT, GVL or interface as XAE does: its file (`FB_A.TcPOU` to `FB_B.TcPOU`, in its folder), the
+   * object in it (see renameObject), its <Compile> item in place, and the calls of the tasks that call a renamed
+   * program. Its tabs open again under the new name. What uses it keeps the old name: the message says how many
+   * uses the language index finds.
+   */
+  async rename(fsPath: string): Promise<void> {
+    const source = this.sourceOf(fsPath);
+    if (!source) return;
+    const { entry, root } = source;
+    const project = entry.project;
+    if (this.refuseUnsavedFiles([fsPath, project.path])) return;
+    const slash = entry.include.lastIndexOf('\\');
+    const ext = path.extname(entry.include);
+    const newPathOf = (name: string) => path.join(path.dirname(fsPath), `${name}${ext}`);
+    const names = projectObjectNames(this.ws, project);
+    names.delete(root.name.toUpperCase());
+    const name = (await vscode.window.showInputBox({
+      title: `Rename ${root.name}`, prompt: `New name of the ${objectWord(root)}`,
+      value: root.name,
+      validateInput: v => {
+        const n = v.trim();
+        const problem = objectNameProblem(this.ws, project, n, names);
+        if (problem) return problem;
+        const target = newPathOf(n);
+        return fileKey(target) !== fileKey(fsPath) && fs.existsSync(target) ? `${path.basename(target)} is already on disk in ${path.dirname(target)}` : undefined;
+      },
+    }))?.trim();
+    if (!name || name === root.name) return;
+    const newPath = newPathOf(name);
+    const newInclude = `${entry.include.slice(0, slash + 1)}${name}${ext}`;
+    const uses = this.hooks.references(fsPath, root.id);
+    let renamed: SectionRange[];
+    let tasks: Written[];
+    let written: Written[];
+    try {
+      const file = parseTcFile(fsPath, fs.readFileSync(fsPath));
+      renamed = nameRanges(file, root.id);
+      const plcproj = decodeBytes(fs.readFileSync(project.path));
+      tasks = root.pouKind === 'PRG'
+        ? this.tasksOf(project).flatMap(t => {
+          const text = renameTaskCalls(t.text, root.name, name);
+          return text === t.text ? [] : [{ fsPath: t.fsPath, text, bom: t.bom }];
+        })
+        : [];
+      written = [
+        { fsPath: newPath, text: renameObject(file, name), bom: file.bom },
+        { fsPath: project.path, text: renameCompileItem(plcproj.text, entry.include, newInclude), bom: plcproj.bom },
+        ...tasks,
+      ];
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      return;
+    }
+    // An editor may have been edited while the question was asked.
+    if (this.refuseUnsavedFiles([fsPath, project.path, ...tasks.map(t => t.fsPath)])) return;
+    const tabs = tabsOf(fsPath);
+    const shown = shownTabs(tabs);
+    await closeTabs(tabs);
+    try {
+      fs.renameSync(fsPath, newPath);
+      for (const w of written) fs.writeFileSync(w.fsPath, encodeText(w.text, w.bom));
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      await this.hooks.written();
+      return;
+    }
+    await this.hooks.written();
+    await this.hooks.reopen(newPath, shown);
+    // The uses left in the file itself are in the renamed file now.
+    const oldKey = fileKey(fsPath);
+    const left = usesLeftByRename(uses, oldKey, renamed, name.length - root.name.length)
+      .map(u => (u.fileKey === oldKey ? { ...u, fileKey: fileKey(newPath) } : u));
+    const calls = tasks.length ? ` ${ObjectCommands.taskNames(tasks)} call${tasks.length === 1 ? 's' : ''} it by its new name.` : '';
+    reportReferences(root.name, name, left, this.hooks.showReferences, calls);
+  }
+
+  /**
+   * Moves the file of a POU, DUT, GVL or interface to another folder of its PLC project (one picked when not
+   * given): on disk, and its <Compile> item, which goes where XAE puts a new one. Its tabs open again there.
+   */
+  async move(fsPath: string, folder?: string): Promise<void> {
+    const source = this.sourceOf(fsPath);
+    if (!source) return;
+    const { entry, root } = source;
+    const project = entry.project;
+    if (this.refuseUnsavedFiles([fsPath, project.path])) return;
+    const slash = entry.include.lastIndexOf('\\');
+    const current = entry.include.slice(0, Math.max(slash, 0));
+    const fileName = entry.include.slice(slash + 1);
+    if (folder === undefined) {
+      const items = [
+        { label: `$(root-folder) ${project.name}`, description: 'the PLC project itself', folder: '' },
+        ...projectFolderList(project).map(f => ({ label: `$(folder) ${f}`, description: '', folder: f })),
+      ].filter(i => itemOrder(i.folder, current) !== 0);
+      const pick = await vscode.window.showQuickPick(items, { title: `Move ${root.name} to Folder`, placeHolder: `The folder of ${project.name} to move it to` });
+      if (!pick) return;
+      folder = pick.folder;
+    }
+    if (itemOrder(folder, current) === 0) return;
+    const newInclude = folder ? `${folder}\\${fileName}` : fileName;
+    const newPath = path.join(project.dir, ...newInclude.split('\\'));
+    if (fs.existsSync(newPath)) {
+      void vscode.window.showWarningMessage(`${fileName} is already on disk in ${path.dirname(newPath)}.`);
+      return;
+    }
+    if (this.refuseUnsavedFiles([fsPath, project.path])) return;
+    let plcproj: Written;
+    try {
+      const read = decodeBytes(fs.readFileSync(project.path));
+      plcproj = { fsPath: project.path, text: moveCompileItem(read.text, entry.include, newInclude), bom: read.bom };
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      return;
+    }
+    const tabs = tabsOf(fsPath);
+    const shown = shownTabs(tabs);
+    await closeTabs(tabs);
+    try {
+      fs.mkdirSync(path.dirname(newPath), { recursive: true });
+      fs.renameSync(fsPath, newPath);
+      fs.writeFileSync(plcproj.fsPath, encodeText(plcproj.text, plcproj.bom));
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      await this.hooks.written();
+      return;
+    }
+    await this.hooks.written();
+    await this.hooks.reopen(newPath, shown);
+  }
+
+  /**
+   * Deletes a POU, DUT, GVL or interface after a confirmation, as XAE does: its file goes to the Recycle Bin and
+   * its <Compile> item out of the .plcproj. What uses it, a task's call too, is not changed. Its tabs close.
+   */
+  async delete(fsPath: string): Promise<void> {
+    const source = this.sourceOf(fsPath);
+    if (!source) return;
+    const { entry, root } = source;
+    const project = entry.project;
+    if (this.refuseUnsavedFiles([fsPath, project.path])) return;
+    const upper = root.name.toUpperCase();
+    const callers = root.pouKind === 'PRG' ? this.tasksOf(project).filter(t => t.calls.some(c => c.toUpperCase() === upper)) : [];
+    const choice = await vscode.window.showWarningMessage(`Delete the ${objectWord(root)} ${root.name}?`, {
+      modal: true,
+      detail: `${path.basename(fsPath)} goes to the Recycle Bin and out of ${path.basename(project.path)}, as when it is deleted in TwinCAT XAE. `
+        + `What uses it is not changed${callers.length ? `: ${ObjectCommands.taskNames(callers)} still call${callers.length === 1 ? 's' : ''} it` : ''}.`,
+    }, 'Delete');
+    if (choice !== 'Delete' || this.refuseUnsavedFiles([fsPath, project.path])) return;
+    let plcproj: Written;
+    try {
+      const read = decodeBytes(fs.readFileSync(project.path));
+      plcproj = { fsPath: project.path, text: removeItem(read.text, 'Compile', entry.include), bom: read.bom };
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      return;
+    }
+    await closeTabs(tabsOf(fsPath));
+    try {
+      await vscode.workspace.fs.delete(vscode.Uri.file(fsPath), { useTrash: true });
+      fs.writeFileSync(plcproj.fsPath, encodeText(plcproj.text, plcproj.bom));
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+    }
+    await this.hooks.written();
+  }
+
+  /**
+   * Deletes an empty folder of a PLC project after a confirmation: its <Folder> item, and the folder on disk (to the
+   * Recycle Bin) unless something the project does not list is in it.
+   */
+  async deleteFolder(target: ObjectTarget): Promise<void> {
+    const project = this.project(target);
+    if (!project || this.refuseUnsaved(project)) return;
+    const dir = path.join(project.dir, ...target.folder.split('\\'));
+    let inside: string[] = [];
+    try {
+      inside = fs.readdirSync(dir);
+    } catch {
+      // Not on disk.
+    }
+    const choice = await vscode.window.showWarningMessage(`Delete the folder ${target.folder}?`, {
+      modal: true,
+      detail: `Its item leaves ${path.basename(project.path)}, `
+        + (inside.length ? 'and the folder stays on disk, where something the project does not list is in it.' : 'and the empty folder goes to the Recycle Bin.'),
+    }, 'Delete');
+    if (choice !== 'Delete' || !this.write(project, text => removeItem(text, 'Folder', target.folder), () => undefined)) return;
+    if (!inside.length && fs.existsSync(dir)) {
+      try {
+        await vscode.workspace.fs.delete(vscode.Uri.file(dir), { recursive: false, useTrash: true });
+      } catch (e) {
+        void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      }
+    }
+    await this.hooks.written();
   }
 
   /**

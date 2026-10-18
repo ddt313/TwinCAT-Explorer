@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Accessor } from '../core/objectText';
-import { MemberSpec, SectionRange, addMember, isSpecialMethod, memberNameRanges, removeMember, renameMember } from '../core/splice';
+import { MemberSpec, SectionRange, addMember, isSpecialMethod, nameRanges, removeMember, renameMember } from '../core/splice';
 import { TcSourceFile, encodeText, parseTcFile, parseTcText } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
@@ -34,15 +34,16 @@ export interface MemberHooks {
 
 /**
  * The message after a rename that left the uses of the old name as they were: how many the language index
- * finds, and a button that lists them.
+ * finds, and a button that lists them. `note` (a sentence) comes after the first one.
  */
-export function reportReferences(oldName: string, newName: string, locs: Loc[], show: (title: string, locs: Loc[]) => Promise<void>): void {
+export function reportReferences(oldName: string, newName: string, locs: Loc[], show: (title: string, locs: Loc[]) => Promise<void>, note = ''): void {
+  const renamed = `Renamed ${oldName} to ${newName}.${note}`;
   if (locs.length === 0) {
-    void vscode.window.showInformationMessage(`Renamed ${oldName} to ${newName}. The language index finds no use of ${oldName}.`);
+    void vscode.window.showInformationMessage(`${renamed} The language index finds no use of ${oldName}.`);
     return;
   }
   const uses = locs.length === 1 ? '1 use' : `${locs.length} uses`;
-  void vscode.window.showInformationMessage(`Renamed ${oldName} to ${newName}. ${uses} of ${oldName} found by the language index still have the old name.`,
+  void vscode.window.showInformationMessage(`${renamed} ${uses} of ${oldName} found by the language index still ${locs.length === 1 ? 'has' : 'have'} the old name.`,
     'Show Uses').then(choice => { if (choice) void show(`Uses of ${oldName}, now ${newName}`, locs); });
 }
 
@@ -179,7 +180,7 @@ export class MemberCommands {
     const shown = shownTabs(tabs);
     let renamed: SectionRange[] = [];
     if (!this.write(fsPath, file => {
-      renamed = memberNameRanges(file, objectId);
+      renamed = nameRanges(file, objectId);
       return renameMember(file, objectId, name);
     })) return;
     await closeTabs(tabs);

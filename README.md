@@ -38,6 +38,10 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Adding methods, properties and actions](#adding-methods-properties-and-actions)).
 - Right-click a method, property, action or transition to rename or delete it (F2, Delete; see
   [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)).
+- Right-click a POU, DUT, GVL or interface to rename it, move it to another folder or delete it, or drag
+  it onto a folder (see
+  [Renaming, moving and deleting POUs, DUTs, GVLs and interfaces](#renaming-moving-and-deleting-pous-duts-gvls-and-interfaces)).
+  An empty folder can be deleted too.
 - Right-click a PLC project or one of its folders to add a POU, DUT, GVL, interface or folder (see
   [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
@@ -86,10 +90,10 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Reloads:** open tabs without unsaved edits reload when the file changes on disk. Undoing back to
   the text on disk makes the tab clean again.
 - **Renaming is blocked:** changing the name in a declaration header (`METHOD OnEntry` to
-  `METHOD OnEnter`) makes the save fail with a message. Rename methods, properties, actions and
-  transitions with Rename... in the TwinCAT tree (see
-  [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)),
-  other objects in TwinCAT XAE.
+  `METHOD OnEnter`) makes the save fail with a message. Rename the object with Rename... in the
+  TwinCAT tree instead (see
+  [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)
+  and [Renaming, moving and deleting POUs, DUTs, GVLs and interfaces](#renaming-moving-and-deleting-pous-duts-gvls-and-interfaces)).
 
 ### Adding methods, properties and actions
 
@@ -168,6 +172,32 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Then:** the tree shows the new object or folder, and a new object opens in the split editor.
 - A `.plcproj` with unsaved changes in an editor is refused. A TwinCAT XAE 3.1.4026 that has the
   project open asks whether to reload the changed `.plcproj`: answer Yes.
+
+### Renaming, moving and deleting POUs, DUTs, GVLs and interfaces
+
+- **Rename...** (F2), **Move to Folder...** and **Delete** (Delete) are in the context menu of a POU,
+  DUT, GVL or interface in the TwinCAT tree. Dragging one onto a folder of its PLC project, or onto the
+  project, moves it there after a confirmation. Delete is also on an empty folder.
+- **Rename** asks for the new name, checked like the name of a new object. Then, as TwinCAT XAE
+  3.1.4026 does, it changes:
+  - The file, renamed in its folder (`FB_Pump.TcPOU` to `FB_Motor.TcPOU`), and its `<Compile>` item in
+    the `.plcproj`, which stays where it is.
+  - The name of the object in the file and in its declaration (`FUNCTION_BLOCK FB_Motor`; a GVL
+    declares none), its `LineIds` and those of its members.
+  - Inside a function, its return value (`F_Sum := nA + nB;`).
+  - The call of a task that calls a renamed program (`<PouCall>` in its `.TcTTO`).
+- **What uses the object elsewhere keeps the old name.** XAE's rename would change it too. The message
+  after the rename says how many uses of the old name the language index finds, and **Show Uses**
+  lists them.
+- **Move to Folder...** picks a folder of the PLC project, or the project itself. The file moves on
+  disk, and its `<Compile>` item goes where XAE puts a new one.
+- **Delete** asks first. Then the file goes to the Recycle Bin and its item out of the `.plcproj`, as
+  in XAE. What uses the object is not changed: a task that calls a deleted program still calls it, as
+  after a delete in XAE. An empty folder leaves the `.plcproj`, and the disk when nothing else is in it.
+- The rest of each file stays byte-identical. Open tabs of the object open again under its new name or
+  path, or close when it is deleted.
+- The file, its `.plcproj` and the tasks it changes must have no unsaved changes in an editor. To take a
+  change back, use git: the TwinCAT Changes view shows the files, and the `.plcproj` under Project files.
 
 ### Structured Text language features
 
@@ -331,8 +361,8 @@ code --uninstall-extension thanhdang.explorer-for-twincat --profile <profile>
 ## Commands
 
 All commands are in the Command Palette under the `TwinCAT` categories. The views add more in their
-title bars and context menus, for example Rename..., Delete, Discard Changes, Copy Commit SHA and Copy
-Name.
+title bars and context menus, for example Rename..., Move to Folder..., Delete, Discard Changes, Copy
+Commit SHA and Copy Name.
 
 | Command | What it does |
 |---|---|
@@ -364,8 +394,8 @@ Name.
 |---|---|---|
 | Ctrl+Alt+T | anywhere, with TwinCAT projects open | Go to Object |
 | Ctrl+T | anywhere | Find a POU, method, property, DUT, GVL or global variable |
-| F2 | TwinCAT tree | Rename the selected method, property, action or transition |
-| Delete | TwinCAT tree | Delete the selected method, property, action, transition, `Get` or `Set` |
+| F2 | TwinCAT tree | Rename the selected POU, DUT, GVL, interface, method, property, action or transition |
+| Delete | TwinCAT tree | Delete the selected POU, DUT, GVL, interface, method, property, action, transition, `Get`, `Set` or empty folder |
 | F12, Ctrl+click | split editor, notebook cells | Go to Definition |
 | Shift+F12 | split editor, notebook cells | Find All References (peek view) |
 | Alt+F5 / Shift+Alt+F5 | split editor | Next / previous change vs `HEAD` |
@@ -422,13 +452,14 @@ sources.
 **Editing and projects**
 - Only Structured Text is editable; other implementation languages are shown as read-only
   placeholders.
-- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here, and
-  methods, properties, actions and transitions renamed and deleted. Transitions, visualizations and the
-  other kinds of objects are created in TwinCAT XAE, and POUs, DUTs, GVLs, interfaces and folders are
-  renamed, moved and deleted there.
-- Rename changes the member and the code inside it, not what uses it elsewhere, which XAE's rename
-  also changes. The uses it counts are those the language index finds: not uses in implementation
-  languages other than Structured Text, nor uses it cannot resolve.
+- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here. POUs,
+  DUTs, GVLs, interfaces, methods, properties, actions and transitions can be renamed and deleted here,
+  POUs, DUTs, GVLs and interfaces moved, and empty folders deleted. Transitions, visualizations and the
+  other kinds of objects are created in TwinCAT XAE, and folders are renamed and moved there.
+- Rename changes the object or member and the code inside it, and the task that calls a renamed
+  program, not what uses it elsewhere, which XAE's rename also changes. The uses it counts are those the
+  language index finds: not uses in implementation languages other than Structured Text, nor uses it
+  cannot resolve.
 - A member added here has no `LineIds` element, the line map for breakpoints that some XAE versions
   keep in the file. TwinCAT 3.1.4026 writes none either in the projects it creates (their option
   `WriteLineIDs` is off).
@@ -441,6 +472,9 @@ sources.
     the changes made here (a renamed or deleted member comes back).
   - XAE asks before it reloads a changed `.plcproj` or `.tsproj`, as after Add POU or New Folder here:
     answer Yes.
+  - After a rename, move or delete of a file here, XAE asks to reload the PLC project because its
+    `.plcproj` changed. Answer Yes: XAE closes its editors of that PLC project, even those of other
+    objects, and shows the new names. A deleted file does not come back when XAE saves again.
   - Unsaved changes in XAE can still overwrite what VS Code saved: save or undo them in XAE before
     editing the same object here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.

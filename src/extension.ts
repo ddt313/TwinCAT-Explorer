@@ -19,6 +19,7 @@ import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree'
 import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { ShownTab } from './vscode/tabs';
+import { itemOrder } from './core/project';
 import { Loc } from './lang/symbols';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
 import { DiffFileSystem, GitDirWatcher, firstParent, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
@@ -40,6 +41,8 @@ export interface TwinCatExplorerApi {
   index: LanguageIndex;
   tree: TwinCatTree;
   treeView: vscode.TreeView<TreeNode>;
+  /** Moves files dropped on a folder of the TwinCAT tree. */
+  treeDragAndDrop: vscode.TreeDragAndDropController<TreeNode>;
   features: LanguageFeatures;
   objectEditors: ObjectEditorProvider;
   git: GitChanges;
@@ -98,7 +101,39 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const diffFs = new DiffFileSystem(gitDirs);
   const gitChanges = new GitChanges(ws, gitDirs);
   const tree = new TwinCatTree(ws);
-  const treeView = vscode.window.createTreeView('twincatExplorer.tree', { treeDataProvider: tree, showCollapseAll: true });
+  // Dragging the file of a POU, DUT, GVL or interface onto a folder of its PLC project moves it there.
+  const treeMime = 'application/vnd.code.tree.twincatexplorer.tree';
+  const dragAndDropController: vscode.TreeDragAndDropController<TreeNode> = {
+    dragMimeTypes: [treeMime],
+    dropMimeTypes: [treeMime],
+    handleDrag: (nodes, data) => {
+      const files = nodes.filter(n => n.objectFile && n.fsPath).map(n => n.fsPath!);
+      if (files.length) data.set(treeMime, new vscode.DataTransferItem(files));
+    },
+    handleDrop: async (target, data) => {
+      const files = data.get(treeMime)?.value;
+      let dest = target;
+      while (dest && !dest.objectTarget) dest = dest.parent;
+      const to = dest?.objectTarget;
+      if (!Array.isArray(files) || !to) return;
+      const entries = (files as string[]).map(f => ({ f, entry: ws.entry(f) }));
+      const sameProject = entries.filter(e => e.entry && fileKey(e.entry.project.path) === fileKey(to.plcprojPath));
+      if (sameProject.length < files.length) void vscode.window.showInformationMessage('A file moves to a folder of its own PLC project only.');
+      // Not into the folder it is in.
+      const movable = sameProject.filter(e => {
+        const include = e.entry!.include;
+        return itemOrder(include.slice(0, Math.max(include.lastIndexOf('\\'), 0)), to.folder) !== 0;
+      }).map(e => e.f);
+      if (movable.length === 0) return;
+      const where = to.folder || ws.plcProject(to.plcprojPath)?.name || path.basename(to.plcprojPath);
+      const choice = await vscode.window.showWarningMessage(`Move ${movable.map(f => path.basename(f)).join(', ')} to ${where}?`, {
+        modal: true, detail: 'The file moves on disk, and its item in the .plcproj with it.',
+      }, 'Move');
+      if (choice !== 'Move') return;
+      for (const f of movable) await objects.move(f, to.folder);
+    },
+  };
+  const treeView = vscode.window.createTreeView('twincatExplorer.tree', { treeDataProvider: tree, showCollapseAll: true, dragAndDropController });
   const features = new LanguageFeatures(index, ws);
   const diagnostics = new CellDiagnostics(features);
   const locations = new LocationService(ws, index);
@@ -851,6 +886,9 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     // At once, not after the .plcproj watcher's delay: the new object has its node when it opens.
     written: () => loadProjects(),
     open: (fsPath, objectId) => openDefault(fsPath, objectId, { preview: false }),
+    references: usesOf,
+    showReferences: showUses,
+    reopen,
   });
   /**
    * Where a new object goes: the PLC project or folder of a tree node; else the folder of the active editor's
@@ -888,16 +926,25 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       }
       await members.implementInterfaces(t.fsPath);
     }),
-    // Rename and Delete of the tree, from its context menu or with F2 and Delete in it.
+    // Rename, Delete and Move to Folder of the tree, from its context menu, with F2 and Delete in it, and by drag and drop.
     vscode.commands.registerCommand('twincatExplorer.rename', async (arg?: unknown) => {
       const node = arg instanceof TreeNode ? arg : treeView.selection[0];
       if (node?.kind === 'object' && node.fsPath && node.objectId) await members.rename(node.fsPath, node.objectId);
+      else if (node?.objectFile && node.fsPath) await objects.rename(node.fsPath);
     }),
     vscode.commands.registerCommand('twincatExplorer.delete', async (arg?: unknown) => {
       const node = arg instanceof TreeNode ? arg : treeView.selection[0];
       if ((node?.kind === 'object' || node?.kind === 'accessor') && node.fsPath && node.objectId) {
         await members.delete(node.fsPath, node.objectId, node.accessor);
+      } else if (node?.objectFile && node.fsPath) {
+        await objects.delete(node.fsPath);
+      } else if (node?.kind === 'folder' && node.children.length === 0 && node.objectTarget) {
+        await objects.deleteFolder(node.objectTarget);
       }
+    }),
+    vscode.commands.registerCommand('twincatExplorer.moveToFolder', async (arg?: unknown) => {
+      const node = arg instanceof TreeNode ? arg : treeView.selection[0];
+      if (node?.objectFile && node.fsPath) await objects.move(node.fsPath);
     }),
     vscode.commands.registerCommand('twincatExplorer.refresh', () => loadProjects()),
     vscode.commands.registerCommand('twincatExplorer.open', (node?: TreeNode) => openNode(node)),
@@ -1059,7 +1106,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   void vscode.commands.executeCommand('setContext', 'twincatExplorer.historyPinned', false);
   const ready = loadProjects();
   return {
-    workspace: ws, index, tree, treeView, features, objectEditors, git: gitChanges,
+    workspace: ws, index, tree, treeView, treeDragAndDrop: dragAndDropController, features, objectEditors, git: gitChanges,
     changes: changesView, changesView: changesTree, commits: commitsView, commitsView: commitsTree, commitDiff,
     history, historyView: historyTree, ready, openObject, openSplit,
   };

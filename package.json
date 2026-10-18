@@ -415,6 +415,11 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.moveToFolder",
+        "title": "Move to Folder...",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.addMethod",
         "title": "Add Method...",
         "category": "TwinCAT"
@@ -460,6 +465,10 @@
         },
         {
           "command": "twincatExplorer.delete",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.moveToFolder",
           "when": "false"
         },
         {
@@ -744,13 +753,18 @@
         },
         {
           "command": "twincatExplorer.rename",
-          "when": "view == twincatExplorer.tree && viewItem =~ /^object /",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^object |objectFile/",
           "group": "7_modification@1"
         },
         {
-          "command": "twincatExplorer.delete",
-          "when": "view == twincatExplorer.tree && viewItem =~ /^(object|accessor) /",
+          "command": "twincatExplorer.moveToFolder",
+          "when": "view == twincatExplorer.tree && viewItem =~ /objectFile/",
           "group": "7_modification@2"
+        },
+        {
+          "command": "twincatExplorer.delete",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^(object|accessor) |objectFile|emptyFolder/",
+          "group": "7_modification@3"
         },
         {
           "command": "twincatExplorer.copyName",

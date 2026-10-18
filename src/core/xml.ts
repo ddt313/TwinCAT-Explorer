@@ -156,6 +156,29 @@ export function escapeAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** Where the value of an attribute is in the start tag of an element, as written (entities not decoded). */
+export function attributeRange(text: string, el: XmlElement, name: string): { start: number; end: number; value: string } | undefined {
+  const tag = text.slice(el.start, el.selfClosing ? el.end : el.contentStart);
+  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`).exec(tag);
+  if (!m) return undefined;
+  const value = m[1] ?? m[2];
+  const start = el.start + m.index + m[0].length - 1 - value.length;
+  return { start, end: start + value.length, value };
+}
+
+/** The range of an element, with the indentation before it and the line break after it when it is alone on its lines. */
+export function elementLines(text: string, el: XmlElement): { start: number; end: number } {
+  let start = el.start;
+  while (start > 0 && (text[start - 1] === ' ' || text[start - 1] === '\t')) start--;
+  let end = el.end;
+  while (end < text.length && (text[end] === ' ' || text[end] === '\t')) end++;
+  const aloneOnLines = (start === 0 || text[start - 1] === '\n') && (end === text.length || text[end] === '\r' || text[end] === '\n');
+  if (!aloneOnLines) return { start: el.start, end: el.end };
+  if (text.startsWith('\r\n', end)) end += 2;
+  else if (text[end] === '\n') end++;
+  return { start, end };
+}
+
 /** The whitespace before an offset on its line, or undefined when something else is there. */
 export function indentBefore(text: string, offset: number): string | undefined {
   const lead = text.slice(text.lastIndexOf('\n', offset - 1) + 1, offset);

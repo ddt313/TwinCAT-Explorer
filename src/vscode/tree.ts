@@ -48,6 +48,8 @@ export class TreeNode {
   objectTarget?: { plcprojPath: string; folder: string };
   /** A function block that names interfaces after IMPLEMENTS. */
   implementsInterfaces = false;
+  /** The file of a POU, DUT, GVL or interface: it can be renamed, moved and deleted. */
+  objectFile = false;
 
   constructor(readonly id: string, readonly kind: NodeKind, public label: string, readonly parent: TreeNode | undefined) {}
 
@@ -60,6 +62,8 @@ export class TreeNode {
     if (this.memberTarget) parts.push(this.memberTarget.actions ? 'addMember addAction' : 'addMember');
     if (this.objectTarget) parts.push('addObject');
     if (this.implementsInterfaces) parts.push('implements');
+    if (this.objectFile) parts.push('objectFile');
+    if (this.kind === 'folder' && this.children.length === 0) parts.push('emptyFolder');
     return parts.join(' ');
   }
 }
@@ -288,6 +292,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     node.openable = true;
     node.icon = objectIcon(root);
     node.name = root.name;
+    node.objectFile = ['pou', 'dut', 'gvl', 'itf'].includes(root.kind);
     const kinds = memberKinds(root);
     const memberTarget = (folderPath: string[]): MemberTarget | undefined =>
       kinds.members ? { fsPath, objectId: root.id, folderPath, actions: kinds.actions } : undefined;

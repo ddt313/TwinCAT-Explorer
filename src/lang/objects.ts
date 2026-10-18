@@ -7,7 +7,7 @@ import { InterfaceStubs, nameProblem, stubsFor } from './members';
 import { parseDeclaration } from './parser';
 import { PouSym } from './symbols';
 import { NewObjectSpec, objectDeclaration } from '../core/newObjects';
-import { PlcProject } from '../core/project';
+import { PlcProject, itemOrder } from '../core/project';
 import { TcFileKind, fileKindFromPath } from '../core/tcfile';
 import { TcWorkspace } from '../core/workspace';
 
@@ -36,14 +36,26 @@ export function objectNameProblem(ws: TcWorkspace, project: PlcProject, name: st
   return nameProblem(name) ?? (taken ? `${project.name} already has ${taken}` : undefined);
 }
 
-/** The folders of the PLC project, lower case: those of its <Folder> items and the folders of its files. */
-function projectFolders(project: PlcProject): Set<string> {
-  const out = new Set(project.folders.map(f => f.toLowerCase()));
+/**
+ * The folders of the PLC project (`POUs`, `POUs\Valves`): those of its <Folder> items and the folders of its files,
+ * once each (case aside), in XAE's order of items.
+ */
+export function projectFolderList(project: PlcProject): string[] {
+  const out = new Map<string, string>();
+  const add = (folder: string) => {
+    if (folder && !out.has(folder.toLowerCase())) out.set(folder.toLowerCase(), folder);
+  };
+  project.folders.forEach(add);
   for (const include of project.compile) {
     const parts = include.split('\\').slice(0, -1);
-    for (let i = 1; i <= parts.length; i++) out.add(parts.slice(0, i).join('\\').toLowerCase());
+    for (let i = 1; i <= parts.length; i++) add(parts.slice(0, i).join('\\'));
   }
-  return out;
+  return [...out.values()].sort(itemOrder);
+}
+
+/** The folders of the PLC project, lower case (see projectFolderList). */
+function projectFolders(project: PlcProject): Set<string> {
+  return new Set(projectFolderList(project).map(f => f.toLowerCase()));
 }
 
 /** Why a new folder in `parent` (`POUs\Sub`, empty for the project itself) cannot have this name; undefined when it can. */

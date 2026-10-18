@@ -52,6 +52,15 @@ All notable changes to Explorer for TwinCAT. The format follows
   its files follow. Checked with TwinCAT XAE 3.1.4026: after a rename, a change of case and two moves of
   folders (one with a folder in it), Check all objects finds no error, XAE's tree shows the result, and
   XAE keeps the `.plcproj` as written when it saves again.
+- PLC projects saved as Independent Project Files are read: the `.tsproj` then names an `.xti`
+  (`<Project File="Plc.xti"/>`), which XAE saves in `_Config\PLC` and which holds the PLC project. The
+  tree, the language features and the git views show them as they show the others, and Add, Rename,
+  Move and Delete write their `.plcproj`. A `.tsproj` can hold PLC projects of both kinds. An `.xti`
+  that is not there or cannot be read shows as a PLC project that could not be loaded. A change of an
+  `.xti` reloads the projects, as one of a `.tsproj` does; the TwinCAT Changes view lists it under
+  Project files, or under Build output when a build only rewrote its `TmcHash`. Checked with TwinCAT
+  XAE 3.1.4026 on a project it saved so: the extension's adds, renames and moves compile, show in its
+  tree, and stay as written when XAE saves again.
 
 ### Fixed
 - At start-up the TwinCAT view shows the content of every TwinCAT project. With VS Code 1.142, only the

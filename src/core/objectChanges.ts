@@ -135,7 +135,7 @@ export function historyStep(before: TcSourceFile | undefined, now: TcSourceFile 
   return { views, created: c?.change === 'added' };
 }
 
-/** True when two versions of a .tsproj differ only in the TmcHash attributes a build rewrites. */
+/** True when two versions of a .tsproj or .xti differ only in the TmcHash attributes a build rewrites. */
 export function onlyTmcHashChanged(before: string, now: string): boolean {
   const strip = (t: string) => t.replace(/\r\n/g, '\n').replace(/TmcHash="\{[^}"]*\}"/g, 'TmcHash=""');
   return before !== now && strip(before) === strip(now);

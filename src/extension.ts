@@ -370,6 +370,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   // Created at once (before the first await) so no change is missed while the projects load.
   const sourceWatcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcTTO,tcpou,tcdut,tcgvl,tcio,tctto}');
   const projectWatcher = vscode.workspace.createFileSystemWatcher('**/*.{tsproj,plcproj}');
+  // The Independent Project Files of PLC projects (_Config\PLC\*.xti); not those of I/O devices and the rest.
+  const xtiWatcher = vscode.workspace.createFileSystemWatcher('**/*.{xti,XTI}');
+  const onXti = (u: vscode.Uri) => {
+    if (ws.isProjectFile(u.fsPath) || /[\\/]_Config[\\/]PLC[\\/][^\\/]+$/i.test(u.fsPath)) scheduleLoad();
+  };
   context.subscriptions.push(
     sourceWatcher,
     sourceWatcher.onDidChange(u => onSourceChanged(u.fsPath)),
@@ -379,6 +384,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     projectWatcher.onDidChange(scheduleLoad),
     projectWatcher.onDidCreate(scheduleLoad),
     projectWatcher.onDidDelete(scheduleLoad),
+    xtiWatcher,
+    xtiWatcher.onDidChange(onXti),
+    xtiWatcher.onDidCreate(onXti),
+    xtiWatcher.onDidDelete(onXti),
     vscode.workspace.onDidChangeWorkspaceFolders(scheduleLoad),
   );
 

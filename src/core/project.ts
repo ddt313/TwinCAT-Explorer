@@ -1,17 +1,26 @@
-// Parsing of TwinCAT project files: .tsproj (system project) and .plcproj (PLC project); the items of the
-// .plcproj for new, renamed, moved and deleted source files and folders; the calls of a task (.TcTTO).
+// Parsing of TwinCAT project files: .tsproj (system project), the Independent Project Files (.xti) of its PLC
+// projects, and .plcproj (PLC project); the items of the .plcproj for new, renamed, moved and deleted source files
+// and folders; the calls of a task (.TcTTO).
 
 import * as path from 'path';
 import { XmlElement, attributeRange, child, children, elementLines, elementText, escapeAttr, indentBefore, parseXml } from './xml';
 
+/** A PLC project of a .tsproj. */
 export interface PlcProjectRef {
   name: string;
+  /**
+   * Its .plcproj. Empty for one saved in an Independent Project File until the .xti is read (TcWorkspace.load); the
+   * .xti itself when it could not be read, with what went wrong in TcWorkspace.failedPlc.
+   */
   plcprojPath: string;
+  /** The Independent Project File (.xti) that holds it, when the .tsproj names one instead of holding it. */
+  xtiPath?: string;
 }
 
 export interface TsProject {
   path: string;
   name: string;
+  /** Its PLC projects, in the order of the .tsproj. */
   plcProjects: PlcProjectRef[];
 }
 
@@ -45,20 +54,48 @@ function findAll(el: XmlElement, name: string, out: XmlElement[] = []): XmlEleme
   return out;
 }
 
+/** A PLC project's <Project> element, its PrjFilePath taken from `dir`. */
+function refOf(project: XmlElement, prj: string, dir: string): PlcProjectRef {
+  return { name: project.attrs.get('Name') ?? path.basename(prj, path.extname(prj)), plcprojPath: path.resolve(dir, prj.replace(/\\/g, path.sep)) };
+}
+
+/**
+ * Where the Independent Project File of a PLC project is when the .tsproj names it (`<Project File="Plc.xti"/>`):
+ * in the folder _Config\PLC next to the .tsproj, where TwinCAT XAE 3.1.4026 saves it.
+ */
+export function xtiPathOf(tsprojPath: string, file: string): string {
+  return path.resolve(path.dirname(tsprojPath), '_Config', 'PLC', file.replace(/\\/g, path.sep));
+}
+
+/**
+ * The PLC projects of a .tsproj, in its order: those it holds (`<Project Name="Plc" PrjFilePath="Plc\Plc.plcproj">`
+ * in <Plc>), and those saved as Independent Project Files (`<Project File="Plc.xti"/>`), with the .xti still to read
+ * (see parseXtiProject).
+ */
 export function parseTsProject(filePath: string, text: string): TsProject {
   const doc = parseXml(text);
   const plcProjects: PlcProjectRef[] = [];
   for (const plc of findAll(doc, 'Plc')) {
     for (const proj of plc.children.filter(c => c.name === 'Project')) {
       const prj = proj.attrs.get('PrjFilePath');
-      if (!prj) continue;
-      plcProjects.push({
-        name: proj.attrs.get('Name') ?? path.basename(prj, path.extname(prj)),
-        plcprojPath: path.resolve(path.dirname(filePath), prj.replace(/\\/g, path.sep)),
-      });
+      const file = proj.attrs.get('File');
+      if (prj) plcProjects.push(refOf(proj, prj, path.dirname(filePath)));
+      else if (file) plcProjects.push({ name: path.basename(file, path.extname(file)), plcprojPath: '', xtiPath: xtiPathOf(filePath, file) });
     }
   }
   return { path: filePath, name: path.basename(filePath, path.extname(filePath)), plcProjects };
+}
+
+/**
+ * The PLC project an Independent Project File (.xti) holds: its <Project>, as the .tsproj would hold it, but with
+ * the PrjFilePath taken from the folder of the .xti (`..\..\Plc\Plc.plcproj` from _Config\PLC).
+ */
+export function parseXtiProject(xtiPath: string, text: string): PlcProjectRef {
+  for (const proj of findAll(parseXml(text), 'Project')) {
+    const prj = proj.attrs.get('PrjFilePath');
+    if (prj) return { ...refOf(proj, prj, path.dirname(xtiPath)), xtiPath };
+  }
+  throw new Error('The file holds no PLC project (no <Project> with a PrjFilePath)');
 }
 
 function libraryName(include: string): string {

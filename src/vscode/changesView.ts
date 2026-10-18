@@ -191,7 +191,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
       let changes: PathChange[];
       try {
         changes = await this.withUnstagedRenames(root, base,
-          await changesSince(root, base, [...SOURCE_EXTENSIONS, '.tsproj', '.plcproj']));
+          await changesSince(root, base, [...SOURCE_EXTENSIONS, '.tsproj', '.plcproj', '.xti']));
       } catch (e) {
         notes.push(`git failed: ${(e as Error).message}`);
         continue;
@@ -339,7 +339,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
   }
 
   private async addProjectFile(c: PathChange, root: string, base: string, build: ChangeNode[], projects: ChangeNode[]): Promise<void> {
-    // The workspace's project files, also a .plcproj that did not load (it is listed, with what went wrong).
+    // The workspace's project files (.tsproj, .plcproj, .xti), also one that did not load (listed with what went wrong).
     const failed = this.ws.failedPlc.get(fileKey(c.fsPath));
     if (failed !== undefined) {
       const n = this.otherNode(c, root, base, `cannot be read: ${failed}`, 'warning');
@@ -347,7 +347,8 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
       return;
     }
     if (!this.ws.isProjectFile(c.fsPath)) return;
-    if (c.status === 'M' && c.fsPath.toLowerCase().endsWith('.tsproj')) {
+    // A build rewrites the TmcHash of a PLC project in the .tsproj, or in the .xti of one saved on its own.
+    if (c.status === 'M' && /\.(tsproj|xti)$/i.test(c.fsPath)) {
       const before = (await showAtRef(c.fsPath, base, c.from)).toString('utf8');
       if (onlyTmcHashChanged(before, fs.readFileSync(c.fsPath, 'utf8'))) {
         build.push(this.otherNode(c, root, base, 'TmcHash, rewritten by a build', 'project'));

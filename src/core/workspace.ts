@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { PlcProject, TsProject, parsePlcProject, parseTsProject } from './project';
+import { PlcProject, PlcProjectRef, TsProject, parsePlcProject, parseTsProject, parseXtiProject } from './project';
 import { TcSourceFile, parseTcFile, parseTcText } from './tcfile';
 
 export function fileKey(p: string): string {
@@ -58,6 +58,8 @@ export class TcWorkspace {
       }
       this.tsProjects.push(ts);
       for (const ref of ts.plcProjects) {
+        // A PLC project saved as an Independent Project File: its .plcproj is in the .xti.
+        if (ref.xtiPath && !this.readXti(ref, ref.xtiPath)) continue;
         const plcKey = fileKey(ref.plcprojPath);
         // The same PLC project can belong to several TwinCAT projects (a simulation reuses the machine's).
         if (this.plcByKey.has(plcKey)) continue;
@@ -82,6 +84,23 @@ export class TcWorkspace {
     this.version++;
   }
 
+  /**
+   * Fills in the .plcproj of a PLC project from its .xti; false when the .xti cannot be read: the reference then
+   * points at the .xti, and failedPlc says what went wrong, as for a .plcproj that does not load.
+   */
+  private readXti(ref: PlcProjectRef, xtiPath: string): boolean {
+    try {
+      Object.assign(ref, parseXtiProject(xtiPath, fs.readFileSync(xtiPath, 'utf8')));
+      return true;
+    } catch (e) {
+      const message = (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'The Independent Project File (.xti) is not there' : (e as Error).message;
+      ref.plcprojPath = xtiPath;
+      if (!this.failedPlc.has(fileKey(xtiPath))) this.loadErrors.push(`${xtiPath}: ${message}`);
+      this.failedPlc.set(fileKey(xtiPath), message);
+      return false;
+    }
+  }
+
   plcProject(plcprojPath: string): PlcProject | undefined {
     return this.plcByKey.get(fileKey(plcprojPath));
   }
@@ -94,9 +113,11 @@ export class TcWorkspace {
     return [...this.entries.values()];
   }
 
+  /** A .tsproj, .plcproj or Independent Project File (.xti) of the workspace's projects. */
   isProjectFile(p: string): boolean {
     const k = fileKey(p);
-    return this.tsProjects.some(t => fileKey(t.path) === k) || this.plcProjects.some(pp => fileKey(pp.path) === k);
+    return this.tsProjects.some(t => fileKey(t.path) === k || t.plcProjects.some(r => r.xtiPath && fileKey(r.xtiPath) === k))
+      || this.plcProjects.some(pp => fileKey(pp.path) === k);
   }
 
   /** Parsed file, re-read from disk when its mtime or size changed. */

@@ -28,7 +28,8 @@ the sections you edited.
 The **TwinCAT** view in the Explorer, below Outline and Timeline:
 
 - One root per `.tsproj`, then its PLC projects, `References`, and the folders and objects of each
-  `.plcproj`.
+  `.plcproj`. A PLC project saved as an Independent Project File (`_Config\PLC\Plc.xti`, which the
+  `.tsproj` names) shows like one the `.tsproj` holds.
 - Inside a POU: the folders TwinCAT keeps in the XML (`Methods > States`), methods, properties with
   `Get`/`Set`, actions and transitions.
 - Labels follow XAE (`FB_X (FB)`, `MAIN (PRG)`), and modified files get their git colour.
@@ -244,10 +245,10 @@ and marked `M`, `A` or `D`.
   - a whole file goes back to `HEAD`, in the working tree and the index.
 
   It is refused while an editor has unsaved edits of the file.
-- **`Build output (no code changes)`** gathers files whose change is only XAE metadata: a `.tsproj`
-  with only new `TmcHash` values, or a source file with only a new `ProductVersion`. They can be
-  discarded too.
-- **`Project files`** holds the other `.tsproj`/`.plcproj` changes; a click shows their XML diff.
+- **`Build output (no code changes)`** gathers files whose change is only XAE metadata: a `.tsproj`, or
+  the `.xti` of a PLC project, with only new `TmcHash` values, or a source file with only a new
+  `ProductVersion`. They can be discarded too.
+- **`Project files`** holds the other `.tsproj`/`.plcproj`/`.xti` changes; a click shows their XML diff.
 
 **TwinCAT Commits** works like the commits view of GitLens.
 
@@ -485,8 +486,6 @@ sources.
   - Unsaved changes in XAE can still overwrite what VS Code saved: save or undo them in XAE before
     editing the same object here.
 - The tree covers the PLC projects; I/O, motion and task configuration stay in XAE.
-- PLC projects saved as independent project files (`<Project File="X.xti"/>` in the `.tsproj`) are
-  not read yet.
 
 **Saving**
 - Safe saving applies to object tabs, in the split editor and in the object notebook. The

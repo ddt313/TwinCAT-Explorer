@@ -70,6 +70,10 @@ export function docComment(text: string, trivia: Trivia[], span: A.Span): string
   return parts.map(cleanComment).join('\n').trim() || undefined;
 }
 
+function spanText(text: string, span: A.Span | undefined): string | undefined {
+  return span ? text.slice(span.start, span.end) : undefined;
+}
+
 function cleanComment(c: string): string {
   if (c.startsWith('//')) return c.slice(2).trim();
   if (c.startsWith('(*')) return c.slice(2, -2).trim();
@@ -400,6 +404,7 @@ export class LanguageIndex {
       kind: 'pou', pouKind, id: `${scope.name}::${name.toUpperCase()}`, name, scope,
       loc: this.loc(f, sectionKey, header?.name), vars: [], members: [],
       extendsNames: header?.extends ?? [], implementsNames: header?.implements ?? [], returnType: header?.returnType,
+      returnText: spanText(text, header?.returnType),
       signature: header ? text.slice(header.start, header.end).replace(/;\s*$/, '').trim() : name,
       doc: header ? docComment(text, trivia, header) : undefined,
     };
@@ -418,7 +423,7 @@ export class LanguageIndex {
     const name = header?.name?.name ?? fallbackName;
     const member: MemberSym = {
       kind, id: `${pou.id}.${name.toUpperCase()}`, name, owner: pou, scope: pou.scope, vars: [], getVars: [], setVars: [],
-      returnType: header?.returnType, loc: this.loc(f, sectionKey, header?.name),
+      returnType: header?.returnType, returnText: spanText(text, header?.returnType), loc: this.loc(f, sectionKey, header?.name),
       signature: header ? text.slice(header.start, header.end).replace(/;\s*$/, '').trim() : `${kind.toUpperCase()} ${name}`,
       doc: header ? docComment(text, trivia, header) : undefined,
     };
@@ -437,12 +442,13 @@ export class LanguageIndex {
 
   private makeVar(f: FileSyms, owner: VarSym['owner'], block: A.VarBlock, decl: A.VarDecl, n: A.Ident, text: string,
     trivia: Trivia[], sectionKey: string | undefined, accessor?: 'Get' | 'Set'): VarSym {
-    const typeText = decl.type ? text.slice(decl.type.start, decl.type.end) : '?';
-    const init = decl.init ? ` := ${text.slice(decl.init.start, decl.init.end)}` : '';
+    const typeText = spanText(text, decl.type) ?? '?';
+    const initText = spanText(text, decl.init);
     const v: VarSym = {
       kind: 'var', id: `${owner.id}#${accessor ? accessor + '.' : ''}${n.upper}`, name: n.name, scope: owner.scope,
-      section: block.section, constant: block.qualifiers.includes('CONSTANT'), typeSpec: decl.type, owner, accessor,
-      loc: this.loc(f, sectionKey, n), signature: `${n.name} : ${typeText}${init}`, doc: docComment(text, trivia, decl),
+      section: block.section, constant: block.qualifiers.includes('CONSTANT'), typeSpec: decl.type, typeText, initText, owner, accessor,
+      loc: this.loc(f, sectionKey, n), signature: `${n.name} : ${typeText}${initText !== undefined ? ` := ${initText}` : ''}`,
+      doc: docComment(text, trivia, decl),
     };
     this.register(f, sectionKey, n, v);
     return v;

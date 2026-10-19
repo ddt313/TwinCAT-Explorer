@@ -9,7 +9,7 @@ import * as monacoAll from 'monaco-editor/esm/vs/editor/edcore.main.js';
 import type * as Monaco from 'monaco-editor';
 import {
   BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
-  ProbeState, RequestKind, SectionBlame, SectionRef, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
+  ProbeState, RequestKind, SectionBlame, SectionRef, SignatureResult, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
 import { escapeMarkdown } from '../shared/markdown';
 import { relativeTime } from '../shared/time';
@@ -354,14 +354,39 @@ function registerProviders(): void {
       const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
       const kinds = monaco.languages.CompletionItemKind as unknown as Record<string, number>;
       return {
-        suggestions: (items ?? []).map(i => ({
-          label: i.label,
+        suggestions: (items ?? []).map((i): Monaco.languages.CompletionItem => ({
+          label: i.labelDetail ? { label: i.label, detail: i.labelDetail } : i.label,
           kind: kinds[i.kind] ?? monaco.languages.CompletionItemKind.Text,
           detail: i.detail,
           documentation: i.documentation ? { value: i.documentation } : undefined,
-          insertText: i.label,
-          range,
+          insertText: i.snippet ?? i.label,
+          insertTextRules: i.snippet ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+          filterText: i.filterText,
+          range: i.range ? rangeOf(model, i.range.start, i.range.end) : range,
+          command: i.signatureHelp ? { id: 'editor.action.triggerParameterHints', title: 'Show the parameters' } : undefined,
         })),
+      };
+    },
+  });
+  monaco.languages.registerSignatureHelpProvider(LANG, {
+    signatureHelpTriggerCharacters: ['(', ','],
+    async provideSignatureHelp(model, position) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const s = await request<SignatureResult>('signature', pane.section.key, model, model.getOffsetAt(position));
+      if (!s) return null;
+      const markdown = (value: string | undefined) => (value ? { value } : undefined);
+      return {
+        value: {
+          signatures: [{
+            label: s.label,
+            documentation: markdown(s.documentation),
+            parameters: s.parameters.map(p => ({ label: p.label, documentation: markdown(p.documentation) })),
+          }],
+          activeSignature: 0,
+          activeParameter: s.activeParameter,
+        },
+        dispose() {},
       };
     },
   });

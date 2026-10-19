@@ -250,6 +250,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.languages.registerDefinitionProvider(stSelector, features),
     vscode.languages.registerHoverProvider(stSelector, features),
     vscode.languages.registerCompletionItemProvider(stSelector, features, '.'),
+    vscode.languages.registerSignatureHelpProvider(stSelector, features, { triggerCharacters: ['(', ','], retriggerCharacters: [] }),
     vscode.languages.registerReferenceProvider(stSelector, features),
     vscode.languages.registerDocumentSymbolProvider(stSelector, features),
     vscode.languages.registerWorkspaceSymbolProvider(features),

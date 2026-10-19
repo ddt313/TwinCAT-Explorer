@@ -244,6 +244,19 @@ These work in both panes and in notebook cells. They come from a parser of the T
   extends, at the method name; a local variable moves the cursor to the declaration pane.
 - **Hover** with the declaration, its comments and where it is declared.
 - **Completion** after `.` (members, inherited members, enum values) and of the names in scope.
+  - **Calls with their arguments**, like `Insert with arguments` in XAE's Input Assistant: next to a
+    function block instance, function, program, method or action, a second item inserts the call with
+    all its parameters, inputs with `:=` and outputs with `=>`, and a tab stop for each value:
+    `fbTimer(IN := , PT := , Q => , ET => );`. Where a statement starts the call ends with `;`; a
+    call without a value (of an instance, a program, an action) is offered only there.
+  - **Snippets** for `IF`, `IF ELSE`, `IF ELSIF ELSE`, `ELSIF`, `CASE`, `FOR`, `WHILE` and `REPEAT`
+    where a statement starts, and for `{region "..."}` ... `{endregion}` on a line of its own.
+- **Signature help** after `(` and `,` in a call of a function, function block instance, program,
+  method, action or built-in (`LIMIT`, `MID`, `INT_TO_REAL`, ...): the inputs as declared
+  (`PT : TIME := T#1S`), the outputs with `=>` (`Q => BOOL`), and the declaration and comment of the
+  parameter at the cursor. That parameter follows the argument's position, or the name being typed.
+  An action shows the inputs and outputs of its function block; a declaration shows those of `FB_init`
+  (`fbValve : FB_Valve(`). `Ctrl+Shift+Space` shows it again, as in XAE.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it.
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
@@ -434,6 +447,7 @@ Commit SHA and Copy Name.
 | Delete | TwinCAT tree | Delete the selected POU, DUT, GVL, interface, method, property, action, transition, `Get`, `Set` or empty folder |
 | F12, Ctrl+click | split editor, notebook cells | Go to Definition |
 | Shift+F12 | split editor, notebook cells | Find All References (peek view) |
+| Ctrl+Shift+Space | split editor, notebook cells | The parameters of the call at the cursor (signature help) |
 | Alt+F5 / Shift+Alt+F5 | split editor | Next / previous change vs `HEAD` |
 | F1, Ctrl+Shift+P, Ctrl+P | split editor | The VS Code pickers |
 | Ctrl+K S, Ctrl+K W, Ctrl+K Ctrl+W, ... | split editor | The common VS Code `Ctrl+K` chords (see the limitations) |
@@ -461,8 +475,8 @@ bundles stubs for the parts in common use:
 - Tc2_MC2: axis function blocks;
 - Tc2_Math, Tc3_Module and TcUnit.
 
-Symbols of other libraries are reported as unknown. Add them to a stub file and list that file in
-`twincatExplorer.stubFiles`:
+Symbols of other libraries are reported as unknown, and have no hover, signature help or call
+completion. Add them to a stub file and list that file in `twincatExplorer.stubFiles`:
 
 ```
 LIBRARY Tc2_EtherCAT

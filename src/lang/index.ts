@@ -162,6 +162,26 @@ export class LanguageIndex {
     this.allDirty = true;
   }
 
+  /**
+   * An index of the workspace with some of its files (by file key) as given instead of as they are on disk, the
+   * rest as here: the stubs and the unsaved edits of the other files. What a change of these files makes of the
+   * code, before it is written.
+   */
+  withFiles(files: Map<string, TcSourceFile>): LanguageIndex {
+    const ws: TcWorkspace = Object.create(this.ws);
+    ws.getFile = p => files.get(fileKey(p)) ?? this.ws.getFile(p);
+    const other = new LanguageIndex(ws);
+    other.setStubs(this.stubSources);
+    for (const [key, sections] of this.overlays) {
+      if (files.has(key)) continue;
+      for (const [sectionKey, text] of sections) other.setOverlay(key, sectionKey, text);
+    }
+    // What is parsed here is parsed the same there.
+    for (const [text, r] of this.declCache) other.declCache.set(text, r);
+    for (const [text, r] of this.bodyCache) other.bodyCache.set(text, r);
+    return other;
+  }
+
   // ------------------------------------------------------------------ building
 
   ensure(): void {

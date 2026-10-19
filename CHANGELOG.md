@@ -17,6 +17,14 @@ All notable changes to Explorer for TwinCAT. The format follows
   `fbTimer(IN := , PT := , Q => , ET => );`, with a tab stop for each value.
 - Snippets for `IF`, `IF ELSE`, `IF ELSIF ELSE`, `ELSIF`, `CASE`, `FOR`, `WHILE`, `REPEAT` and the
   `{region "..."}` and `{endregion}` pragmas, in the split editor and in notebook cells.
+- `Rename Symbol` (F2) in the split editor and in notebook cells: variables, inputs and outputs (also
+  as named parameters and members), DUT fields and enum values, with their uses; POUs, DUTs, GVLs,
+  interfaces and members as the TwinCAT tree renames them.
+- `Rename...` in the TwinCAT tree also renames what uses the object or member, as XAE's rename does:
+  declarations, `EXTENDS` and `IMPLEMENTS`, calls through instances, `THIS^`, `SUPER^`, interfaces and
+  GVLs, properties, and the types in DUTs and GVLs. A list of the objects that change comes first, and
+  any can keep the old name; only the changed sections are written. A method or property can take
+  those that implement or override it along. The message after it names what keeps the old name.
 
 ### Changed
 - The TwinCAT tree and the git views have icons of their own, in the manner of XAE's tree and in a

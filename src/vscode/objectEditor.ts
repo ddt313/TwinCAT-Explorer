@@ -22,6 +22,7 @@ import { BlameCommit, isUncommitted } from '../core/gitLog';
 import { BlameService, ViewBlame } from './blame';
 import { GitChanges } from './gitChanges';
 import { ObjectRef, ST_LANGUAGE, locUriOf, parseObjectUri } from './uris';
+import type { SymbolRename } from './rename';
 import {
   EditorConfig, HostMessage, LanguageConfig, Marker, PaneSection, ProbeAction, SectionRef, TargetRange, WEBVIEW_COMMANDS, WebviewMessage,
 } from '../shared/protocol';
@@ -579,6 +580,13 @@ export class EditorSession implements vscode.Disposable {
             result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
               .map(loc => this.provider.target(loc, this)).filter(t => t !== undefined);
             break;
+          case 'prepareRename':
+            result = this.provider.renames?.prepare(ctx, m.text, m.offset);
+            break;
+          case 'rename':
+            // Answered at once: the rename asks its questions and writes the files, which the panes then show.
+            void this.provider.renames?.rename(ctx, m.text, m.offset, m.newName ?? '');
+            break;
         }
       }
     } catch (e) {
@@ -644,6 +652,8 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
   showHistory?: (ref: ObjectRef) => Promise<void>;
   onDidActivate?: (uri: vscode.Uri) => void;
   openView?: (request: OpenViewRequest) => Promise<void>;
+  /** F2 (Rename Symbol) in the panes. */
+  renames?: Pick<SymbolRename, 'prepare' | 'rename'>;
   log?: (message: string) => void;
   private readonly disposables: vscode.Disposable[] = [];
   private changesContext: boolean | undefined;

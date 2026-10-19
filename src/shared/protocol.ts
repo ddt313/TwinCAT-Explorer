@@ -30,6 +30,9 @@ export interface TargetRange {
   end: number;
 }
 
+/** The name F2 renames at an offset and its range, or why there is none (answer to 'prepareRename'). */
+export type RenameInfo = { start: number; end: number; text: string } | { problem: string };
+
 export interface EditorConfig {
   /** Monaco editor options taken from the VS Code settings (font, tab size, ...). */
   options: Record<string, unknown>;
@@ -118,12 +121,13 @@ export type HostMessage =
   | { type: 'response'; id: number; result: unknown }
   | { type: 'probe'; id: number; action: ProbeAction };
 
-export type RequestKind = 'definition' | 'hover' | 'completion' | 'references' | 'signature';
+export type RequestKind = 'definition' | 'hover' | 'completion' | 'references' | 'signature' | 'prepareRename' | 'rename';
 
 export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'edit'; seq: number; key: string; changes: { offset: number; length: number; text: string }[]; text: string }
-  | { type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean }
+  /** `newName`: the name a 'rename' gives. */
+  | { type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean; newName?: string }
   | { type: 'open'; target: TargetRange; side?: boolean }
   /** A VS Code command the panes cannot run themselves (see WORKBENCH_CHORDS). */
   | { type: 'command'; command: string }

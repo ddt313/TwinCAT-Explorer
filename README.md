@@ -33,6 +33,10 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - Inside a POU: the folders TwinCAT keeps in the XML (`Methods > States`), methods, properties with
   `Get`/`Set`, actions and transitions.
 - Labels follow XAE (`FB_X (FB)`, `MAIN (PRG)`), and modified files get their git colour.
+- Icons in the manner of XAE's tree, in a light and a dark variant: function blocks, programs and
+  functions, each kind of DUT (structure, enumeration, union, alias), GVLs, interfaces, methods,
+  properties with their `Get` and `Set`, actions, transitions and tasks each have their own, and
+  folders are yellow. The git views show the same icons.
 - Methods, properties and accessors that differ from `HEAD` are marked `M` (changed) or `A` (new),
   like the Explorer marks files.
 - Right-click a POU, an interface or a folder inside a POU to add a method, property or action (see
@@ -594,6 +598,8 @@ npm run package
   and the resolver on a whole TwinCAT repository.
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
   bundled packages.
+- `node scripts/icons.js` writes the icons of the views (`media/icons`) again after a change of an
+  icon or a colour.
 - A release is a tag: update the version in `package.json` and the changelog, commit, then push a
   tag with that version (`git tag v0.12.0` and `git push origin v0.12.0`). The Release workflow
   (`.github/workflows/release.yml`) builds and tests it, attaches the `.vsix` to a GitHub release

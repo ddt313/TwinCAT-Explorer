@@ -8,5 +8,6 @@
 !syntaxes/**
 !media/icon.png
 !media/twincat.svg
+!media/icons/**
 !out/src/**/*.js
 !out/webview/**

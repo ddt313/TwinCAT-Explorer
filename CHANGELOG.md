@@ -10,6 +10,10 @@ All notable changes to Explorer for TwinCAT. The format follows
   XAE: a file already in the folder on disk is added where it is, others are copied, sub-folders
   become folders, and GUIDs the project has already get new ones. Clashing files are skipped.
 
+### Changed
+- The TwinCAT tree and the git views have icons of their own, in the manner of XAE's tree and in a
+  light and a dark variant: each kind of POU, DUT and member has its icon, and folders are yellow.
+
 ### Fixed
 - The minimap of the split editor no longer shows a label for every `IF`, `CASE` and `VAR` line. Code
   folds by its indentation, and `{region "..."}` and `{endregion}` pragmas fold as regions.

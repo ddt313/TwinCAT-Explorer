@@ -267,8 +267,9 @@ export class LanguageFeatures implements
     const analyzer = new Analyzer(this.index, ctx, text);
     const exprText = expressionBeforeDot(text, offset);
     const cc = completionContext(text, offset);
-    // Calls with their arguments (XAE's "Insert with arguments"), in implementations, where none is written yet.
-    const calls = ctx.role === 'impl' && !cc.inComment && !cc.callFollows;
+    // Calls with their arguments (XAE's "Insert with arguments"), in implementations, where none is written yet
+    // and a call can go (not as the variable an output goes to).
+    const calls = ctx.role === 'impl' && !cc.inComment && !cc.callFollows && !cc.outputTarget;
     const hints = vscode.workspace.getConfiguration('editor', { languageId: ST_LANGUAGE }).get<boolean>('parameterHints.enabled', true);
     const items: CompletionResult[] = [];
     const add = (s: Sym, ty: Ty) => {
@@ -280,7 +281,8 @@ export class LanguageFeatures implements
       // A call without a value (of a function block instance, an action) is a statement of its own.
       if (c && (cc.statement || returnsValue(c))) {
         items.push({
-          ...item, labelDetail: callArguments(c), snippet: callSnippet(c, s.name, cc.statement), signatureHelp: hints && c.params.length > 0,
+          ...item, labelDetail: callArguments(c), snippet: callSnippet(c, s.name, cc.statement && !cc.semicolonFollows),
+          signatureHelp: hints && c.params.length > 0,
         });
       }
     };

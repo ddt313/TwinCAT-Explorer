@@ -90,10 +90,16 @@ export interface CompletionContext {
   inComment: boolean;
   /**
    * The word (or the expression it is a member of) starts a statement: at the start, or after a `;`, a label or
-   * THEN, ELSE, DO, ..., and nothing but a comment follows on its line.
+   * THEN, ELSE, DO, ..., and no assignment, member or index follows it.
    */
   statement: boolean;
-  /** An opening parenthesis follows the word: its arguments are written already. */
+  /** Nothing but blanks or a comment follows the word on its line. */
+  lineEnd: boolean;
+  /** A `;` follows the word on its line. */
+  semicolonFollows: boolean;
+  /** The word follows `=>`: it is the variable an output goes to. */
+  outputTarget: boolean;
+  /** An opening parenthesis follows the word on its line: its arguments are written already. */
   callFollows: boolean;
   /** Only blanks are before the word on its line (and a `{` typed for a pragma). */
   lineStart: boolean;
@@ -120,14 +126,16 @@ export function completionContext(text: string, offset: number): CompletionConte
   const rest = text.slice(wordEnd, lineEnd < 0 ? text.length : lineEnd);
   const brace = text[wordStart - 1] === '{' ? { start: wordStart - 1, end: wordEnd + (text[wordEnd] === '}' ? 1 : 0) } : undefined;
   const lineStart = text.lastIndexOf('\n', (brace?.start ?? wordStart) - 1) + 1;
-  let next = wordEnd;
-  while (next < text.length && /\s/.test(text[next])) next++;
   return {
     wordStart,
     wordEnd,
     inComment: before.inComment,
-    statement: startsStatement && /^\s*(\/\/.*|\(\*.*)?$/.test(rest),
-    callFollows: text[next] === '(',
+    statement: startsStatement && !/^[ \t]*[:.\[^]/.test(rest),
+    lineEnd: /^\s*(\/\/.*|\(\*.*)?$/.test(rest),
+    semicolonFollows: /^[ \t]*;/.test(rest),
+    outputTarget: prev?.kind === Tk.Op && prev.text === '=>',
+    // `(*` starts a comment.
+    callFollows: /^[ \t]*\((?!\*)/.test(rest),
     lineStart: /^[ \t]*$/.test(text.slice(lineStart, brace?.start ?? wordStart)),
     brace,
   };

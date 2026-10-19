@@ -103,8 +103,9 @@ export function callableOfSymbol(analyzer: Analyzer, s: Sym, ty: Ty): Callable |
  * a declaration the FB_init of a function block (`fbValve : FB_Valve(nId := 3)`).
  */
 export function callableOfType(analyzer: Analyzer, ty: Ty, callee: string, role: 'decl' | 'impl'): Callable | undefined {
+  // A reference calls what it refers to; a pointer is called once dereferenced (pValve^(...)).
   let t = ty;
-  for (let i = 0; i < 4 && (t.k === 'ref' || t.k === 'ptr'); i++) t = t.to;
+  for (let i = 0; i < 4 && t.k === 'ref'; i++) t = t.to;
   if (t.k === 'callable') {
     const s = t.sym;
     if (s.kind === 'builtin') return builtinCall(s);
@@ -133,8 +134,11 @@ export interface CallSite {
   callee: string;
   /** Names of the arguments before the cursor's (undefined for a positional one). */
   before: (string | undefined)[];
-  /** The argument at the cursor: its name when it is named, or the name being typed. */
-  current: { name?: string; typing?: string };
+  /**
+   * The argument at the cursor: its name when it is named, or a word alone, which may be a name being typed
+   * (`operator`: the first character of `:=` or `=>` follows it).
+   */
+  current: { name?: string; typing?: string; operator?: boolean };
 }
 
 /** Keywords no call goes on after (an unclosed parenthesis before them is a mistake, not the call the cursor is in). */
@@ -192,16 +196,24 @@ function joined(tokens: Token[]): string {
   return s;
 }
 
+/** `POINTER TO FB_Valve(`, `REFERENCE TO FB_Valve(`: a type whose parentheses are no call and initialize nothing. */
+function pointerType(tokens: Token[], start: number): boolean {
+  const before = tokens[start - 2];
+  return tokens[start - 1]?.upper === 'TO' && (before?.upper === 'POINTER' || before?.upper === 'REFERENCE');
+}
+
 /** The name of a named argument (`IN := x`, `Q => b`, `NOT Q => b`). */
 function argName(arg: Token[]): string | undefined {
   const i = arg[0]?.kind === Tk.Ident && arg[0].upper === 'NOT' ? 1 : 0;
   return isName(arg[i]) && (isOp(arg[i + 1], ':=') || isOp(arg[i + 1], '=>')) ? arg[i].text : undefined;
 }
 
-/** The innermost call whose arguments the cursor is in. */
+/**
+ * The innermost call whose arguments the cursor is in, also in a string or comment among them (the brackets of
+ * strings and comments are no tokens).
+ */
 export function findCall(text: string, offset: number): CallSite | undefined {
-  const { tokens, inComment } = textBefore(text, offset);
-  if (inComment) return undefined;
+  const { tokens } = textBefore(text, offset);
   const open: number[] = [];
   tokens.forEach((t, i) => {
     if (isOp(t, '(') || isOp(t, '[')) {
@@ -218,7 +230,7 @@ export function findCall(text: string, offset: number): CallSite | undefined {
     const paren = open[j];
     if (!isOp(tokens[paren], '(')) continue;
     const start = calleeStart(tokens, paren);
-    if (start < 0) continue;
+    if (start < 0 || pointerType(tokens, start)) continue;
     const args: Token[][] = [[]];
     let depth = 0;
     for (let i = paren + 1; i < tokens.length; i++) {
@@ -233,13 +245,14 @@ export function findCall(text: string, offset: number): CallSite | undefined {
     }
     const cur = args.pop()!;
     const name = argName(cur);
-    // A name alone, or with the first character of `:=` or `=>`.
+    // A word alone, or followed by the first character of `:=` or `=>`.
     const rest = cur[0]?.kind === Tk.Ident && cur[0].upper === 'NOT' ? cur.slice(1) : cur;
-    const typing = isName(rest[0]) && (rest.length === 1 || (rest.length === 2 && (isOp(rest[1], ':') || isOp(rest[1], '='))));
+    const operator = rest.length === 2 && (isOp(rest[1], ':') || isOp(rest[1], '='));
+    const typing = isName(rest[0]) && (rest.length === 1 || operator);
     return {
       callee: joined(tokens.slice(start, paren)),
       before: args.map(argName),
-      current: name !== undefined ? { name } : typing ? { typing: rest[0].text } : {},
+      current: name !== undefined ? { name } : typing ? { typing: rest[0].text, operator } : {},
     };
   }
   return undefined;
@@ -252,13 +265,17 @@ export function findCall(text: string, offset: number): CallSite | undefined {
 export function activeParameter(c: Callable, site: CallSite): number {
   const index = (name: string) => c.params.findIndex(p => p.name.toUpperCase() === name.toUpperCase());
   if (site.current.name !== undefined) return index(site.current.name);
+  const named = site.before.filter((n): n is string => n !== undefined).map(n => n.toUpperCase());
+  // A word alone names the parameter being typed when `:` or `=` follows it, or where the arguments are named:
+  // after a named one, and in calls of function blocks, programs and actions. Elsewhere it is a value, as in
+  // F_Scale(fValue, fMin); built-ins have no names to type.
   const typing = site.current.typing?.toUpperCase();
-  if (typing) {
+  const formal = named.length > 0 || c.kind === 'functionBlock' || c.kind === 'program' || c.kind === 'action' || c.kind === 'fbInit';
+  if (typing && (site.current.operator || (formal && c.kind !== 'builtin'))) {
     const typed = index(typing);
-    const i = typed >= 0 ? typed : c.params.findIndex(p => p.name.toUpperCase().startsWith(typing));
+    const i = typed >= 0 || site.current.operator ? typed : c.params.findIndex(p => p.name.toUpperCase().startsWith(typing));
     if (i >= 0) return i;
   }
-  const named = site.before.filter((n): n is string => n !== undefined).map(n => n.toUpperCase());
   if (named.length > 0) {
     const free = (i: number) => !named.includes(c.params[i].name.toUpperCase());
     for (let i = index(named[named.length - 1]) + 1; i < c.params.length; i++) if (free(i)) return i;

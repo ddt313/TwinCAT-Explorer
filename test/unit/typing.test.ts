@@ -100,7 +100,9 @@ VAR
 	fbTimer : TON;
 	fbValve : FB_Valve;
 	refValve : REFERENCE TO FB_Valve;
+	pValve : POINTER TO FB_Valve;
 	fValue : LREAL;
+	sText : STRING;
 	bStart : BOOL;
 	nCycles : UDINT;
 END_VAR`));
@@ -137,13 +139,22 @@ test('signature help of a function block instance: the inputs as declared, then 
     label: 'fbValve(bEnable : BOOL, bOpen : BOOL, tDelay : TIME := T#2S, nCycles : UDINT, bError => BOOL, bIsOpen => BOOL)',
     active: 'bIsOpen => BOOL',
   });
+  // Through a reference; a pointer is called dereferenced.
   assert.equal(help('refValve(bOpen := TRUE, |')?.active, 'tDelay : TIME := T#2S');
+  assert.equal(help('pValve^(bOpen := TRUE, |')?.active, 'tDelay : TIME := T#2S');
+  assert.equal(help('pValve(|'), undefined);
   assert.equal(help('stData.aValves[i](|'), undefined);
 });
 
 test('signature help of functions, methods, actions, FB_init and built-ins', () => {
   assert.deepEqual(help('fValue := F_Scale(fValue, 0, |'), { label: 'F_Scale(fIn : LREAL, fMin : LREAL, fMax : LREAL := 100) : LREAL', active: 'fMax : LREAL := 100' });
   assert.equal(help('fbTimer(IN := F_Scale(|')?.active, 'fIn : LREAL');
+  // A word alone is a value where the arguments are positional, a name being typed where they are named.
+  assert.equal(help('fValue := F_Scale(fValue, f|')?.active, 'fMin : LREAL');
+  assert.equal(help('fValue := F_Scale(fValue, fMa|')?.active, 'fMin : LREAL');
+  assert.equal(help('fValue := F_Scale(fIn := fValue, fMa|')?.active, 'fMax : LREAL := 100');
+  assert.equal(help('fValue := F_Scale(fMax :|')?.active, 'fMax : LREAL := 100');
+  assert.equal(help('fValue := F_Scale(fValue = |')?.active, 'fIn : LREAL');
   assert.deepEqual(help('fValue := F_Scale(fValue, 0, 10, |'), { label: 'F_Scale(fIn : LREAL, fMin : LREAL, fMax : LREAL := 100) : LREAL', active: undefined });
   assert.deepEqual(help('IF fbValve.Open(|'), { label: 'Open(nPos : INT, bForce : BOOL := FALSE) : BOOL', active: 'nPos : INT' });
   assert.equal(help('refValve.Open(nPos := 50, |')?.active, 'bForce : BOOL := FALSE');
@@ -157,11 +168,17 @@ test('signature help of functions, methods, actions, FB_init and built-ins', () 
   assert.equal(help('THIS^.Open(nPos := 1, |', fb)?.active, 'bForce : BOOL := FALSE');
   assert.equal(help('SUPER^(|', fb)?.label, 'SUPER^(bEnable : BOOL, bError => BOOL)');
   // The arguments of FB_init in a declaration, without those TwinCAT passes itself.
-  assert.deepEqual(help('PROGRAM MAIN\nVAR\n\tfbOther : FB_Valve(|', section('MAIN', 'decl')), { label: 'FB_Valve(nId : INT)', active: 'nId : INT' });
+  const decl = section('MAIN', 'decl');
+  assert.deepEqual(help('PROGRAM MAIN\nVAR\n\tfbOther : FB_Valve(|', decl), { label: 'FB_Valve(nId : INT)', active: 'nId : INT' });
+  assert.equal(help('PROGRAM MAIN\nVAR\n\tpOther : POINTER TO FB_Valve(|', decl), undefined);
+  assert.equal(help('PROGRAM MAIN\nVAR\n\trOther : REFERENCE TO FB_Valve(|', decl), undefined);
   assert.equal(help('fbOther : FB_Valve(|'), undefined);
+  assert.equal(help('FOR nCycles := 1 TO F_Scale(|')?.active, 'fIn : LREAL');
   // Built-ins, one taking any number of arguments.
   assert.deepEqual(help('fValue := LIMIT(0, |'), { label: 'LIMIT(min, in, max)', active: 'in' });
+  assert.equal(help('fValue := LIMIT(0, fValue, m|')?.active, 'max');
   assert.equal(help('fValue := MAX(1, 2, 3, |')?.active, '...');
+  assert.equal(help("sText := CONCAT(sText, '|")?.active, 'str2');
   assert.equal(help('fValue := DINT_TO_LREAL(|')?.label, 'DINT_TO_LREAL(in) : LREAL');
 });
 
@@ -172,15 +189,18 @@ test('no signature help outside of a call', () => {
   ]) {
     assert.equal(help(text), undefined, text);
   }
-  // The call goes on after a comment that is closed.
+  // The call goes on after a comment that is closed, and in a comment or string among its arguments.
   assert.equal(help('fbTimer(IN := bStart, (* IN *) |')?.active, 'PT : TIME');
+  assert.equal(help('fbTimer(IN := bStart, // PT (|')?.active, 'PT : TIME');
+  assert.equal(help("fbTimer(IN := sText = 'a(|")?.active, 'IN : BOOL');
 });
 
 test('the call the cursor is in: what is called and the arguments before', () => {
   const at = (text: string) => findCall(text.replace('|', ''), text.indexOf('|'));
   assert.deepEqual(at('fbTimer(IN := x, PT := 5, |'), { callee: 'fbTimer', before: ['IN', 'PT'], current: {} });
   assert.deepEqual(at('aPumps[i MOD 2].fb(1, |'), { callee: 'aPumps[i MOD 2].fb', before: [undefined], current: {} });
-  assert.deepEqual(at('THIS^ . Open(nPos|'), { callee: 'THIS^.Open', before: [], current: { typing: 'nPos' } });
+  assert.deepEqual(at('THIS^ . Open(nPos|'), { callee: 'THIS^.Open', before: [], current: { typing: 'nPos', operator: false } });
+  assert.deepEqual(at('THIS^.Open(nPos :|'), { callee: 'THIS^.Open', before: [], current: { typing: 'nPos', operator: true } });
   assert.deepEqual(at('GetPump(1)^.Start(NOT bBusy => |'), { callee: 'GetPump(1)^.Start', before: [], current: { name: 'bBusy' } });
 });
 
@@ -220,13 +240,23 @@ test('a call completes with all its parameters, as a statement with ;', () => {
 
 test('where a completed call is a statement of its own', () => {
   const at = (text: string) => completionContext(text.replace('|', ''), text.indexOf('|'));
-  for (const text of ['fbTi|', 'x := 1;\n\tfbTi|', 'IF bStart THEN\n\tfbTi|', 'CASE n OF\n\t1: fbTi|', 'END_IF\nfbValve.Op|', 'fbTi| // starts']) {
+  for (const text of [
+    'fbTi|', 'x := 1;\n\tfbTi|', 'IF bStart THEN\n\tfbTi|', 'CASE n OF\n\t1: fbTi|', 'END_IF\nfbValve.Op|', 'fbTi| // starts',
+    'IF bStart THEN fbTi| END_IF', 'fbTi|;',
+  ]) {
     assert.equal(at(text).statement, true, text);
   }
-  for (const text of ['x := fbTi|', 'IF fbValve.Op|', 'fbTi| := 1;', 'x := 1 + fbValve.Op|']) {
+  for (const text of ['x := fbTi|', 'IF fbValve.Op|', 'fbTi| := 1;', 'x := 1 + fbValve.Op|', 'fbTi|.Q', 'fbTi|[1]']) {
     assert.equal(at(text).statement, false, text);
   }
+  // What follows on the line: the end of the line (a comment), a ; already, arguments already.
+  assert.deepEqual(['fbTi| // starts', 'fbTi| (* starts *)', 'IF bStart THEN fbTi| END_IF', 'fbTi|;'].map(t => at(t).lineEnd), [true, true, false, false]);
+  assert.deepEqual(['fbTi|;', 'fbTi| ;', 'fbTi|'].map(t => at(t).semicolonFollows), [true, true, false]);
   assert.equal(at('fbTi|(IN := TRUE);').callFollows, true);
+  assert.equal(at('fbTi| (* starts *)').callFollows, false);
+  assert.equal(at('fbTi|\n(IN := TRUE);').callFollows, false);
+  assert.equal(at('fbTimer(Q => F_Sc|').outputTarget, true);
+  assert.equal(at('fbTimer(IN := F_Sc|').outputTarget, false);
   assert.equal(at('x := 1; // fbTi|').inComment, true);
   assert.equal(at("s := 'fbTi|").inComment, true);
   assert.deepEqual(at('\t{reg|}').brace, { start: 1, end: 6 });
@@ -240,6 +270,7 @@ test('statement and region snippets, in upper case', () => {
   assert.deepEqual(labels('impl', 'x := 1;\nI|'),
     ['IF', 'IF ELSE', 'IF ELSIF ELSE', 'ELSIF', 'CASE', 'FOR', 'WHILE', 'REPEAT', 'region', 'endregion']);
   assert.deepEqual(labels('impl', 'x := I|'), []);
+  assert.deepEqual(labels('impl', 'IF bStart THEN I| END_IF'), []);
   assert.deepEqual(labels('impl', '// I|'), []);
   assert.deepEqual(labels('decl', 'VAR\n\tr|'), ['region', 'endregion']);
   const region = at('decl', 'VAR\n\t{re|}')[0];

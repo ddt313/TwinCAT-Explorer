@@ -40,10 +40,10 @@ export interface SnippetItem extends Snippet {
   filterText?: string;
 }
 
-/** The snippets for a place: statements where a statement starts, region pragmas on a line of their own. */
+/** The snippets for a place: statements where one starts, with nothing after it on the line; region pragmas on a line of their own. */
 export function snippetsAt(role: 'decl' | 'impl', cc: CompletionContext): SnippetItem[] {
   const items: SnippetItem[] = [];
-  if (role === 'impl' && cc.statement && !cc.inComment) {
+  if (role === 'impl' && cc.statement && cc.lineEnd && !cc.inComment) {
     for (const s of STATEMENT_SNIPPETS) items.push({ ...s, preview: snippetPreview(s.body) });
   }
   // `{reg` is a pragma being typed, not a comment.

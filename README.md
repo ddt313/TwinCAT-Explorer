@@ -32,7 +32,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   `.tsproj` names) shows like one the `.tsproj` holds.
 - Inside a POU: the folders TwinCAT keeps in the XML (`Methods > States`), methods, properties with
   `Get`/`Set`, actions and transitions.
-- Labels follow XAE (`FB_X (FB)`, `MAIN (PRG)`), and modified files get their git colour.
+- Labels follow XAE (`FB_X (FB)`, `MAIN (PRG)`, `E_State (ENUM)`, `ST_Data (STRUCT)`), and modified
+  files get their git colour.
 - Icons in the manner of XAE's tree, in a light and a dark variant: function blocks, programs and
   functions, each kind of DUT (structure, enumeration, union, alias), GVLs, interfaces, methods,
   properties with their `Get` and `Set`, actions, transitions and tasks each have their own, and

@@ -133,9 +133,10 @@ export const KIND_WORD: Record<ObjectKind, string> = {
 /** Compares labels for sorting: case and accents aside, like `localeCompare` with base sensitivity. */
 export const compareLabels = new Intl.Collator(undefined, { sensitivity: 'base' }).compare;
 
-/** Label as XAE shows it: `MAIN (PRG)`, `FB_X (FB)`, `F_Y (FUN)`. */
+/** Label as XAE shows it: `MAIN (PRG)`, `FB_X (FB)`, `F_Y (FUN)`, `E_Z (ENUM)`, `ST_W (STRUCT)`. */
 export function objectTreeLabel(obj: TcObject): string {
   if (obj.kind === 'pou' && obj.pouKind) return `${obj.name} (${obj.pouKind})`;
+  if (obj.kind === 'dut' && obj.dutKind) return `${obj.name} (${obj.dutKind.toUpperCase()})`;
   return obj.name;
 }
 

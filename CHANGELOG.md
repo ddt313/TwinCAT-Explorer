@@ -3,6 +3,12 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- The minimap of the split editor no longer shows a label for every `IF`, `CASE` and `VAR` line. Code
+  folds by its indentation, and `{region "..."}` and `{endregion}` pragmas fold as regions.
+
 ## 0.12.0 - 2026-10-19
 
 ### Added

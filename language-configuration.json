@@ -29,8 +29,8 @@
   },
   "folding": {
     "markers": {
-      "start": "^\\s*(IF|CASE|FOR|WHILE|REPEAT|VAR\\w*|STRUCT|UNION)\\b",
-      "end": "^\\s*(END_IF|END_CASE|END_FOR|END_WHILE|END_REPEAT|END_VAR|END_STRUCT|END_UNION)\\b"
+      "start": "^\\s*\\{\\s*region\\b",
+      "end": "^\\s*\\{\\s*endregion\\b"
     }
   }
 }

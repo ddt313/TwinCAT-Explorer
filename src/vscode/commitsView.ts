@@ -11,7 +11,7 @@ import { Status, statusUri, viewChangeItem } from './changesView';
 import { CommitObject } from './commitDiff';
 import { CommitInfo, commitChanges, commitLog, headCommit, localOnlyCommits, openNotebookDiff, readBlobs, revision, userEmail } from './git';
 import { GitChanges } from './gitChanges';
-import { compareLabels, objectIcon, objectTreeLabel } from './tree';
+import { TreeIcon, compareLabels, objectIcon, objectTreeLabel, projectFileIcon } from './tree';
 import { isSourcePath } from './uris';
 import { escapeMarkdown } from '../shared/markdown';
 import { relativeTime } from '../shared/time';
@@ -23,7 +23,7 @@ export class CommitNode {
   children: CommitNode[] = [];
   description?: string;
   tooltip?: string | vscode.MarkdownString;
-  icon?: vscode.ThemeIcon;
+  icon?: TreeIcon;
   status?: Status;
   commit?: CommitInfo;
   root?: string;
@@ -232,7 +232,7 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
       if (node.type === 'other' || !read) {
         // Not a POU: TwinCAT project files with their own icon, any other file with the file icon theme's.
         if (PROJECT_FILE.test(rel)) {
-          node.icon = new vscode.ThemeIcon('project');
+          node.icon = projectFileIcon(rel);
           others.push(node);
         } else {
           node.icon = vscode.ThemeIcon.File;
@@ -241,7 +241,7 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
         return;
       }
       // A file without object changes to show (unreadable, renamed, metadata only): its XML diff on a click.
-      const leaf = (description: string, icon?: vscode.ThemeIcon) => {
+      const leaf = (description: string, icon?: TreeIcon) => {
         const n = new CommitNode(node.id, 'other', node.label);
         Object.assign(n, { commit: c, root, path: rel, fromPath: fromRel, status: ch.status, tooltip: node.tooltip, description, icon: icon ?? node.icon, parent: commitNode });
         return n;

@@ -15,7 +15,7 @@ import { PathChange, changesSince, headCommit, mergeBase, openNotebookDiff, rest
 import { GitChanges } from './gitChanges';
 import { CompareBase, HEAD_BASE } from './objectEditor';
 import { hasUnsavedEdits } from './openDocs';
-import { KIND_WORD, compareLabels, objectIcon, objectTreeLabel, viewIcon } from './tree';
+import { KIND_WORD, TreeIcon, compareLabels, objectIcon, objectTreeLabel, projectFileIcon, viewIcon } from './tree';
 import { SOURCE_EXTENSIONS, ST_LANGUAGE, isSourcePath } from './uris';
 
 export type ChangesScope = { kind: 'head' } | { kind: 'branch'; ref: string };
@@ -43,7 +43,7 @@ export function changeLetter(change: ViewChange['change']): Status {
  * root object's (`Run` for `FB_X.Run`), its status and icon, `Get accessor` or its kind (and a rename), a tooltip.
  */
 export function viewChangeItem(v: ViewChange, obj: TcObject | undefined, rootName: string | undefined):
-  { label: string; status: Status; icon: vscode.ThemeIcon; description: string; tooltip: string } {
+  { label: string; status: Status; icon: TreeIcon; description: string; tooltip: string } {
   const words = [v.accessor ? `${v.accessor} accessor` : KIND_WORD[v.kind]];
   if (v.renamedFrom) words.push(`renamed from ${v.renamedFrom}`);
   return {
@@ -59,7 +59,7 @@ export class ChangeNode {
   children: ChangeNode[] = [];
   description?: string;
   tooltip?: string;
-  icon?: vscode.ThemeIcon;
+  icon?: TreeIcon;
   status?: Status;
   /** The file (for a deleted file: where it was). */
   fsPath?: string;
@@ -315,7 +315,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
         }
         files.push(node);
       } else if (c.status === 'M' && before && now) {
-        build.push(this.otherNode(c, root, base, metadataChange(before.text, now.text), 'file-code'));
+        build.push(this.otherNode(c, root, base, metadataChange(before.text, now.text), new vscode.ThemeIcon('file-code')));
       }
       return;
     }
@@ -342,7 +342,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
     // The workspace's project files (.tsproj, .plcproj, .xti), also one that did not load (listed with what went wrong).
     const failed = this.ws.failedPlc.get(fileKey(c.fsPath));
     if (failed !== undefined) {
-      const n = this.otherNode(c, root, base, `cannot be read: ${failed}`, 'warning');
+      const n = this.otherNode(c, root, base, `cannot be read: ${failed}`, new vscode.ThemeIcon('warning'));
       projects.push(n);
       return;
     }
@@ -351,17 +351,17 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
     if (c.status === 'M' && /\.(tsproj|xti)$/i.test(c.fsPath)) {
       const before = (await showAtRef(c.fsPath, base, c.from)).toString('utf8');
       if (onlyTmcHashChanged(before, fs.readFileSync(c.fsPath, 'utf8'))) {
-        build.push(this.otherNode(c, root, base, 'TmcHash, rewritten by a build', 'project'));
+        build.push(this.otherNode(c, root, base, 'TmcHash, rewritten by a build', projectFileIcon(c.fsPath)));
         return;
       }
     }
-    projects.push(this.otherNode(c, root, base, { M: 'changed', A: 'added', D: 'deleted', R: 'renamed' }[c.status], 'project'));
+    projects.push(this.otherNode(c, root, base, { M: 'changed', A: 'added', D: 'deleted', R: 'renamed' }[c.status], projectFileIcon(c.fsPath)));
   }
 
-  private otherNode(c: PathChange, root: string, base: string, note: string, icon: string): ChangeNode {
+  private otherNode(c: PathChange, root: string, base: string, note: string, icon: TreeIcon): ChangeNode {
     const n = new ChangeNode(`other:${fileKey(c.fsPath)}`, 'other', path.basename(c.fsPath));
     Object.assign(n, { fsPath: c.fsPath, root, base, from: c.from, status: c.status, description: note, tooltip: c.fsPath });
-    n.icon = new vscode.ThemeIcon(icon);
+    n.icon = icon;
     if (this.scope.kind === 'head' && (c.status === 'M' || c.status === 'D')) n.discard = 'file';
     return n;
   }

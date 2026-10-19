@@ -18,7 +18,7 @@ import { describeCommit } from './commitsView';
 import { CommitInfo, fileLog, localOnlyCommits, pathAt, readBlobs, userEmail } from './git';
 import { GitChanges } from './gitChanges';
 import { CompareBase, HEAD_BASE } from './objectEditor';
-import { KIND_WORD, viewIcon } from './tree';
+import { KIND_WORD, TreeIcon, viewIcon } from './tree';
 
 const PAGE = 50;
 /** File versions read by one git process while looking for the commits that changed the object. */
@@ -35,7 +35,7 @@ export class HistoryNode {
   children: HistoryNode[] = [];
   description?: string;
   tooltip?: string | vscode.MarkdownString;
-  icon?: vscode.ThemeIcon;
+  icon?: TreeIcon;
   status?: Status;
   commit?: CommitInfo;
   /** The object view the node opens, and the repository-relative path of its file in the commit and its parent. */

@@ -35,7 +35,7 @@ export class TreeNode {
   fsPath?: string;
   objectId?: string;
   accessor?: Accessor;
-  icon?: vscode.ThemeIcon;
+  icon?: TreeIcon;
   /** URI of the object view of a member or accessor node, which carries its git decoration (see GitChanges). */
   resourceUri?: vscode.Uri;
   openable = false;
@@ -74,36 +74,52 @@ export function memberKinds(obj: TcObject): { members: boolean; actions: boolean
   return { members: pou || obj.kind === 'itf', actions: pou };
 }
 
+/** A node's icon: one of the extension's (media/icons) in its light and dark variant, or a codicon. */
+export type TreeIcon = vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri };
+
+/** The icons scripts/icons.js draws, from out/src/vscode. */
+const ICONS = path.join(__dirname, '..', '..', '..', 'media', 'icons');
+
 function icon(id: string, color?: string): vscode.ThemeIcon {
   return new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined);
 }
 
-export function objectIcon(obj: TcObject): vscode.ThemeIcon {
+/** One of the extension's icons, in the colours of XAE's tree: `media/icons/{light,dark}/<name>.svg`. */
+function twincatIcon(name: string): TreeIcon {
+  return {
+    light: vscode.Uri.file(path.join(ICONS, 'light', `${name}.svg`)),
+    dark: vscode.Uri.file(path.join(ICONS, 'dark', `${name}.svg`)),
+  };
+}
+
+export function objectIcon(obj: TcObject): TreeIcon {
   switch (obj.kind) {
     case 'pou':
-      if (obj.pouKind === 'PRG') return icon('symbol-module', 'symbolIcon.moduleForeground');
-      if (obj.pouKind === 'FUN') return icon('symbol-function', 'symbolIcon.functionForeground');
-      return icon('symbol-class', 'symbolIcon.classForeground');
-    case 'itf': return icon('symbol-interface', 'symbolIcon.interfaceForeground');
-    case 'dut':
-      if (obj.dutKind === 'enum') return icon('symbol-enum', 'symbolIcon.enumeratorForeground');
-      if (obj.dutKind === 'alias') return icon('symbol-type-parameter', 'symbolIcon.typeParameterForeground');
-      return icon('symbol-structure', 'symbolIcon.structForeground');
-    case 'gvl': return icon('symbol-variable', 'symbolIcon.variableForeground');
-    case 'method': return icon('symbol-method', 'symbolIcon.methodForeground');
-    case 'property': return icon('symbol-property', 'symbolIcon.propertyForeground');
-    case 'action': return icon('symbol-event', 'symbolIcon.eventForeground');
-    case 'transition': return icon('arrow-swap', 'symbolIcon.eventForeground');
+      if (obj.pouKind === 'PRG') return twincatIcon('prg');
+      if (obj.pouKind === 'FUN') return twincatIcon('fun');
+      return twincatIcon('fb');
+    case 'itf': return twincatIcon('interface');
+    case 'dut': return twincatIcon(obj.dutKind ?? 'struct');
+    case 'gvl': return twincatIcon('gvl');
+    case 'method': return twincatIcon('method');
+    case 'property': return twincatIcon('property');
+    case 'action': return twincatIcon('action');
+    case 'transition': return twincatIcon('transition');
   }
 }
 
 /** Icon of a property's Get or Set accessor. */
-export function accessorIcon(accessor: Accessor): vscode.ThemeIcon {
-  return icon(accessor === 'Get' ? 'arrow-small-left' : 'arrow-small-right', 'symbolIcon.methodForeground');
+export function accessorIcon(accessor: Accessor): TreeIcon {
+  return twincatIcon(accessor === 'Get' ? 'get' : 'set');
+}
+
+/** Icon of a project file in the git views: the TwinCAT project's (.tsproj) or a PLC project's (.plcproj, .xti). */
+export function projectFileIcon(fsPath: string): TreeIcon {
+  return twincatIcon(/\.tsproj$/i.test(fsPath) ? 'twincat-project' : 'plc-project');
 }
 
 /** Icon of an object view; for an object that is not there (deleted since), the icon of its kind. */
-export function viewIcon(obj: TcObject | undefined, kind: ObjectKind, accessor?: Accessor): vscode.ThemeIcon {
+export function viewIcon(obj: TcObject | undefined, kind: ObjectKind, accessor?: Accessor): TreeIcon {
   if (accessor) return accessorIcon(accessor);
   return objectIcon(obj ?? ({ kind } as TcObject));
 }
@@ -117,9 +133,10 @@ export const KIND_WORD: Record<ObjectKind, string> = {
 /** Compares labels for sorting: case and accents aside, like `localeCompare` with base sensitivity. */
 export const compareLabels = new Intl.Collator(undefined, { sensitivity: 'base' }).compare;
 
-/** Label as XAE shows it: `MAIN (PRG)`, `FB_X (FB)`, `F_Y (FUN)`. */
+/** Label as XAE shows it: `MAIN (PRG)`, `FB_X (FB)`, `F_Y (FUN)`, `E_Z (ENUM)`, `ST_W (STRUCT)`. */
 export function objectTreeLabel(obj: TcObject): string {
   if (obj.kind === 'pou' && obj.pouKind) return `${obj.name} (${obj.pouKind})`;
+  if (obj.kind === 'dut' && obj.dutKind) return `${obj.name} (${obj.dutKind.toUpperCase()})`;
   return obj.name;
 }
 
@@ -199,7 +216,7 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
     const tsKey = fileKey(ts.path);
     const root = this.add(new TreeNode(`ts:${tsKey}`, 'tsproj', ts.name, undefined));
     root.fsPath = ts.path;
-    root.icon = icon('project');
+    root.icon = twincatIcon('twincat-project');
     root.tooltip = ts.path;
     for (const ref of ts.plcProjects) {
       const plc = this.ws.plcProject(ref.plcprojPath);
@@ -222,13 +239,13 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     const prefix = `${tsKey}|${fileKey(plc.path)}`;
     const node = this.add(new TreeNode(`plc:${prefix}`, 'plcproj', plc.name, parent));
     node.fsPath = plc.path;
-    node.icon = icon('circuit-board');
+    node.icon = twincatIcon('plc-project');
     node.tooltip = plc.path;
     node.description = 'PLC project';
     node.objectTarget = { plcprojPath: plc.path, folder: '' };
 
     const refs = this.add(new TreeNode(`refs:${prefix}`, 'references', 'References', node));
-    refs.icon = icon('references');
+    refs.icon = twincatIcon('references');
     refs.sortGroup = 0;
     // Node ids must be unique (VS Code refuses or replaces a repeated one): a library referenced twice (placeholder and
     // library reference), a file the .plcproj lists twice (a merge) and an object whose GUID is repeated appear once.
@@ -237,7 +254,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       if (libraries.has(lib.name)) continue;
       libraries.add(lib.name);
       const l = this.add(new TreeNode(`lib:${prefix}|${lib.name}`, 'library', lib.name, refs));
-      l.icon = icon('library');
+      l.icon = twincatIcon('library');
       const resolved = resolutionLibraryName(lib);
       l.description = lib.resolution ?? '';
       l.tooltip = `${lib.include}${resolved !== lib.name ? `\nResolves to ${resolved}` : ''}\nNamespace: ${lib.namespace}`;
@@ -253,7 +270,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       const parentRel = rel.includes('\\') ? rel.slice(0, rel.lastIndexOf('\\')) : '';
       const parentNode = ensureFolder(parentRel);
       const f = this.add(new TreeNode(`folder:${prefix}|${key}`, 'folder', rel.slice(rel.lastIndexOf('\\') + 1), parentNode));
-      f.icon = vscode.ThemeIcon.Folder;
+      f.icon = twincatIcon('folder');
       f.sortGroup = 1;
       f.name = f.label;
       f.objectTarget = { plcprojPath: plc.path, folder: rel };
@@ -282,7 +299,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     node.tooltip = fsPath;
     this.byFile.set(fk, [...(this.byFile.get(fk) ?? []), node]);
     if (!file || !root) {
-      node.icon = file?.fileKind === 'task' ? icon('watch') : icon('file');
+      node.icon = twincatIcon(file?.fileKind === 'task' ? 'task' : 'file');
       node.name = path.basename(fsPath, path.extname(fsPath));
       node.label = file?.error ? `${node.label}` : node.name;
       if (file?.error) node.description = 'unreadable';
@@ -309,7 +326,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       if (existing) return existing;
       const p = ensureInner(folderPath.slice(0, -1));
       const f = this.add(new TreeNode(`ifolder:${prefix}|${fk}|${key}`, 'innerFolder', folderPath[folderPath.length - 1], p));
-      f.icon = vscode.ThemeIcon.Folder;
+      f.icon = twincatIcon('folder');
       f.sortGroup = 1;
       f.memberTarget = memberTarget(folderPath);
       inner.set(key, f);

@@ -912,6 +912,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     references: usesOf,
     showReferences: showUses,
     reopen,
+    reveal: async (fsPath, objectId) => {
+      await tree.whenQuiet();
+      const node = tree.nodesForFile(fsPath)[0] ?? tree.nodesForObject(fsPath, objectId)[0];
+      if (node) await treeView.reveal(node, { select: true, focus: false, expand: false });
+    },
   });
   /**
    * Where a new object goes: the PLC project or folder of a tree node; else the folder of the active editor's
@@ -938,6 +943,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.commands.registerCommand('twincatExplorer.addGvl', addObject(t => objects.addGvl(t))),
     vscode.commands.registerCommand('twincatExplorer.addInterface', addObject(t => objects.addInterface(t))),
     vscode.commands.registerCommand('twincatExplorer.newFolder', addObject(t => objects.newFolder(t))),
+    vscode.commands.registerCommand('twincatExplorer.addExistingItem', addObject(t => objects.addExistingItems(t))),
+    vscode.commands.registerCommand('twincatExplorer.addExistingFolderContent', addObject(t => objects.addExistingFolderContent(t))),
     vscode.commands.registerCommand('twincatExplorer.addMethod', addMember('method')),
     vscode.commands.registerCommand('twincatExplorer.addProperty', addMember('property')),
     vscode.commands.registerCommand('twincatExplorer.addAction', addMember('action')),

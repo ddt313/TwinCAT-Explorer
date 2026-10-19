@@ -5,6 +5,11 @@ All notable changes to Explorer for TwinCAT. The format follows
 
 ## Unreleased
 
+### Added
+- `Add Existing Item...` and `Add Existing Folder Content...` on a PLC project and its folders, as in
+  XAE: a file already in the folder on disk is added where it is, others are copied, sub-folders
+  become folders, and GUIDs the project has already get new ones. Clashing files are skipped.
+
 ### Fixed
 - The minimap of the split editor no longer shows a label for every `IF`, `CASE` and `VAR` line. Code
   folds by its indentation, and `{region "..."}` and `{endregion}` pragmas fold as regions.

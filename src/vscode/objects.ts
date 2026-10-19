@@ -1,7 +1,8 @@
 // Add POU, Add DUT, Add Global Variable List, Add Interface and New Folder: they ask for what the new object
 // needs, write its file as XAE 3.1.4026 does (see newObjects.ts) and its item into the .plcproj (see project.ts),
-// then open it. Rename, Move to Folder and Delete of a POU, DUT, GVL or interface, and of a folder, change the
-// files and the items the way XAE does, and close or move the tabs.
+// then open it. Add Existing Item and Add Existing Folder Content add files from disk as XAE does (see existing.ts).
+// Rename, Move to Folder and Delete of a POU, DUT, GVL or interface, and of a folder, change the files and the
+// items the way XAE does, and close or move the tabs.
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -10,7 +11,8 @@ import { FileStyle, NewObjectKind, NewObjectSpec, XAE_FILE_STYLE, fileStyleOf, n
 import {
   PlcProject, addCompileItem, addFolderItem, itemOrder, removeItem, renameCompileItem, renameFolderItems, renameTaskCalls, taskCalls,
 } from '../core/project';
-import { SectionRange, addMember, nameRanges, renameObject } from '../core/splice';
+import { ChosenFile, ExistingPlan, objectIds, planExistingFiles } from '../core/existing';
+import { SectionRange, addMember, nameRanges, newGuid, renameObject } from '../core/splice';
 import { TcObject, decodeBytes, encodeText, fileKindFromPath, parseTcFile, parseTcText } from '../core/tcfile';
 import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
@@ -40,6 +42,8 @@ export interface ObjectHooks {
   showReferences(title: string, locs: Loc[]): Promise<void>;
   /** Opens tabs again in a file, where they were. */
   reopen(fsPath: string, tabs: ShownTab[]): Promise<void>;
+  /** Selects an object in the TwinCAT tree. */
+  reveal(fsPath: string, objectId: string): Promise<void>;
 }
 
 /** A file to write, with its text and BOM. */
@@ -68,6 +72,16 @@ const KIND_WORDS: Record<NewObjectKind, string> = {
   fb: 'function block', prg: 'program', fun: 'function', itf: 'interface', struct: 'structure', enum: 'enumeration',
   union: 'union', alias: 'alias', gvl: 'global variable list',
 };
+
+/** Existing Folder Content refuses a folder with more files than this (a whole drive picked by mistake). */
+const MAX_FOLDER_FILES = 2000;
+
+/** The files a plan skips and why, the first ten of them. */
+function skippedText(plan: ExistingPlan): string {
+  const shown = plan.skipped.slice(0, 10).map(s => `${path.basename(s.source)} (${s.reason})`);
+  const more = plan.skipped.length > shown.length ? `, and ${plan.skipped.length - shown.length} more` : '';
+  return `Skipped ${plan.skipped.length === 1 ? '1 file' : `${plan.skipped.length} files`}: ${shown.join('; ')}${more}.`;
+}
 
 /** What a POU, DUT, GVL or interface is, in a question: `function block`, `DUT`, `interface`. */
 function objectWord(obj: TcObject): string {
@@ -213,6 +227,116 @@ export class ObjectCommands {
     if (this.write(project, text => addFolderItem(text, include), () => fs.mkdirSync(path.join(project.dir, ...include.split('\\')), { recursive: true }))) {
       await this.hooks.written();
     }
+  }
+
+  /** The folder of a target on disk. */
+  private dirOf(project: PlcProject, target: ObjectTarget): string {
+    return path.join(project.dir, ...target.folder.split('\\').filter(s => s));
+  }
+
+  /** Add Existing Item...: POU, DUT, GVL and interface files picked on disk go into the folder, as XAE adds them. */
+  async addExistingItems(target: ObjectTarget): Promise<void> {
+    const project = this.project(target);
+    if (!project || this.refuseUnsaved(project)) return;
+    const uris = await vscode.window.showOpenDialog({
+      title: this.title('Add Existing Item', project, target), openLabel: 'Add', canSelectMany: true,
+      defaultUri: vscode.Uri.file(this.dirOf(project, target)),
+      filters: { 'POUs, DUTs, GVLs and interfaces': ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO'] },
+    });
+    if (uris?.length) await this.addExisting(project, target, uris.map(u => ({ path: u.fsPath, subfolder: '' })));
+  }
+
+  /**
+   * Add Existing Folder Content...: the POU, DUT, GVL and interface files of a folder picked on disk, and of its
+   * sub-folders, go into the folder, a sub-folder into a sub-folder of the same name, as XAE adds them.
+   */
+  async addExistingFolderContent(target: ObjectTarget): Promise<void> {
+    const project = this.project(target);
+    if (!project || this.refuseUnsaved(project)) return;
+    const uris = await vscode.window.showOpenDialog({
+      title: this.title('Add Existing Folder Content', project, target), openLabel: 'Add Its Content',
+      canSelectFiles: false, canSelectFolders: true, canSelectMany: false, defaultUri: vscode.Uri.file(this.dirOf(project, target)),
+    });
+    const dir = uris?.[0]?.fsPath;
+    if (!dir) return;
+    const found: { path: string; subfolder: string }[] = [];
+    const walk = (d: string, subfolder: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => itemOrder(a.name, b.name))) {
+        if (found.length > MAX_FOLDER_FILES) return;
+        if (e.isFile()) found.push({ path: path.join(d, e.name), subfolder });
+        // Not git's folder and the like.
+        else if (e.isDirectory() && !e.name.startsWith('.')) walk(path.join(d, e.name), subfolder ? `${subfolder}\\${e.name}` : e.name);
+      }
+    };
+    try {
+      walk(dir, '');
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      return;
+    }
+    if (found.length > MAX_FOLDER_FILES) {
+      void vscode.window.showWarningMessage(`${dir} holds more than ${MAX_FOLDER_FILES} files: pick the folder of the objects to add.`);
+      return;
+    }
+    if (!found.length) {
+      void vscode.window.showInformationMessage(`${dir} holds no files.`);
+      return;
+    }
+    await this.addExisting(project, target, found);
+  }
+
+  /** The GUIDs of the objects of a PLC project. */
+  private projectIds(project: PlcProject): Set<string> {
+    const ids = new Set<string>();
+    for (const e of this.ws.sourceEntries) {
+      if (e.project !== project) continue;
+      for (const id of objectIds(this.ws.getFile(e.path)?.text ?? '')) ids.add(id);
+    }
+    return ids;
+  }
+
+  /** Adds files chosen on disk to a folder of the PLC project (see planExistingFiles), then says what it did. */
+  private async addExisting(project: PlcProject, target: ObjectTarget, chosen: { path: string; subfolder: string }[]): Promise<void> {
+    const read: ChosenFile[] = chosen.map(c => {
+      try {
+        return { ...c, bytes: fs.readFileSync(c.path) };
+      } catch (e) {
+        return { ...c, error: (e as Error).message };
+      }
+    });
+    const plan = planExistingFiles({
+      dir: project.dir, compile: project.compile, folders: projectFolderList(project),
+      names: projectObjectNames(this.ws, project), ids: this.projectIds(project),
+    }, target.folder, read, p => fs.existsSync(p), newGuid);
+    const where = [project.name, ...target.folder.split('\\').filter(s => s)].join(' / ');
+    if (!plan.files.length) {
+      void vscode.window.showWarningMessage(`Nothing added to ${where}. ${skippedText(plan)}`);
+      return;
+    }
+    // A file added where it is and given new GUIDs is written there: not over unsaved edits.
+    if (this.refuseUnsavedFiles(plan.files.filter(f => !f.copy && f.bytes).map(f => f.target))) return;
+    const written = this.write(project, plcproj => {
+      let text = plcproj;
+      for (const f of plan.folders) text = addFolderItem(text, f);
+      for (const f of [...plan.files].sort((a, b) => itemOrder(a.include, b.include))) text = addCompileItem(text, f.include);
+      return text;
+    }, () => {
+      for (const f of plan.folders) fs.mkdirSync(path.join(project.dir, ...f.split('\\')), { recursive: true });
+      for (const f of plan.files) {
+        if (!f.bytes) continue;
+        fs.mkdirSync(path.dirname(f.target), { recursive: true });
+        // A copy never goes over a file.
+        fs.writeFileSync(f.target, f.bytes, { flag: f.copy ? 'wx' : 'w' });
+      }
+    });
+    if (!written) return;
+    await this.hooks.written();
+    const added = plan.files.map(f => `${f.name}${f.copy ? '' : ' (already in the folder)'}`).join(', ');
+    const renewed = plan.files.filter(f => f.newIds.length).map(f => f.name);
+    void vscode.window.showInformationMessage(`Added to ${where}: ${added}.`
+      + (renewed.length ? ` New GUIDs in ${renewed.join(', ')}, which the PLC project had already.` : ''));
+    if (plan.skipped.length) void vscode.window.showWarningMessage(skippedText(plan));
+    await this.hooks.reveal(plan.files[0].target, plan.files[0].objectId);
   }
 
   /** The entry and root object of the file of a POU, DUT, GVL or interface of a PLC project, or a message why it is none. */

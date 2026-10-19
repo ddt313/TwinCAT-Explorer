@@ -405,6 +405,16 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.addExistingItem",
+        "title": "Add Existing Item...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.addExistingFolderContent",
+        "title": "Add Existing Folder Content...",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.rename",
         "title": "Rename...",
         "category": "TwinCAT"
@@ -489,6 +499,14 @@
         },
         {
           "command": "twincatExplorer.newFolder",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.addExistingItem",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.addExistingFolderContent",
           "when": "twincatExplorer.hasProjects"
         },
         {
@@ -730,6 +748,16 @@
           "command": "twincatExplorer.newFolder",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
           "group": "2_add@5"
+        },
+        {
+          "command": "twincatExplorer.addExistingItem",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
+          "group": "2_add@6"
+        },
+        {
+          "command": "twincatExplorer.addExistingFolderContent",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
+          "group": "2_add@7"
         },
         {
           "command": "twincatExplorer.addMethod",

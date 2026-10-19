@@ -44,7 +44,9 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders](#renaming-moving-and-deleting-pous-duts-gvls-interfaces-and-folders)).
   An empty folder can be deleted too.
 - Right-click a PLC project or one of its folders to add a POU, DUT, GVL, interface or folder (see
-  [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)).
+  [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)), or
+  files that are on disk already (see
+  [Adding existing items and folder content](#adding-existing-items-and-folder-content)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 
 ### Split editor
@@ -173,6 +175,29 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Then:** the tree shows the new object or folder, and a new object opens in the split editor.
 - A `.plcproj` with unsaved changes in an editor is refused. A TwinCAT XAE 3.1.4026 that has the
   project open asks whether to reload the changed `.plcproj`: answer Yes.
+
+### Adding existing items and folder content
+
+- **Add Existing Item...** and **Add Existing Folder Content...** are in the context menu of a PLC
+  project and of its folders in the TwinCAT tree, like XAE's Add > Existing Item and Existing Folder
+  Content. From the Command Palette they add to the folder of the active editor's object, or to a PLC
+  project picked.
+- **Add Existing Item...** picks `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` files, several at once.
+  **Add Existing Folder Content...** picks a folder: its files and those of its sub-folders, a sub-folder
+  going into a sub-folder of the same name.
+- **What they do**, as TwinCAT XAE 3.1.4026 does:
+  - A file in the folder on disk already, but not in the `.plcproj` (after a merge, or copied by hand),
+    gets its `<Compile>` item and stays where it is. Any other file is copied into the folder, byte for
+    byte.
+  - An object whose GUIDs the PLC project has already, a copy of one of its POUs for example, gets new
+    ones for those GUIDs only; the rest of the file stays as it was.
+  - The `<Compile>` items, and the `<Folder>` items of new sub-folders, go where XAE puts them.
+- **What is skipped**, with the reason in the message after it: files that are not POUs, DUTs, GVLs or
+  interfaces (XAE adds other files as `<None>` items), files that cannot be read or hold no such object,
+  an object whose name the PLC project has already (POUs, DUTs, GVLs and interfaces share one namespace,
+  case aside), a file in the project already, and a file that would go over one on disk.
+- **Then:** the tree shows the new objects and selects the first one. A `.plcproj` with unsaved changes
+  in an editor is refused.
 
 ### Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders
 
@@ -377,6 +402,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Open XML` | Open the object's file as XML text, at the object. |
 | `TwinCAT: Add POU...` / `TwinCAT: Add DUT...` / `TwinCAT: Add Global Variable List...` / `TwinCAT: Add Interface...` | Add an object to a PLC project or one of its folders (see [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)). |
 | `TwinCAT: New Folder...` | Add a folder to a PLC project or one of its folders, on disk and in the `.plcproj`. |
+| `TwinCAT: Add Existing Item...` / `TwinCAT: Add Existing Folder Content...` | Add POU, DUT, GVL and interface files that are on disk already (see [Adding existing items and folder content](#adding-existing-items-and-folder-content)). |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as inline diffs against `HEAD`, or back as normal panes. |
@@ -457,9 +483,10 @@ sources.
 **Editing and projects**
 - Only Structured Text is editable; other implementation languages are shown as read-only
   placeholders.
-- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here. POUs,
-  DUTs, GVLs, interfaces, methods, properties, actions and transitions can be renamed and deleted here;
-  POUs, DUTs, GVLs, interfaces and folders moved; folders renamed, and deleted when empty. Transitions,
+- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here, and
+  existing POU, DUT, GVL and interface files; other files of a folder are not. POUs, DUTs, GVLs,
+  interfaces, methods, properties, actions and transitions can be renamed and deleted here; POUs, DUTs,
+  GVLs, interfaces and folders moved; folders renamed, and deleted when empty. Transitions,
   visualizations and the other kinds of objects are created in TwinCAT XAE, and a folder with something
   in it is deleted there.
 - XAE's own move of a file or folder could not be driven in a hidden XAE: a move here changes the paths

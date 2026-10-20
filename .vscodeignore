@@ -11,3 +11,6 @@
 !media/icons/**
 !out/src/**/*.js
 !out/webview/**
+# The browser extension (browser/) is built and loaded on its own; the unit tests compile its model to out/browser.
+browser/**
+out/browser/**

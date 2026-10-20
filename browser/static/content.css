@@ -1,0 +1,82 @@
+/* The toggle and the frame the content script adds to GitHub's page, in GitHub's colors where it has them. */
+.tcx-toggle {
+  margin-left: 8px;
+  padding: 0 8px;
+  font: 500 12px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  color: var(--fgColor-default, #1f2328);
+  background: var(--button-default-bgColor-rest, #f6f8fa);
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.tcx-toggle:hover { background: var(--button-default-bgColor-hover, #eff2f5); }
+.tcx-toggle[aria-pressed="true"] {
+  color: var(--fgColor-onEmphasis, #ffffff);
+  background: var(--bgColor-accent-emphasis, #0969da);
+  border-color: transparent;
+}
+.tcx-note {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--fgColor-attention, #9a6700);
+}
+.tcx-hidden { display: none !important; }
+.tcx-host { display: block; }
+.tcx-frame {
+  display: block;
+  width: 100%;
+  height: 120px;
+  border: 0;
+}
+.tcx-message {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--fgColor-muted, #59636e);
+}
+
+/* The tabs above GitHub's file tree, and the tree's frame. */
+.tcx-tree { margin-bottom: 8px; }
+.tcx-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bgColor-muted, #f6f8fa);
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-radius: 6px;
+}
+.tcx-tabs [role="tab"] {
+  flex: 1;
+  padding: 2px 8px;
+  font: 500 12px/20px -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  color: var(--fgColor-muted, #59636e);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tcx-tabs [role="tab"][aria-selected="true"] {
+  color: var(--fgColor-default, #1f2328);
+  background: var(--bgColor-default, #ffffff);
+  box-shadow: 0 0 0 1px var(--borderColor-default, #d1d9e0);
+}
+.tcx-tree-frame {
+  display: block;
+  width: 100%;
+  height: 480px;
+  margin-top: 8px;
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-radius: 6px;
+}
+/* Without GitHub's tree in the page: a panel of its own at the bottom left. */
+.tcx-float {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 100;
+  width: 360px;
+  margin: 0;
+}
+.tcx-float .tcx-tree-frame { height: calc(100vh - 140px); background: var(--bgColor-default, #ffffff); }

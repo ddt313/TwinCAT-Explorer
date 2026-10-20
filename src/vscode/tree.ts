@@ -8,7 +8,10 @@ import { TcWorkspace, fileKey } from '../core/workspace';
 import { Accessor } from '../core/objectText';
 import { InnerFolder, ObjectKind, TcObject, TcSourceFile, stripTrivia } from '../core/tcfile';
 import { PlcProject, TsProject, libraryName, resolutionLibraryName } from '../core/project';
+import { KIND_WORD, accessorIconName, compareLabels, objectIconName, objectTreeLabel } from '../core/treeLabels';
 import { isSourcePath, objectUri } from './uris';
+
+export { KIND_WORD, compareLabels, objectTreeLabel };
 
 export type NodeKind = 'tsproj' | 'plcproj' | 'references' | 'library' | 'folder' | 'file' | 'innerFolder' | 'object' | 'accessor';
 
@@ -102,24 +105,12 @@ function twincatIcon(name: string): TreeIcon {
 }
 
 export function objectIcon(obj: TcObject): TreeIcon {
-  switch (obj.kind) {
-    case 'pou':
-      if (obj.pouKind === 'PRG') return twincatIcon('prg');
-      if (obj.pouKind === 'FUN') return twincatIcon('fun');
-      return twincatIcon('fb');
-    case 'itf': return twincatIcon('interface');
-    case 'dut': return twincatIcon(obj.dutKind ?? 'struct');
-    case 'gvl': return twincatIcon('gvl');
-    case 'method': return twincatIcon('method');
-    case 'property': return twincatIcon('property');
-    case 'action': return twincatIcon('action');
-    case 'transition': return twincatIcon('transition');
-  }
+  return twincatIcon(objectIconName(obj));
 }
 
 /** Icon of a property's Get or Set accessor. */
 export function accessorIcon(accessor: Accessor): TreeIcon {
-  return twincatIcon(accessor === 'Get' ? 'get' : 'set');
+  return twincatIcon(accessorIconName(accessor));
 }
 
 /** Icon of a project file in the git views: the TwinCAT project's (.tsproj) or a PLC project's (.plcproj, .xti). */
@@ -131,22 +122,6 @@ export function projectFileIcon(fsPath: string): TreeIcon {
 export function viewIcon(obj: TcObject | undefined, kind: ObjectKind, accessor?: Accessor): TreeIcon {
   if (accessor) return accessorIcon(accessor);
   return objectIcon(obj ?? ({ kind } as TcObject));
-}
-
-/** What the views call each kind of object. */
-export const KIND_WORD: Record<ObjectKind, string> = {
-  pou: 'POU', method: 'Method', property: 'Property', action: 'Action', transition: 'Transition',
-  dut: 'DUT', gvl: 'GVL', itf: 'Interface',
-};
-
-/** Compares labels for sorting: case and accents aside, like `localeCompare` with base sensitivity. */
-export const compareLabels = new Intl.Collator(undefined, { sensitivity: 'base' }).compare;
-
-/** Label as XAE shows it: `MAIN (PRG)`, `FB_X (FB)`, `F_Y (FUN)`, `E_Z (ENUM)`, `ST_W (STRUCT)`. */
-export function objectTreeLabel(obj: TcObject): string {
-  if (obj.kind === 'pou' && obj.pouKind) return `${obj.name} (${obj.pouKind})`;
-  if (obj.kind === 'dut' && obj.dutKind) return `${obj.name} (${obj.dutKind.toUpperCase()})`;
-  return obj.name;
 }
 
 /** How long VS Code must not ask for nodes before the tree counts as rendered (see whenQuiet). */

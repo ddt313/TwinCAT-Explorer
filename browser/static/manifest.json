@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Explorer for TwinCAT: pull request view (spike)",
+  "version": "0.0.2",
+  "description": "Shows the TwinCAT files of a GitHub pull request as objects (Declaration above Implementation) and as an XAE-like tree, instead of XML. Read-only spike.",
+  "icons": { "128": "icon.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://github.com/*",
+    "https://raw.githubusercontent.com/*",
+    "https://patch-diff.githubusercontent.com/*",
+    "https://api.github.com/*"
+  ],
+  "web_accessible_resources": [
+    { "resources": ["viewer.html", "tree.html"], "matches": ["https://github.com/*"] }
+  ]
+}

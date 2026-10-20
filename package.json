@@ -1221,7 +1221,8 @@
     "package": "vsce package --no-dependencies",
     "vscode:prepublish": "npm run compile",
     "install:local": "node scripts/install.js",
-    "build:webview": "node scripts/build-webview.js"
+    "build:webview": "node scripts/build-webview.js",
+    "build:browser": "tsc -p browser && node browser/build.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

@@ -368,16 +368,32 @@ Three views in the Source Control sidebar.
 and marked `M`, `A` or `D`.
 
 - **Two scopes,** switched in the view's title bar:
-  - uncommitted changes (vs `HEAD`);
+  - uncommitted changes (vs `HEAD`), in two lists as in Source Control: `Staged Changes` (`HEAD` ↔
+    index) and `Changes` (index ↔ working tree);
   - branch changes since the merge base with another branch, what a merge request shows.
     `origin/develop` is the default; `Compare Branch With...` picks another one. Uncommitted changes
     are included.
 - **Opening:** a click opens the object in the split editor with the diff against that base, at its
   first change. A deleted object opens as read-only text of its old version.
-- **`Discard Changes`** (uncommitted scope only):
-  - the code of an object goes back to `HEAD`;
-  - a new method, property, action or accessor is removed;
-  - a whole file goes back to `HEAD`, in the working tree and the index.
+  - In `Changes`, the base is the index.
+  - In `Staged Changes`, the object opens read-only in the commit diff panel, `HEAD` ↔ index.
+- **`Stage Changes` (`+`) and `Unstage Changes` (`−`)** on an object or a file, to commit the change of
+  one method, property, accessor, action, DUT or GVL alone. `Stage All Changes` and `Unstage All
+  Changes` are on the lists.
+  - Staging an object puts it in the index as it is in the working tree: its code and name, or the whole
+    member when it is new or deleted. The rest of the index's version of the file stays byte for byte,
+    its line endings too (CRLF, `.gitattributes`).
+  - Unstaging puts it back as in `HEAD`.
+  - A new, deleted or renamed file is staged whole (`git add`, `git rm --cached`), and so are the build
+    output and the project files. A file with a merge conflict is staged whole once its conflict
+    markers are gone, which marks it resolved.
+
+  Staging is refused while an editor has unsaved edits of the file.
+- **`Discard Changes`** (in `Changes`), back to the version in the index, which is `HEAD`'s unless
+  changes are staged:
+  - the code and name of an object go back;
+  - a new method, property, action or accessor is removed, a deleted one comes back;
+  - a whole file goes back, in the working tree; what is staged stays.
 
   It is refused while an editor has unsaved edits of the file.
 - **`Build output (no code changes)`** gathers files whose change is only XAE metadata: a `.tsproj`, or
@@ -654,7 +670,9 @@ sources.
 **The split editor is a webview**
 - Extensions that work inside VS Code text editors (GitHub Copilot inline suggestions, vim keys,
   GitLens) do not reach it, and VS Code's Outline view stays empty for it.
-- Its change markers are its own and compare with `HEAD` only, not with the index.
+- Its change markers are its own and compare with `HEAD` only, not with the index, also when part of
+  the object is staged. Only its diff opened from `Changes` in the TwinCAT Changes view compares with
+  the index, until it is hidden.
 - Inside the panes, Monaco's own key bindings win.
   - Its `Ctrl+K` chords work: `Ctrl+K Ctrl+C` comments the line, `Ctrl+K Ctrl+0` folds all.
   - So do the common VS Code chords: `Ctrl+K S` saves all, `Ctrl+K W` and `Ctrl+K Ctrl+W` close
@@ -683,6 +701,10 @@ sources.
   section's text is also named for its first or last line.
 - Merge commits are not listed in the TwinCAT History view; their changes come with the merged
   commits.
+- Stage Changes takes an object's code and name, not its place: a member moved to another folder of
+  its POU, or to another place in the file, stays where the index has it. That move is staged with the
+  file; once no object of the file differs, the file is listed as `XML only, no code` under
+  `Build output (no code changes)`.
 - Git compares paths case-sensitively. A file renamed only in case (`FB_motor` to `FB_Motor`) keeps
   its old name in git, so until the new name is committed (`git mv`), its comparison with `HEAD`, its
   history and its blame do not find it.

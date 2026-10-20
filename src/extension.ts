@@ -227,9 +227,12 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       changesView.schedule();
       history.workingChanged();
     }),
-    // A fetch can move the branch compared with; a push changes which commits are not pushed yet.
+    // A fetch can move the branch compared with; a push changes which commits are not pushed yet; a stage or
+    // unstage changes the index.
     gitDirs.onDidChange(() => {
-      if (changesView.scope.kind === 'branch') changesView.schedule(1000);
+      changesView.schedule(changesView.scope.kind === 'branch' ? 1000 : undefined);
+      objectEditors.refreshIndexBases();
+      void commitDiff.indexChanged();
       commitsView.schedule(1500);
       history.refsChanged();
     }),
@@ -591,6 +594,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     }
   };
   changesView.openChanges = openWithChanges;
+  changesView.openStaged = item => commitDiff.show(item);
+  changesView.onDidChangeRepository = () => gitDirs.changed();
   history.openChanges = openWithChanges;
 
   /** The object view of the active editor: a split editor, an object notebook, or the commit diff panel. */
@@ -1093,6 +1098,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     }),
     vscode.commands.registerCommand('twincatExplorer.changes.open', (node?: ChangeNode) => node && changesView.open(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.discard', (node?: ChangeNode) => node && changesView.discard(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.stage', (node?: ChangeNode) => node && changesView.stage(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.unstage', (node?: ChangeNode) => node && changesView.unstage(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.stageAll', (node?: ChangeNode) => changesView.stageAll(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.unstageAll', (node?: ChangeNode) => changesView.unstageAll(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.openNotebook', (node?: ChangeNode) => node && changesView.openNotebook(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.refresh', () => changesView.refresh()),
     vscode.commands.registerCommand('twincatExplorer.changes.showUncommitted', () => changesView.setScope({ kind: 'head' })),

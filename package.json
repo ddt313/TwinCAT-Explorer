@@ -266,6 +266,30 @@
         "icon": "$(discard)"
       },
       {
+        "command": "twincatExplorer.changes.stage",
+        "title": "Stage Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(add)"
+      },
+      {
+        "command": "twincatExplorer.changes.unstage",
+        "title": "Unstage Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "twincatExplorer.changes.stageAll",
+        "title": "Stage All Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(add)"
+      },
+      {
+        "command": "twincatExplorer.changes.unstageAll",
+        "title": "Unstage All Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(remove)"
+      },
+      {
         "command": "twincatExplorer.changes.openNotebook",
         "title": "Open Changes as TwinCAT Notebook",
         "category": "TwinCAT Changes",
@@ -594,6 +618,22 @@
           "when": "false"
         },
         {
+          "command": "twincatExplorer.changes.stage",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.unstage",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.stageAll",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.unstageAll",
+          "when": "false"
+        },
+        {
           "command": "twincatExplorer.changes.openNotebook",
           "when": "false"
         },
@@ -868,6 +908,46 @@
         {
           "command": "twincatExplorer.changes.discard",
           "when": "view == twincatExplorer.changes && viewItem =~ /discard-/",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "twincatExplorer.changes.stage",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stage-/",
+          "group": "inline@3"
+        },
+        {
+          "command": "twincatExplorer.changes.unstage",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstage-/",
+          "group": "inline@3"
+        },
+        {
+          "command": "twincatExplorer.changes.stageAll",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stageAll/",
+          "group": "inline@1"
+        },
+        {
+          "command": "twincatExplorer.changes.unstageAll",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstageAll/",
+          "group": "inline@1"
+        },
+        {
+          "command": "twincatExplorer.changes.stage",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stage-/",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "twincatExplorer.changes.unstage",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstage-/",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "twincatExplorer.changes.stageAll",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stageAll/",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "twincatExplorer.changes.unstageAll",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstageAll/",
           "group": "1_modification@1"
         },
         {

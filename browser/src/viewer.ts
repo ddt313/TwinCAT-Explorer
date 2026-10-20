@@ -1,38 +1,40 @@
-// The TwinCAT view of one file of a pull request, in a frame of the extension inside GitHub's "Files changed"
-// page, where GitHub's CSP and CSS do not reach it. It reads the file at the merge base and at the head and
+// The TwinCAT view of one file of a pull or merge request, in a frame of the extension inside the host's page
+// (GitHub's "Files changed", GitLab's "Changes"), where the page's CSP and CSS do not reach it. It reads the file at the merge base and at the head and
 // shows its objects in the layout of the VS Code extension's commit diff: each changed object with its
 // Declaration diff above its Implementation diff, unchanged objects collapsed. Read-only.
 
 import { KIND_WORD } from '../../src/core/treeLabels';
-import { decodeParams, lineAnchor, rawUrl } from './github';
 import { Span, highlightLines } from './highlight';
 import { lineChange } from './lineDiff';
 import { DiffLine, FileView, ObjectView, buildFileView } from './model';
+import { decodeViewerParams, fileUrl } from './params';
 import { FrameMessage, PageMessage } from './protocol';
-import { Attempt, ORDER, Reader } from './reader';
-
-const GITHUB = 'https://github.com';
+import { ALL_WAYS, Attempt, Reader } from './reader';
+import { isKnownSite } from './sites';
 /** Unchanged lines shown around a change; longer runs are folded. */
 const CONTEXT = 3;
 
 const root = document.getElementById('root')!;
-const params = decodeParams(location.hash);
+const params = decodeViewerParams(location.hash);
 document.documentElement.dataset.theme = params?.theme ?? 'auto';
-const post = (m: FrameMessage) => window.parent.postMessage(m, GITHUB);
+const post = (m: FrameMessage) => {
+  if (params) window.parent.postMessage(m, params.origin);
+};
 
 // ------------------------------------------------------------------ reading the two versions
 
-const files = new Reader(post);
+const files = new Reader(post, params?.origin ?? '', params?.order ?? []);
 const probes: Attempt[] = [];
 
 async function main(): Promise<void> {
-  post({ tcx: 'ready' });
-  if (!params) {
+  // Only in a page of a site the extension works on, which made this frame: no other page gets the user's files.
+  if (!params || location.ancestorOrigins?.[0] !== params.origin || !(await isKnownSite(params.origin))) {
     root.innerHTML = '<p class="notice error">This view did not get the file to show.</p>';
     return;
   }
-  const head = params.deleted ? undefined : await files.read('head', rawUrl(params, params.head, params.path));
-  const base = await files.read('base', rawUrl(params, params.base, params.oldPath ?? params.path));
+  post({ tcx: 'ready' });
+  const head = params.deleted ? undefined : await files.read('head', fileUrl(params.raw, params.head, params.path));
+  const base = params.added ? undefined : await files.read('base', fileUrl(params.raw, params.base, params.oldPath ?? params.path));
   const after = files.textOf(head);
   const before = files.textOf(base);
   if (after === null || before === null || (after === undefined && before === undefined)) {
@@ -161,9 +163,9 @@ function foldHtml(i: number, s: number, from: number, to: number): string {
 }
 
 function xmlLink(side: 'L' | 'R', line: number | undefined): string {
-  if (!line || !params?.anchor) return '';
+  if (!line) return '';
   const version = side === 'L' ? 'base' : 'head';
-  return `<a class="xml" href="#" data-anchor="${lineAnchor(params.anchor, side, line)}" title="Line ${line} of the XML file at the ${version}: show it in GitHub's diff">${side}${line}</a>`;
+  return `<a class="xml" href="#" data-side="${side}" data-line="${line}" title="Line ${line} of the XML file at the ${version}: show it in the page's diff">${side}${line}</a>`;
 }
 
 /** Token spans of the old and new texts of a section, and the changed middle of the lines paired in each change. */
@@ -255,7 +257,8 @@ function diagnosticsHtml(): string {
   const p = params;
   return `<details class="diag"><summary>Diagnostics</summary><ul>
     ${p ? `<li>Commits: base <code>${p.base}</code>, head <code>${p.head}</code> <span class="muted">(${esc(p.source ?? 'unknown source')})</span></li>
-    <li>Paths: <code>${esc(p.path)}</code>${p.oldPath ? ` (base: <code>${esc(p.oldPath)}</code>)` : ''}</li>` : ''}
+    <li>Paths: <code>${esc(p.path)}</code>${p.oldPath ? ` (base: <code>${esc(p.oldPath)}</code>)` : ''}</li>
+    <li>Page: <code>${esc(p.origin)}</code>, ways to read in order: ${esc(p.order.join(', '))}</li>` : ''}
     ${attemptsHtml(files.attempts)}
     <li>WebAssembly in this frame: ${esc(wasm())}</li>
     <li>Frame: <code>${esc(location.origin)}</code></li>
@@ -268,7 +271,7 @@ async function probeAll(button: HTMLButtonElement): Promise<void> {
   if (!params) return;
   button.disabled = true;
   const [what, sha, path] = params.deleted ? ['base', params.base, params.oldPath ?? params.path] : ['head', params.head, params.path];
-  for (const strategy of ORDER) await files.attempt(`probe ${what}`, strategy, rawUrl(params, sha, path), probes);
+  for (const strategy of ALL_WAYS) await files.attempt(`probe ${what}`, strategy, fileUrl(params.raw, sha, path), probes);
   const list = button.nextElementSibling;
   if (list) list.innerHTML = attemptsHtml(probes);
   button.disabled = false;
@@ -319,7 +322,7 @@ function reveal(objectId: string, accessor?: string): void {
 }
 
 window.addEventListener('message', e => {
-  if (e.origin !== GITHUB || e.source !== window.parent) return;
+  if (!params || e.origin !== params.origin || e.source !== window.parent) return;
   const m = e.data as PageMessage;
   if (m?.tcx !== 'reveal') return;
   if (view) reveal(m.objectId, m.accessor);
@@ -331,7 +334,7 @@ root.addEventListener('click', e => {
   const xml = target.closest<HTMLAnchorElement>('a.xml');
   if (xml) {
     e.preventDefault();
-    post({ tcx: 'goto', anchor: xml.dataset.anchor! });
+    post({ tcx: 'goto', side: xml.dataset.side === 'L' ? 'L' : 'R', line: Number(xml.dataset.line) });
     return;
   }
   const probe = target.closest<HTMLButtonElement>('button.probe');

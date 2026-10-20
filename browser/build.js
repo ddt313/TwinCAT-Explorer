@@ -1,6 +1,6 @@
 // Builds the browser extension (a spike, see browser/SPIKE.md) into browser/dist, the folder to load as an
-// unpacked extension in Chrome or Edge: content.js, viewer.js, tree.js and background.js bundled from browser/src
-// with the platform-free core of the VS Code extension, beside the static files and the tree's icons
+// unpacked extension in Chrome or Edge: content.js, viewer.js, tree.js, popup.js and background.js bundled from
+// browser/src with the platform-free core of the VS Code extension, beside the static files and the tree's icons
 // (media/icons). Usage: node browser/build.js [--dev]
 const fs = require('fs');
 const path = require('path');
@@ -9,7 +9,7 @@ const esbuild = require('esbuild');
 const here = __dirname;
 const out = path.join(here, 'dist');
 const dev = process.argv.includes('--dev');
-const bundles = ['content', 'viewer', 'tree', 'background'];
+const bundles = ['content', 'viewer', 'tree', 'popup', 'background'];
 
 (async () => {
   fs.rmSync(out, { recursive: true, force: true });

@@ -97,6 +97,11 @@ export const SOURCE_FILE = /\.(tcpou|tcdut|tcgvl|tcio)$/i;
 /** Project files whose only change is often the TmcHash a build rewrites. */
 export const PROJECT_FILE = /\.(tsproj|xti)$/i;
 
+/** A file the extension shows as TwinCAT objects (or, for a project file, checks for a TmcHash-only change). */
+export function isTwinCatFile(path: string): boolean {
+  return SOURCE_FILE.test(path) || PROJECT_FILE.test(path);
+}
+
 export function buildFileView(input: FileInput): FileView {
   const view: FileView = {
     path: input.path,

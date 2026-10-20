@@ -1,17 +1,12 @@
-// Reading a file of the pull request in a frame (a viewer or the tree): the ways tried in turn until one works,
-// and what each attempt gave, for the diagnostics.
+// Reading a file of the pull or merge request in a frame (a viewer or the tree): the ways tried in turn, in the
+// order the host's adapter gave, until one works; and what each attempt gave, for the diagnostics.
 
 import { fetchText } from './fetchText';
+import { Strategy } from './params';
 import { FetchResult, FrameMessage, PageMessage } from './protocol';
 
-const GITHUB = 'https://github.com';
-
-/**
- * From the frame itself (an extension page, with host permissions), from the service worker, and from the GitHub
- * page (same origin as github.com).
- */
-export type Strategy = 'frame' | 'worker' | 'page';
-export const ORDER: Strategy[] = ['frame', 'worker', 'page'];
+/** Every way, for the diagnostics' button that tries them all. */
+export const ALL_WAYS: Strategy[] = ['frame', 'worker', 'page'];
 
 export interface Attempt {
   what: string;
@@ -40,9 +35,10 @@ export class Reader {
   private readonly pending = new Map<number, (r: FetchResult) => void>();
   private nextId = 0;
 
-  constructor(private readonly post: (m: FrameMessage) => void) {
+  /** `origin`: the page's, the only one the frame talks to; `order`: the ways to try, in turn. */
+  constructor(private readonly post: (m: FrameMessage) => void, private readonly origin: string, private readonly order: Strategy[]) {
     window.addEventListener('message', e => {
-      if (e.origin !== GITHUB || e.source !== window.parent) return;
+      if (e.origin !== this.origin || e.source !== window.parent) return;
       const m = e.data as PageMessage;
       if (m?.tcx !== 'fetched') return;
       this.pending.get(m.id)?.(m.result);
@@ -93,7 +89,7 @@ export class Reader {
   /** Reads a URL the way that worked before first, the others after it. */
   async read(what: string, url: string): Promise<Read> {
     const statuses = new Map<Strategy, number>();
-    for (const strategy of this.reader ? [this.reader, ...ORDER.filter(s => s !== this.reader)] : ORDER) {
+    for (const strategy of this.reader ? [this.reader, ...this.order.filter(s => s !== this.reader)] : this.order) {
       const r = await this.attempt(what, strategy, url);
       statuses.set(strategy, r.status);
       if (isFile(r)) {

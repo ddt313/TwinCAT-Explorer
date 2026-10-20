@@ -3,9 +3,14 @@
 
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ViewerParams, commitsInPage, decodeParams, encodeParams, filesInDiff, filesPage, isTwinCatFile, rawUrl } from '../../browser/src/github';
+import { commitsInPage, filesInDiff, filesPage, githubRawTemplate } from '../../browser/src/github';
+import {
+  commitsFromDiffRefs, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, mergeRequestApi, mergeRequestPage, rapidFileData, rapidLineAnchor,
+} from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
-import { FileInput, FileView, ObjectView, buildFileView } from '../../browser/src/model';
+import { FileInput, FileView, ObjectView, buildFileView, isTwinCatFile } from '../../browser/src/model';
+import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
+import { fetchAllowed } from '../../browser/src/protocol';
 import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
 
 const POU = '{a1000000-0000-0000-0000-000000000001}';
@@ -354,7 +359,7 @@ test('github: the pull request of a "Files changed" page, in the classic and the
   assert.equal(filesPage('/acme/plc/pull/12/commits'), undefined);
   assert.ok(isTwinCatFile('PLC/POUs/FB_Valve.TcPOU') && isTwinCatFile('a/E_State.tcdut') && isTwinCatFile('Machine.tsproj'));
   assert.ok(!isTwinCatFile('PLC/PLC.plcproj') && !isTwinCatFile('README.md'));
-  assert.equal(rawUrl({ owner: 'acme', repo: 'plc', number: 12 }, A, 'PLC/My POUs/FB_#1.TcPOU'),
+  assert.equal(fileUrl(githubRawTemplate({ owner: 'acme', repo: 'plc', number: 12 }), A, 'PLC/My POUs/FB_#1.TcPOU'),
     `https://github.com/acme/plc/raw/${A}/PLC/My%20POUs/FB_%231.TcPOU`);
 });
 
@@ -373,16 +378,78 @@ test('github: the commits a page compares, from the classic markup or from the J
   assert.equal(commitsInPage('<html></html>'), undefined);
 });
 
-test('github: the parameters of a viewer frame go through its URL', () => {
+test('frames: the parameters of a viewer and of the tree go through their URL, for any host', () => {
   const p: ViewerParams = {
-    owner: 'acme', repo: 'plc', number: 12, base: A, head: B, path: 'PLC/POUs/New & improved/FB_Valve.TcPOU',
-    oldPath: 'PLC/POUs/FB_Valve.TcPOU', deleted: false, anchor: `diff-${'0'.repeat(64)}`, theme: 'dark', source: 'page: diff URL',
+    origin: 'https://gitlab.example.com', raw: 'https://gitlab.example.com/plc/machine/-/raw/{sha}/{path}', order: ['page', 'frame', 'worker'],
+    base: A, head: B, path: 'PLC/POUs/New & improved/FB_Valve.TcPOU', oldPath: 'PLC/POUs/FB_Valve.TcPOU', deleted: false, added: false,
+    theme: 'dark', source: 'page: Rapid Diffs data',
   };
-  assert.deepEqual(decodeParams(`#${encodeParams(p)}`), p);
-  assert.equal(decodeParams(`#${encodeParams({ ...p, oldPath: undefined, source: undefined })}`)?.oldPath, undefined);
-  assert.equal(decodeParams('#o=acme&r=plc&n=12&b=main&h=x&p=a.TcPOU'), undefined);
-  // Only GitHub's file anchor goes into the links.
-  assert.equal(decodeParams(`#${encodeParams({ ...p, anchor: 'diff-1" onclick="x' })}`)?.anchor, '');
+  assert.deepEqual(decodeViewerParams(`#${encodeViewerParams(p)}`), p);
+  assert.equal(decodeViewerParams(`#${encodeViewerParams({ ...p, oldPath: undefined, source: undefined })}`)?.oldPath, undefined);
+  // The raw files must be on the page's origin, the commits real ones.
+  assert.equal(decodeViewerParams(`#${encodeViewerParams({ ...p, raw: 'https://elsewhere.example.com/{sha}/{path}' })}`), undefined);
+  assert.equal(decodeViewerParams(`#${encodeViewerParams({ ...p, base: 'main' })}`), undefined);
+  assert.equal(decodeViewerParams('#origin=https%3A%2F%2Fgithub.com&p=a.TcPOU'), undefined);
+  const t: TreeParams = {
+    origin: 'https://github.com', raw: 'https://github.com/acme/plc/raw/{sha}/{path}', order: ['frame', 'worker', 'page'], base: A, head: B,
+    theme: 'auto', diff: 'https://github.com/acme/plc/pull/12.diff', source: undefined,
+  };
+  assert.deepEqual(decodeTreeParams(`#${encodeTreeParams(t)}`), t);
+  assert.equal(decodeTreeParams(`#${encodeTreeParams({ ...t, diff: 'https://elsewhere.example.com/12.diff' })}`), undefined);
+  assert.equal(fileUrl(p.raw, A, 'PLC/Ü 1.TcPOU'), `https://gitlab.example.com/plc/machine/-/raw/${A}/PLC/%C3%9C%201.TcPOU`);
+  // A frame fetches from the built-in hosts and the sites the user turned the extension on for, nothing else.
+  assert.ok(fetchAllowed('https://raw.githubusercontent.com/a/b/c') && fetchAllowed('https://gitlab.com/a/-/raw/x/y'));
+  assert.ok(fetchAllowed('https://gitlab.example.com/a/-/raw/x/y', ['https://gitlab.example.com']));
+  assert.ok(!fetchAllowed('https://gitlab.example.com/a', []) && !fetchAllowed('http://github.com/a') && !fetchAllowed('not a url'));
+});
+
+// ------------------------------------------------------------------ GitLab
+
+test('gitlab: the merge request of a page, its raw files and its REST API', () => {
+  assert.deepEqual(mergeRequestPage('/plc/machine/-/merge_requests/7/diffs'), { project: 'plc/machine', iid: 7 });
+  assert.deepEqual(mergeRequestPage('/group/sub/machine/-/merge_requests/12'), { project: 'group/sub/machine', iid: 12 });
+  assert.equal(mergeRequestPage('/plc/machine/-/issues/7'), undefined);
+  assert.ok(isChangesTab('/plc/machine/-/merge_requests/7/diffs') && !isChangesTab('/plc/machine/-/merge_requests/7'));
+  assert.equal(fileUrl(gitlabRawTemplate('https://gitlab.example.com', 'group/sub/machine'), A, 'PLC/POUs/FB_Valve.TcPOU'),
+    `https://gitlab.example.com/group/sub/machine/-/raw/${A}/PLC/POUs/FB_Valve.TcPOU`);
+  assert.equal(mergeRequestApi('https://gitlab.com', 'group/sub/machine', 7), 'https://gitlab.com/api/v4/projects/group%2Fsub%2Fmachine/merge_requests/7');
+  assert.equal(mergeRequestApi('https://gitlab.com', 58170678, 7), 'https://gitlab.com/api/v4/projects/58170678/merge_requests/7');
+});
+
+test('gitlab: the files and commits of the REST API and of the Rapid Diffs page', () => {
+  const api = [
+    { old_path: 'PLC/POUs/FB_Valve.TcPOU', new_path: 'PLC/POUs/FB_Valve.TcPOU', new_file: false, deleted_file: false, renamed_file: false },
+    { old_path: 'PLC/DUTs/ST_Old.TcDUT', new_path: 'PLC/DUTs/ST_New.TcDUT', new_file: false, deleted_file: false, renamed_file: true },
+    { old_path: 'PLC/GVLs/GVL_New.TcGVL', new_path: 'PLC/GVLs/GVL_New.TcGVL', new_file: true, deleted_file: false },
+    { old_path: 'PLC/POUs/FB_Gone.TcPOU', new_path: 'PLC/POUs/FB_Gone.TcPOU', new_file: false, deleted_file: true },
+  ];
+  assert.deepEqual(filesFromApi(api), [
+    { path: 'PLC/POUs/FB_Valve.TcPOU' },
+    { path: 'PLC/DUTs/ST_New.TcDUT', oldPath: 'PLC/DUTs/ST_Old.TcDUT' },
+    { path: 'PLC/GVLs/GVL_New.TcGVL', added: true },
+    { path: 'PLC/POUs/FB_Gone.TcPOU', deleted: true },
+  ]);
+  assert.deepEqual(filesFromApi({ message: '404 Not found' }), []);
+  // GitLab compares the merge base with the head; start_sha is the target branch when the diff was made.
+  assert.deepEqual(commitsFromDiffRefs({ base_sha: A, start_sha: C, head_sha: B }, 'REST API'), { base: A, head: B, source: 'REST API' });
+  assert.equal(commitsFromDiffRefs({ base_sha: A }, 'x'), undefined);
+  const data = JSON.stringify({
+    viewer: 'text_inline', old_path: 'PLC/DUTs/ST_Old.TcDUT', new_path: 'PLC/DUTs/ST_New.TcDUT',
+    blob_raw_path: `/plc/machine/-/raw/${B}/PLC/DUTs/ST_New.TcDUT`, diff_refs: { base_sha: A, start_sha: C, head_sha: B },
+  });
+  assert.deepEqual(rapidFileData(data), {
+    file: { path: 'PLC/DUTs/ST_New.TcDUT', oldPath: 'PLC/DUTs/ST_Old.TcDUT' }, commits: { base: A, head: B, source: 'page: Rapid Diffs data' },
+  });
+  assert.equal(rapidFileData('{not json'), undefined);
+});
+
+test('gitlab: the line anchors of the Rapid Diffs page and the color mode', () => {
+  // The block's id is the sha1 of the path; a line's anchor has its first 9 characters, `A` for an added line.
+  assert.equal(rapidLineAnchor('5d2c773018c2590cb27a24e51e7e2d43b6633c83', 'L', 15), 'line_5d2c77301_15');
+  assert.equal(rapidLineAnchor('5d2c773018c2590cb27a24e51e7e2d43b6633c83', 'R', 15), 'line_5d2c77301_A15');
+  assert.equal(gitlabTheme('gl-system ui-neutral with-top-bar gl-dark'), 'dark');
+  assert.equal(gitlabTheme('gl-light ui-neutral'), 'light');
+  assert.equal(gitlabTheme('gl-darker-sidebar'), 'light');
 });
 
 // ------------------------------------------------------------------ the tree of the changes
@@ -424,7 +491,7 @@ test('tree: folders, each file as its object with the members that changed, in t
   const valveAfter = valve({ close: false, reset: true, openImpl: 'bOpened := TRUE;', getImpl: 'State := 1;' })
     .replace(`<Method Name="Reset" Id="${RESET}">`, `<Method Name="Reset" Id="${RESET}" FolderPath="Internal\\">`);
   const tsproj = (hash: string) => `<TcSmProject>\r\n<Project TmcHash="{${hash}}" />\r\n</TcSmProject>`;
-  const file = (path: string, input: Omit<FileInput, 'path'>, anchor = path) => ({ path, oldPath: input.oldPath, anchor, view: buildFileView({ path, ...input }) });
+  const file = (path: string, input: Omit<FileInput, 'path'>) => ({ path, oldPath: input.oldPath, view: buildFileView({ path, ...input }) });
   const files = [
     file('PLC/POUs/Valves/FB_Valve.TcPOU', { before: valve(), after: valveAfter }),
     file('PLC/POUs/Valves/FB_Valve2.TcPOU', { oldPath: 'PLC/POUs/FB_Valve2.TcPOU', before: pou('FB_Valve2', POU), after: pou('FB_Valve2', POU) }),
@@ -452,11 +519,11 @@ test('tree: folders, each file as its object with the members that changed, in t
   // Where a click goes: the file's block, the object (and accessor) in its view.
   const valveNode = buildTree(files)[0].children[1].children[0];
   const get = valveNode.children.find(n => n.label === 'State')!.children[0];
-  assert.deepEqual([get.anchor, get.objectId, get.accessor], ['PLC/POUs/Valves/FB_Valve.TcPOU', STATE.slice(1, -1), 'Get']);
+  assert.deepEqual([get.file, get.objectId, get.accessor], ['PLC/POUs/Valves/FB_Valve.TcPOU', STATE.slice(1, -1), 'Get']);
   assert.deepEqual([valveNode.icon, get.icon], ['fb', 'get']);
   // While a file is read it shows by its name.
-  assert.deepEqual(treeText(buildTree([{ path: 'PLC/POUs/FB_Valve.TcPOU', anchor: 'x' }])), ['PLC/POUs', '  FB_Valve · reading…']);
-  assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU', anchor: 'y' }]), { files: 6, objects: 5, reading: 1 });
+  assert.deepEqual(treeText(buildTree([{ path: 'PLC/POUs/FB_Valve.TcPOU' }])), ['PLC/POUs', '  FB_Valve · reading…']);
+  assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU' }]), { files: 6, objects: 5, reading: 1 });
 });
 
 test('github: the files of a pull request\'s diff, renamed, added, deleted and quoted ones included', () => {

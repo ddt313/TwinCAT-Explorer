@@ -12,6 +12,7 @@ import {
   ProbeState, RenameInfo, RequestKind, SectionBlame, SectionRef, SignatureResult, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
 import { escapeMarkdown } from '../shared/markdown';
+import { registerQuickFixes } from './quickFixes';
 import { relativeTime } from '../shared/time';
 import { TextMateHighlighter, parseColor, toHex } from './textmate';
 // Internal Monaco services: the public registerEditorOpener can only answer with the source editor, which
@@ -337,8 +338,20 @@ function registerRename(): void {
   });
 }
 
+/** Auto Declare... in the pane edited last (see quickFixes.ts). */
+let autoDeclare = () => {};
+
 function registerProviders(): void {
   registerRename();
+  autoDeclare = registerQuickFixes(monaco, LANG, {
+    keyOf: model => {
+      const pane = ownPane(model);
+      return pane?.section.editable ? pane.section.key : undefined;
+    },
+    request,
+    post,
+    lastEditor: () => panes.find(p => p.section.key === lastFocused)?.editor,
+  });
   monaco.languages.registerDefinitionProvider(LANG, {
     async provideDefinition(model, position) {
       const pane = ownPane(model);
@@ -1323,6 +1336,9 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
             };
           }));
         }
+        break;
+      case 'autoDeclare':
+        autoDeclare();
         break;
       case 'reveal':
         reveal(m);

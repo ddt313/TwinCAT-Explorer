@@ -31,6 +31,7 @@ import { CommitNode, CommitsView } from './vscode/commitsView';
 import { CommitDiffPanel } from './vscode/commitDiff';
 import { HistoryNode, HistoryTarget, HistoryView } from './vscode/historyView';
 import { BlameService } from './vscode/blame';
+import { AutoDeclare } from './vscode/autoDeclare';
 import { CompareBase, ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
 import {
@@ -900,6 +901,14 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     }
     await members.add(kind, t);
   };
+
+  // XAE's Auto Declare: the quick fixes of unknown names and members, and Auto Declare... (Shift+F2).
+  const autoDeclare = new AutoDeclare(index, features, objectEditors, {
+    addMember: (fsPath, objectId, kind, name, type) => members.addNamed(kind, { fsPath, objectId, folderPath: [], actions: false }, name, type),
+    openBeside: (fsPath, objectId) => openDefault(fsPath, objectId, { preview: false, preserveFocus: true, viewColumn: vscode.ViewColumn.Beside }),
+  });
+  objectEditors.fixes = autoDeclare;
+  context.subscriptions.push(...autoDeclare.register(stSelector));
 
   const objects = new ObjectCommands(ws, index, {
     // At once, not after the .plcproj watcher's delay: the new object has its node when it opens.

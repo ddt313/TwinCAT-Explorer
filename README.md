@@ -290,6 +290,21 @@ These work in both panes and in notebook cells. They come from a parser of the T
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
   unknown identifiers, unknown members and unknown named parameters. A click in the Problems panel
   opens the split editor at the problem.
+- **Quick fixes** (light bulb, `Ctrl+.`), as XAE's Auto Declare:
+  - An unknown identifier: `Declare bDone in VAR`, `in VAR_INPUT`, `in VAR_OUTPUT`, `in VAR_IN_OUT`
+    and `in VAR_TEMP`, the blocks the object can have (`VAR_GLOBAL` in a GVL; an action declares in its
+    POU). The type comes from the use: `TRUE` or a condition gives `BOOL`, `1.5` `LREAL`, `5` `INT`
+    (`DINT` or `LINT` when larger), `16#FF` `WORD`, `'text'` `STRING`, `T#1s` `TIME`; a variable, call
+    or parameter gives its type. Otherwise `BOOL`, which XAE's dialog starts with.
+  - `bDone : BOOL;` goes before the `END_VAR` of the block, indented like its declarations; a missing
+    block is added. It is an edit of the declaration pane or cell: `Ctrl+Z` there takes it back, and
+    saving writes it.
+  - A member that a function block, program or interface of the workspace lacks (`fbValve.M_Reset()`):
+    `Add method M_Reset to FB_Valve` or `Add property ...`, the one the use asks for first. It gets the
+    type of the use and opens.
+- **Auto Declare...** (`Shift+F2`, as in XAE, or the context menu) asks for the scope (`CONSTANT`,
+  `RETAIN` and `PERSISTENT` blocks too), name, type, initial value and comment. It starts with the
+  unknown name at the cursor and the type of its use.
 - **Ctrl+T** finds POUs, methods, properties, DUTs, GVLs and global variables, and opens the split
   editor at the symbol.
 - **Outline** of the declared variables (notebook cells).
@@ -452,6 +467,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |
+| `TwinCAT: Auto Declare...` | Declare a variable at the cursor of a split editor or notebook cell, as XAE's Auto Declare (Shift+F2). |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as inline diffs against `HEAD`, or back as normal panes. |
 | `TwinCAT: Open Changes as TwinCAT Notebook` | Compare a whole file with `HEAD` (or the index), section by section. |
 | `TwinCAT: Compare with Git Ref as TwinCAT Notebook...` | Compare a whole file with any branch, tag or commit. |
@@ -478,6 +494,8 @@ Commit SHA and Copy Name.
 | Shift+F12 | split editor, notebook cells | Find All References (peek view) |
 | Ctrl+Shift+Space | split editor, notebook cells | The parameters of the call at the cursor (signature help) |
 | F2 | split editor, notebook cells | Rename Symbol: the name under the cursor and its uses |
+| Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property |
+| Shift+F2 | split editor, notebook cells | Auto Declare... |
 | Alt+F5 / Shift+Alt+F5 | split editor | Next / previous change vs `HEAD` |
 | F1, Ctrl+Shift+P, Ctrl+P | split editor | The VS Code pickers |
 | Ctrl+K S, Ctrl+K W, Ctrl+K Ctrl+W, ... | split editor | The common VS Code `Ctrl+K` chords (see the limitations) |
@@ -592,6 +610,9 @@ sources.
   - Its `Show Active File Only` filter and the error colour of the tab title do not apply to split
     editors.
   - `F8` inside a split editor moves only between the problems of that object.
+- The quick fixes are in the panes and cells (light bulb, `Ctrl+.`), not in the Problems panel of the
+  split editors. Adding a method or property from its use refuses a file with unsaved changes, as Add
+  Method... does.
 - Opening a problem or a symbol briefly opens a read-only copy of the section, which the split editor
   then replaces. A copy opened pinned (double click, `Ctrl+T`) is closed instead, and
   `Reopen Closed Editor` then brings back the split editor of that object.

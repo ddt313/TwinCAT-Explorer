@@ -115,13 +115,15 @@ export type HostMessage =
   /** The document's section texts; `ack` is the last webview edit applied. Answered with 'synced'. */
   | { type: 'sync'; id: number; sections: { key: string; text: string }[]; ack: number }
   | { type: 'markers'; markers: { key: string; markers: Marker[] }[] }
+  /** Runs Auto Declare... in the pane edited last, at its cursor (the command from the Command Palette). */
+  | { type: 'autoDeclare' }
   | { type: 'reveal'; key: string; start: number; end: number; focus: boolean }
   | { type: 'theme'; theme: TokenRule[] }
   | { type: 'config'; config: EditorConfig }
   | { type: 'response'; id: number; result: unknown }
   | { type: 'probe'; id: number; action: ProbeAction };
 
-export type RequestKind = 'definition' | 'hover' | 'completion' | 'references' | 'signature' | 'prepareRename' | 'rename';
+export type RequestKind = 'definition' | 'hover' | 'completion' | 'references' | 'signature' | 'prepareRename' | 'rename' | 'codeActions';
 
 export type WebviewMessage =
   | { type: 'ready' }
@@ -144,6 +146,10 @@ export type WebviewMessage =
   | { type: 'blameOpen'; sha: string }
   /** Shows the commits that changed this object (TwinCAT History view). */
   | { type: 'showHistory' }
+  /** Makes a quick fix of a 'codeActions' answer (see QuickFixResult). */
+  | { type: 'runFix'; id: number }
+  /** Auto Declare... at an offset of a pane (Shift+F2): the host asks for the scope, name, type, initial value and comment. */
+  | { type: 'autoDeclare'; key: string; text: string; offset: number }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 
@@ -189,6 +195,18 @@ export const WORKBENCH_CHORDS: { second: string; command: string }[] = [
 export const WEBVIEW_COMMANDS = new Set<string>([
   'workbench.action.showCommands', 'workbench.action.quickOpen', ...WORKBENCH_CHORDS.map(c => c.command),
 ]);
+
+/**
+ * A quick fix of the problem at the offset of a 'codeActions' request: `start` and `end` are the problem's. The host
+ * keeps what it does; the webview asks for it with 'runFix' and its `id`.
+ */
+export interface QuickFixResult {
+  id: number;
+  title: string;
+  start: number;
+  end: number;
+  preferred: boolean;
+}
 
 export interface HoverResult {
   markdown: string;

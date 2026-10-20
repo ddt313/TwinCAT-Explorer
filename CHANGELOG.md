@@ -25,6 +25,12 @@ All notable changes to Explorer for TwinCAT. The format follows
   GVLs, properties, and the types in DUTs and GVLs. A list of the objects that change comes first, and
   any can keep the old name; only the changed sections are written. A method or property can take
   those that implement or override it along. The message after it names what keeps the old name.
+- Quick fixes on an unknown identifier, as XAE's Auto Declare, in the split editor and in notebook
+  cells: `Declare bDone in VAR`, `VAR_INPUT`, `VAR_OUTPUT`, `VAR_IN_OUT` or `VAR_TEMP` (`VAR_GLOBAL` in
+  a GVL), with the type its use gives, else `BOOL`. `Ctrl+Z` in the declaration takes it back.
+- `Auto Declare...` (`Shift+F2`) asks for the scope, name, type, initial value and comment.
+- `Add method` and `Add property` quick fixes on a member that a function block, program or interface
+  of the workspace lacks (`fbValve.M_Reset()`): the member is added with the type of its use and opens.
 
 ### Changed
 - The TwinCAT tree and the git views have icons of their own, in the manner of XAE's tree and in a

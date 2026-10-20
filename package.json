@@ -450,6 +450,11 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.autoDeclare",
+        "title": "Auto Declare...",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.hideNotebookToolbars",
         "title": "Hide Notebook Toolbars (XAE-like Layout)",
         "category": "TwinCAT"
@@ -524,6 +529,10 @@
         {
           "command": "twincatExplorer.implementInterfaces",
           "when": "resourceScheme == twincat || resourceExtname =~ /^\\.TcPOU$/i"
+        },
+        {
+          "command": "twincatExplorer.autoDeclare",
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor || editorLangId == twincat-st"
         },
         {
           "command": "twincatExplorer.openXml",
@@ -929,6 +938,13 @@
           "group": "2_files@90"
         }
       ],
+      "editor/context": [
+        {
+          "command": "twincatExplorer.autoDeclare",
+          "when": "editorLangId == twincat-st && resourceScheme == vscode-notebook-cell",
+          "group": "1_modification@90"
+        }
+      ],
       "explorer/context": [
         {
           "command": "twincatExplorer.openChanges",
@@ -954,6 +970,11 @@
         "command": "twincatExplorer.goToObject",
         "key": "ctrl+alt+t",
         "when": "twincatExplorer.hasProjects"
+      },
+      {
+        "command": "twincatExplorer.autoDeclare",
+        "key": "shift+f2",
+        "when": "editorTextFocus && editorLangId == twincat-st"
       },
       {
         "command": "twincatExplorer.rename",

@@ -82,8 +82,34 @@ export class MemberCommands {
       if (!choice) return;
       spec.accessors = choice.accessors;
     }
-    const file = this.addMembers(fsPath, target.objectId, [spec]);
-    const added = file?.root?.members.find(m => m.kind === kind && m.name === name);
+    await this.addAndOpen(fsPath, target.objectId, spec);
+  }
+
+  /**
+   * Adds a method or property that a use names (the quick fix of an unknown member) without asking: the method
+   * with the return type the use gives (none when there is none), the property of that type with a Get and a Set,
+   * as XAE gives a new one. Then it opens, as with add.
+   */
+  async addNamed(kind: 'method' | 'property', target: MemberTarget, name: string, type?: string): Promise<void> {
+    const { fsPath } = target;
+    if (this.refuseUnsaved(fsPath)) return;
+    const owner = this.ws.getFile(fsPath)?.objects.get(target.objectId);
+    if (!owner) {
+      void vscode.window.showWarningMessage(`TwinCAT object not found in ${path.basename(fsPath)}`);
+      return;
+    }
+    const problem = newMemberNameProblem(owner, name);
+    if (problem) {
+      void vscode.window.showWarningMessage(problem);
+      return;
+    }
+    await this.addAndOpen(fsPath, target.objectId, { kind, name, type: type || (kind === 'property' ? 'BOOL' : undefined), folderPath: target.folderPath });
+  }
+
+  /** Adds a member, then opens it (a new property at its first accessor). */
+  private async addAndOpen(fsPath: string, ownerId: string, spec: MemberSpec): Promise<void> {
+    const file = this.addMembers(fsPath, ownerId, [spec]);
+    const added = file?.root?.members.find(m => m.kind === spec.kind && m.name === spec.name);
     if (added) await this.hooks.open(fsPath, added.id, added.accessors[0]?.kind);
   }
 

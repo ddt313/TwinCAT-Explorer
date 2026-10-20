@@ -11,6 +11,10 @@ All notable changes to Explorer for TwinCAT. The format follows
   XAE 3.1.4026 writes, a placeholder resolved to the newest version (`*`) or to the one picked.
   `twincatExplorer.libraryRepositories` adds other repositories.
 
+### Changed
+- The annotation of the line blame is no longer a link: the pointer stays the text cursor over it and
+  a click opens nothing. `Open Changes` in its hover opens the commit.
+
 ## 0.13.0 - 2026-10-20
 
 ### Added

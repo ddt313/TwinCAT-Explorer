@@ -196,7 +196,7 @@ export class EditorSession implements vscode.Disposable {
   baseAvailable: boolean | undefined;
   private baseRequest = 0;
   private baseSent: Promise<void> = Promise.resolve();
-  /** The line blame sent last (a click on an annotation opens one of its commits). */
+  /** The line blame sent last (Open Changes in the hover of an annotation opens one of its commits). */
   blame: ViewBlame | undefined;
   private blameRequest = 0;
   private blameTimer: NodeJS.Timeout | undefined;

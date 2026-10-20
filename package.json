@@ -415,6 +415,11 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.addLibrary",
+        "title": "Add Library...",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.rename",
         "title": "Rename...",
         "category": "TwinCAT"
@@ -512,6 +517,10 @@
         },
         {
           "command": "twincatExplorer.addExistingFolderContent",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.addLibrary",
           "when": "twincatExplorer.hasProjects"
         },
         {
@@ -767,6 +776,11 @@
           "command": "twincatExplorer.addExistingFolderContent",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
           "group": "2_add@7"
+        },
+        {
+          "command": "twincatExplorer.addLibrary",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addLibrary/",
+          "group": "2_add@1"
         },
         {
           "command": "twincatExplorer.addMethod",
@@ -1034,6 +1048,14 @@
           },
           "default": [],
           "description": "Extra Structured Text stub files with library declarations (absolute paths or paths relative to the first workspace folder). Wrap declarations in LIBRARY <Name> ... END_LIBRARY."
+        },
+        "twincatExplorer.libraryRepositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Folders of TwinCAT library repositories (absolute paths) that Add Library... lists the libraries of, besides the system repository of TwinCAT 3.1.4026 (%ProgramData%\\Beckhoff\\TwinCAT\\PlcEngineering\\Managed Libraries) and of 3.1.4024 and older (%TWINCAT3DIR%Components\\Plc\\Managed Libraries). For the repositories added in XAE's Library Repository dialog."
         },
         "twincatExplorer.exclude": {
           "type": "string",

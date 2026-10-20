@@ -5,6 +5,12 @@ All notable changes to Explorer for TwinCAT. The format follows
 
 ## Unreleased
 
+### Added
+- `Add Library...` on `References` of a PLC project, like XAE's Library Manager > Add library: it lists
+  the libraries installed in the TwinCAT library repository, read without XAE, and writes the reference
+  XAE 3.1.4026 writes, a placeholder resolved to the newest version (`*`) or to the one picked.
+  `twincatExplorer.libraryRepositories` adds other repositories.
+
 ### Changed
 - The annotation of the line blame is no longer a link: the pointer stays the text cursor over it and
   a click opens nothing. `Open Changes` in its hover opens the commit.

@@ -52,6 +52,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)), or
   files that are on disk already (see
   [Adding existing items and folder content](#adding-existing-items-and-folder-content)).
+- Right-click `References` to add a library installed in the TwinCAT library repository (see
+  [Adding libraries](#adding-libraries)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 
 ### Split editor
@@ -205,6 +207,37 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   case aside), a file in the project already, and a file that would go over one on disk.
 - **Then:** the tree shows the new objects and selects the first one. A `.plcproj` with unsaved changes
   in an editor is refused.
+
+### Adding libraries
+
+- **Add Library...** is in the context menu of `References` of a PLC project in the TwinCAT tree, like
+  XAE's Library Manager > Add library. From the Command Palette it adds to the PLC project of the active
+  editor's object, or to a PLC project picked.
+- **It lists the libraries installed in the TwinCAT library repository**, read without XAE:
+  `C:\ProgramData\Beckhoff\TwinCAT\PlcEngineering\Managed Libraries` with TwinCAT 3.1.4026,
+  `%TWINCAT3DIR%Components\Plc\Managed Libraries` with 3.1.4024 and older, and the folders of
+  `twincatExplorer.libraryRepositories` (repositories added in XAE's Library Repository dialog).
+  - One entry per library and company: its title, company and newest version, its namespace and
+    categories. Typing filters on all of them.
+  - A library the PLC project references already, by either kind of reference, is marked and refused.
+- **Then the version:** `Always newest (*)`, XAE's default, or one of the installed versions.
+- **What it writes**, as TwinCAT XAE 3.1.4026 does, for the libraries of every company:
+
+  ```xml
+  <PlaceholderReference Include="Tc2_Utilities">
+    <DefaultResolution>Tc2_Utilities, * (Beckhoff Automation GmbH)</DefaultResolution>
+    <Namespace>Tc2_Utilities</Namespace>
+  </PlaceholderReference>
+  ```
+
+  - The placeholder is the one the repository's profile gives the library (Beckhoff's libraries have
+    their title), else the title. The default resolution has the version picked, `*` for always the
+    newest. The namespace is the library's default namespace.
+  - The reference goes among the others in alphabetical order, as XAE keeps them; the rest of the
+    `.plcproj` stays byte-identical.
+- **Then:** the tree selects the new library under `References`, and the language features know the
+  symbols of its [stub](#library-stubs), if there is one. A `.plcproj` with unsaved changes in an
+  editor is refused, and so is a workspace without a repository, with the folders looked in.
 
 ### Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders
 
@@ -464,6 +497,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Add POU...` / `TwinCAT: Add DUT...` / `TwinCAT: Add Global Variable List...` / `TwinCAT: Add Interface...` | Add an object to a PLC project or one of its folders (see [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)). |
 | `TwinCAT: New Folder...` | Add a folder to a PLC project or one of its folders, on disk and in the `.plcproj`. |
 | `TwinCAT: Add Existing Item...` / `TwinCAT: Add Existing Folder Content...` | Add POU, DUT, GVL and interface files that are on disk already (see [Adding existing items and folder content](#adding-existing-items-and-folder-content)). |
+| `TwinCAT: Add Library...` | Add a reference to a library of the TwinCAT library repository to a PLC project (see [Adding libraries](#adding-libraries)). |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |
@@ -511,6 +545,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
 | `twincatExplorer.blame.currentLine` | `true` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files: absolute paths, or paths relative to the first workspace folder (see [Library stubs](#library-stubs)). |
+| `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)). |
 | `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Folders ignored when searching for `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |
 
 ## Library stubs
@@ -550,14 +585,17 @@ sources.
 **Editing and projects**
 - Only Structured Text is editable; other implementation languages are shown as read-only
   placeholders.
-- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here, and
-  existing POU, DUT, GVL and interface files; other files of a folder are not. POUs, DUTs, GVLs,
-  interfaces, methods, properties, actions and transitions can be renamed and deleted here; POUs, DUTs,
-  GVLs, interfaces and folders moved; folders renamed, and deleted when empty. Transitions,
+- POUs, DUTs, GVLs, interfaces, folders, methods, properties, actions and library references can be
+  added here, and existing POU, DUT, GVL and interface files; other files of a folder are not. POUs,
+  DUTs, GVLs, interfaces, methods, properties, actions and transitions can be renamed and deleted here;
+  POUs, DUTs, GVLs, interfaces and folders moved; folders renamed, and deleted when empty. Transitions,
   visualizations and the other kinds of objects are created in TwinCAT XAE, and a folder with something
   in it is deleted there.
 - XAE's own move of a file or folder could not be driven in a hidden XAE: a move here changes the paths
   of the items in place, as XAE does when it renames a file or folder.
+- Add Library reads the folders, `cache` and `profile` of the library repositories, not the library
+  files: the placeholder of a library comes from the profile, not from the library itself. Libraries
+  are installed, and references removed or changed (version, namespace, properties), in XAE.
 - Rename changes the uses the language index finds in Structured Text. It does not read the other
   implementation languages, visualizations and other files, nor change names it cannot resolve: the
   message after a rename names those that have the old name. The parameters of a method keep their
@@ -572,8 +610,8 @@ sources.
     Reload the new file?". Answer Yes: XAE closes its editor and shows the object as VS Code wrote it.
     With No, XAE keeps its old copy, and the next edit of the object in XAE writes that copy back over
     the changes made here (a renamed or deleted member comes back).
-  - XAE asks before it reloads a changed `.plcproj` or `.tsproj`, as after Add POU or New Folder here:
-    answer Yes.
+  - XAE asks before it reloads a changed `.plcproj` or `.tsproj`, as after Add POU, New Folder or Add
+    Library here: answer Yes.
   - After a rename, move or delete of a file or folder here, XAE asks to reload the PLC project
     because its `.plcproj` changed. Answer Yes: XAE closes its editors of that PLC project, even those
     of other objects, and shows the new names. A deleted file does not come back when XAE saves again.

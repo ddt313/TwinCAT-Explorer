@@ -922,6 +922,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       const node = tree.nodesForFile(fsPath)[0] ?? tree.nodesForObject(fsPath, objectId)[0];
       if (node) await treeView.reveal(node, { select: true, focus: false, expand: false });
     },
+    revealLibrary: async (plcprojPath, include) => {
+      await tree.whenQuiet();
+      const node = tree.nodesForLibrary(plcprojPath, include)[0];
+      if (node) await treeView.reveal(node, { select: true, focus: false, expand: false });
+    },
   });
   // F2 in the split editor and in notebook cells: POUs and members as the tree renames them.
   const renames = new SymbolRename(index, features, {
@@ -962,6 +967,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.commands.registerCommand('twincatExplorer.newFolder', addObject(t => objects.newFolder(t))),
     vscode.commands.registerCommand('twincatExplorer.addExistingItem', addObject(t => objects.addExistingItems(t))),
     vscode.commands.registerCommand('twincatExplorer.addExistingFolderContent', addObject(t => objects.addExistingFolderContent(t))),
+    // On References, else the PLC project of the active editor's object, or one picked.
+    vscode.commands.registerCommand('twincatExplorer.addLibrary', async (arg?: unknown) => {
+      const plcprojPath = arg instanceof TreeNode && arg.libraryTarget ? arg.libraryTarget : (await objectTarget(arg))?.plcprojPath;
+      if (plcprojPath) await objects.addLibrary(plcprojPath);
+    }),
     vscode.commands.registerCommand('twincatExplorer.addMethod', addMember('method')),
     vscode.commands.registerCommand('twincatExplorer.addProperty', addMember('property')),
     vscode.commands.registerCommand('twincatExplorer.addAction', addMember('action')),

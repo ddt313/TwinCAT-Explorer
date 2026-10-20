@@ -753,6 +753,15 @@ npm run package
   (`.github/workflows/release.yml`) builds and tests it, attaches the `.vsix` to a GitHub release
   with the changelog's notes, and publishes it to the Marketplace once the repository variable
   `MARKETPLACE_PUBLISH` is `true`.
+- A version with a `-` is a pre-release, for example `1.0.0-pre.1` of a feature developed on its own
+  branch. It is released the same way, from its own section of the changelog (`## 1.0.0-pre.1`), but
+  its GitHub release is marked as a pre-release, so the latest release stays the last version without
+  a `-`, and it is not published to the Marketplace, which takes only `major.minor.patch`.
+  - Number them `-pre.1`, `-pre.2`, ...: VS Code compares versions as semver does, so `-pre.10` comes
+    after `-pre.9`, while `+0001` and `+0002` count as the same version.
+  - Merge `develop` into the branch before each pre-release. VS Code installs a lower version over a
+    pre-release only with `--force`, so its users get the fixes of the release versions through the
+    next pre-release only.
 
 ## License
 

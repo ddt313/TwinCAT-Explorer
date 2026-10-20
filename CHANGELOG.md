@@ -20,10 +20,21 @@ All notable changes to Explorer for TwinCAT. The format follows
   the supertypes (`EXTENDS`, `IMPLEMENTS`, up to the roots) and the subtypes of a function block or
   interface, together in VS Code's References view; a click opens the split editor there. Without the
   References view a quick pick lists them. Notebook cells get VS Code's own `Show Type Hierarchy`.
+- `Stage Changes` and `Unstage Changes` per object in the TwinCAT Changes view, to commit the change
+  of one method, property, accessor, action, DUT or GVL alone. The uncommitted changes are in two
+  lists, as in Source Control: `Staged Changes` (`HEAD` ↔ index) and `Changes` (index ↔ working tree).
+  New, deleted and renamed files, the build output and the project files are staged whole;
+  `Stage All Changes` and `Unstage All Changes` are on the lists. The rest of the index's version of
+  the file stays byte for byte, its line endings and `.gitattributes` conversions too.
 
 ### Changed
 - The annotation of the line blame is no longer a link: the pointer stays the text cursor over it and
   a click opens nothing. `Open Changes` in its hover opens the commit.
+- `Discard Changes` in the TwinCAT Changes view puts an object or a file back as the index has it, as
+  Source Control does: what is staged stays. It also brings back a deleted method, property, action
+  or accessor, and the name of a renamed one.
+- A click on an object in `Changes` shows its diff against the index; in `Staged Changes`, `HEAD` ↔
+  index, read-only, in the commit diff panel.
 
 ## 0.13.0 - 2026-10-20
 

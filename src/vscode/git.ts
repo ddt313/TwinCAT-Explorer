@@ -11,6 +11,7 @@ import {
   parseNameStatus,
 } from '../core/gitLog';
 import { findOnPath } from '../core/paths';
+import { RunGit, parseIndexEntries } from '../core/staging';
 import { fileKey } from '../core/workspace';
 import { EMPTY, INDEX, SOURCE_EXTENSIONS, WORKTREE, diffUri, parseDiffUri, revisionUri } from './uris';
 
@@ -74,6 +75,9 @@ async function gitWithInput(args: string[], cwd: string, input: Buffer | string)
     child.stdin.end(input);
   });
 }
+
+/** Git for the staging of core/staging.ts. */
+export const runGit: RunGit = (args, cwd, input) => (input === undefined ? git(args, cwd) : gitWithInput(args, cwd, input));
 
 /** Nearest existing folder of a file: its own folder, unless that was deleted or moved. */
 function existingDir(fsPath: string): string {
@@ -288,6 +292,40 @@ export async function changesSince(root: string, base: string, extensions: strin
   return [...byPath.values()];
 }
 
+/** The uncommitted changes of a repository, as Source Control shows them, of the files with some extensions. */
+export interface IndexChanges {
+  /** Staged: files that differ between `head` and the index. */
+  staged: PathChange[];
+  /** Not staged: files that differ between the index and the working tree, and the untracked ones. */
+  unstaged: PathChange[];
+  /** Blob of each file in the index, by fileKey. */
+  blobs: Map<string, string>;
+  /** Files with a merge conflict, by fileKey. */
+  conflicts: Set<string>;
+}
+
+/** The uncommitted changes of a repository (see IndexChanges), staged ones against `head`, the commit of HEAD. */
+export async function indexChanges(root: string, head: string, extensions: string[]): Promise<IndexChanges> {
+  const specs = extensionSpecs(extensions);
+  const [staged, unstaged, untracked, entries] = await Promise.all([
+    git(['diff', '--cached', '--name-status', '-z', '-M', head, '--', ...specs], root),
+    git(['diff', '--name-status', '-z', '--', ...specs], root),
+    git(['ls-files', '--others', '--exclude-standard', '-z', '--', ...specs], root),
+    git(['ls-files', '-s', '-z', '--', ...specs], root),
+  ]);
+  const out: IndexChanges = { staged: [], unstaged: [], blobs: new Map(), conflicts: new Set() };
+  for (const e of parseIndexEntries(entries.toString('utf8'))) {
+    const key = fileKey(path.join(root, e.path));
+    if (e.stage === 0) out.blobs.set(key, e.blob);
+    else out.conflicts.add(key);
+  }
+  // A file with a conflict has no version in the index yet: it is listed as not staged only.
+  out.staged = parseNameStatus(staged.toString('utf8')).map(f => pathChange(root, f)).filter(c => !out.conflicts.has(fileKey(c.fsPath)));
+  out.unstaged = parseNameStatus(unstaged.toString('utf8')).map(f => pathChange(root, f));
+  for (const p of untracked.toString('utf8').split('\0').filter(Boolean)) out.unstaged.push({ status: 'A', fsPath: path.join(root, p) });
+  return out;
+}
+
 /** The commit where HEAD's branch left `ref` (what a merge request of this branch into `ref` compares with). */
 export async function mergeBase(root: string, ref: string): Promise<string | undefined> {
   try {
@@ -295,12 +333,6 @@ export async function mergeBase(root: string, ref: string): Promise<string | und
   } catch {
     return undefined;
   }
-}
-
-/** Puts the HEAD version of a tracked file back in the working tree and the index, like Discard Changes. */
-export async function restoreFromHead(fsPath: string): Promise<void> {
-  const cwd = existingDir(fsPath);
-  await git(['restore', '--source=HEAD', '--staged', '--worktree', '--', relFrom(cwd, fsPath)], cwd);
 }
 
 /** The first `count` commits reachable from HEAD, newest first, like `git log`. */
@@ -429,9 +461,7 @@ export class GitDirWatcher implements vscode.Disposable {
       try {
         watcher = fs.watch(dir, { recursive: true, persistent: false }, (_event, name) => {
           const n = String(name ?? '').replace(/\\/g, '/');
-          if (!/^(HEAD|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD|index|packed-refs|COMMIT_EDITMSG|refs\/)/.test(n)) return;
-          if (this.timer) clearTimeout(this.timer);
-          this.timer = setTimeout(() => this.emitter.fire(), 300);
+          if (/^(HEAD|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD|index|packed-refs|COMMIT_EDITMSG|refs\/)/.test(n)) this.changed();
         });
       } catch {
         continue;
@@ -439,6 +469,12 @@ export class GitDirWatcher implements vscode.Disposable {
       watcher.on('error', () => watcher.close());
       this.watchers.set(key, new vscode.Disposable(() => watcher.close()));
     }
+  }
+
+  /** A repository changed (debounced): what the watcher reports, and what is done here (a stage), which it may miss. */
+  changed(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.emitter.fire(), 300);
   }
 
   dispose(): void {

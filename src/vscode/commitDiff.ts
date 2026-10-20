@@ -1,6 +1,7 @@
 // The changes one commit made to one object, in the split editor's layout (Declaration above Implementation),
 // read-only: each pane is an inline diff of the commit's text against its parent's. One panel, reused for the
-// next object picked in the TwinCAT Commits view, like a preview tab.
+// next object picked in the TwinCAT Commits view, like a preview tab. It also shows the staged changes of an
+// object: the index against HEAD.
 
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -10,12 +11,14 @@ import { HostMessage, PaneSection, ProbeAction, WEBVIEW_COMMANDS, WebviewMessage
 import { CommitFile, GitChanges } from './gitChanges';
 import { ObjectEditorProvider, editorConfig, editorInit, editorWebviewHtml, editorWebviewOptions } from './objectEditor';
 import { activeThemeTokens } from './theme';
+import { INDEX } from './uris';
 
 export const COMMIT_DIFF_VIEW = 'twincatExplorer.commitDiff';
 
 /** One object view as one commit changed it. */
 export interface CommitObject {
   root: string;
+  /** The commit, or INDEX for the staged changes (with HEAD as the parent). */
   commit: string;
   /** First parent; undefined for the first commit of the repository. */
   parent?: string;
@@ -101,15 +104,32 @@ export class CommitDiffPanel implements vscode.Disposable {
     panel.webview.html = editorWebviewHtml(panel.webview, this.provider.extensionUri);
   }
 
-  /** The commit's and the parent's texts of the object's sections; undefined (with a message) when unreadable. */
-  private async load(item: CommitObject): Promise<Content | undefined> {
+  /** The index changed: staged changes shown are read again. */
+  async indexChanged(): Promise<void> {
+    const item = this.content?.item;
+    if (item?.commit !== INDEX || !this.panel) return;
+    const request = ++this.showRequest;
+    const content = await this.load(item, true);
+    if (!content || request !== this.showRequest || !this.panel) return;
+    this.content = content;
+    this.panel.title = content.title;
+    if (this.ready) this.send();
+  }
+
+  /**
+   * The commit's (or the index's) and the parent's texts of the object's sections; undefined when unreadable,
+   * with a message unless `quiet`.
+   */
+  private async load(item: CommitObject, quiet = false): Promise<Content | undefined> {
+    const staged = item.commit === INDEX;
+    const file = path.join(item.root, item.path);
     const [after, before] = await Promise.all([
-      this.git.fileAtCommit(path.join(item.root, item.path), item.commit, item.path),
+      staged ? this.git.fileInIndex(file, item.path) : this.git.fileAtCommit(file, item.commit, item.path),
       item.parent ? this.git.fileAtCommit(path.join(item.root, item.fromPath), item.parent, item.fromPath) : Promise.resolve<CommitFile>({}),
     ]);
     const error = after.error ?? before.error;
     if (error) {
-      void vscode.window.showErrorMessage(`TwinCAT: ${error}`);
+      if (!quiet) void vscode.window.showErrorMessage(`TwinCAT: ${error}`);
       return undefined;
     }
     const now = after.file?.objects.get(item.objectId);
@@ -118,7 +138,8 @@ export class CommitDiffPanel implements vscode.Disposable {
     const nowSections = now ? viewSections(now, item.accessor) : [];
     const oldSections = old ? viewSections(old, item.accessor) : [];
     if (!obj || (nowSections.length === 0 && oldSections.length === 0)) {
-      void vscode.window.showInformationMessage('The object is in neither the commit nor its parent.');
+      const where = staged ? 'the index nor HEAD' : 'the commit nor its parent';
+      if (!quiet) void vscode.window.showInformationMessage(`The object is in neither ${where}.`);
       return undefined;
     }
     // A deleted object or accessor shows its parent's sections, emptied: everything in them is removed.
@@ -134,11 +155,11 @@ export class CommitDiffPanel implements vscode.Disposable {
     }
     return {
       item,
-      title: `${viewLabel(obj, item.accessor)} @ ${item.commit.slice(0, 7)}`,
+      title: staged ? `${viewLabel(obj, item.accessor)} (Index)` : `${viewLabel(obj, item.accessor)} @ ${item.commit.slice(0, 7)}`,
       livePath: this.locate?.(item.objectId, path.join(item.root, item.path)),
       sections,
       base,
-      baseLabel: item.parent ? `parent ${item.parent.slice(0, 7)}` : 'an empty repository',
+      baseLabel: staged ? 'HEAD' : item.parent ? `parent ${item.parent.slice(0, 7)}` : 'an empty repository',
     };
   }
 

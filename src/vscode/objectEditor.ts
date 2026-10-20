@@ -21,7 +21,7 @@ import { debugLog } from '../core/debugLog';
 import { BlameCommit, isUncommitted } from '../core/gitLog';
 import { BlameService, ViewBlame } from './blame';
 import { GitChanges } from './gitChanges';
-import { ObjectRef, ST_LANGUAGE, locUriOf, parseObjectUri } from './uris';
+import { INDEX, ObjectRef, ST_LANGUAGE, locUriOf, parseObjectUri } from './uris';
 import type { SymbolRename } from './rename';
 import {
   EditorConfig, HostMessage, LanguageConfig, Marker, PaneSection, ProbeAction, SectionRef, TargetRange, WEBVIEW_COMMANDS, WebviewMessage,
@@ -43,8 +43,8 @@ export interface OpenViewRequest {
 }
 
 /**
- * What a split editor compares its panes with: a git ref or commit, or the merge base of HEAD with a branch
- * (taken again after a rebase), and the name shown for it.
+ * What a split editor compares its panes with: a git ref or commit, the index (INDEX), or the merge base of HEAD
+ * with a branch (taken again after a rebase), and the name shown for it.
  */
 export interface CompareBase {
   ref: string;
@@ -55,6 +55,8 @@ export interface CompareBase {
 }
 
 export const HEAD_BASE: CompareBase = { ref: 'HEAD', label: 'HEAD' };
+/** The index (stage 0), what the changes not staged yet are made against. */
+export const INDEX_BASE: CompareBase = { ref: INDEX, label: 'Index' };
 
 /** Monaco options taken from the VS Code editor settings of the Structured Text language. */
 const EDITOR_OPTIONS = [
@@ -803,6 +805,11 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
       void s.sendBase();
       s.scheduleBlame();
     }
+  }
+
+  /** The index changed (a stage or unstage): split editors that compare with it get its texts again. */
+  refreshIndexBases(): void {
+    for (const s of this.sessions) if (s.ready && s.base.ref === INDEX) void s.sendBase();
   }
 
   /** twincatExplorer.blame changed: the annotation is turned on or off. */

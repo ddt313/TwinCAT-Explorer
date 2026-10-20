@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.13.0 - 2026-10-20
 
 ### Added
 - `Add Existing Item...` and `Add Existing Folder Content...` on a PLC project and its folders, as in

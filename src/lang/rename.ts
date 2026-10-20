@@ -5,10 +5,11 @@
 // resolve, implementations in other languages); and the places whose meaning the new name would change.
 
 import { Analysis, analyze } from './analyzer';
+import { ancestors, descendants } from './hierarchy';
 import { LanguageIndex, SectionContext } from './index';
 import { Tk, lex } from './lexer';
 import { nameProblem } from './members';
-import { EnumValueSym, Loc, MemberSym, PouSym, Scope, Sym, TypeSym, VarSym, isLibrarySym } from './symbols';
+import { EnumValueSym, Loc, Scope, Sym, TypeSym, VarSym, isLibrarySym } from './symbols';
 import { SectionEdit, SpliceError, applySectionEdits, blankTrivia, nameRanges, renameMember, renameObject } from '../core/splice';
 import { ObjectKind, TcSourceFile, parseTcText } from '../core/tcfile';
 import { fileKey } from '../core/workspace';
@@ -112,56 +113,6 @@ export function renameTargetAt(analysis: Analysis, offset: number): { sym: Sym; 
   if (s.kind === 'namespace') return { problem: `${s.name} is the namespace of a library.` };
   if (isLibrarySym(s)) return { problem: `${s.name} is declared in the library ${s.scope.name}.` };
   return { sym: s, start: o.start, end: o.end };
-}
-
-/** The function blocks and interfaces a function block or interface extends or implements, and theirs. */
-function ancestors(index: LanguageIndex, pou: PouSym): Set<PouSym> {
-  const out = new Set<PouSym>();
-  const visit = (p: PouSym, depth: number) => {
-    if (depth > 20) return;
-    for (const q of [...p.extendsNames, ...p.implementsNames]) {
-      const g = index.resolveGlobal(q.parts, p.scope);
-      if (g?.kind !== 'pou' || out.has(g)) continue;
-      out.add(g);
-      visit(g, depth + 1);
-    }
-  };
-  visit(pou, 0);
-  return out;
-}
-
-/**
- * The methods or properties that go with one in a rename: those of the same name and kind in the interfaces it
- * implements and the function blocks it overrides, and in the function blocks that implement or override it
- * (whatever the depth), and then those that go with these. `library` holds those of library interfaces and
- * function blocks, which stay as they are.
- */
-export function relatedMembers(index: LanguageIndex, target: MemberSym): { members: MemberSym[]; library: MemberSym[] } {
-  if (target.kind !== 'method' && target.kind !== 'property') return { members: [], library: [] };
-  const pous = index.allGlobals().filter((g): g is PouSym => g.kind === 'pou');
-  const above = new Map<PouSym, Set<PouSym>>(pous.map(p => [p, ancestors(index, p)]));
-  const upper = target.name.toUpperCase();
-  const family = new Set<MemberSym>([target]);
-  const queue = [target];
-  for (let m = queue.pop(); m; m = queue.pop()) {
-    const owner = m.owner;
-    const linked = [...(above.get(owner) ?? ancestors(index, owner)), ...pous.filter(p => above.get(p)!.has(owner))];
-    for (const p of linked) {
-      const same = p.members.find(x => x.kind === target.kind && x.name.toUpperCase() === upper);
-      if (!same || family.has(same)) continue;
-      family.add(same);
-      // A library member says nothing of what else implements it in the workspace.
-      if (!isLibrarySym(same)) queue.push(same);
-    }
-  }
-  family.delete(target);
-  const all = [...family];
-  return { members: all.filter(m => !isLibrarySym(m)), library: all.filter(isLibrarySym) };
-}
-
-/** The function blocks that extend a function block, whatever the depth. */
-function descendants(index: LanguageIndex, pou: PouSym): PouSym[] {
-  return index.allGlobals().filter((g): g is PouSym => g.kind === 'pou' && g !== pou && ancestors(index, g).has(pou));
 }
 
 /**

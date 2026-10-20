@@ -292,6 +292,9 @@ export class EditorSession implements vscode.Disposable {
         // Not queued: the questions take their time, and the edits made meanwhile must not wait for them.
         void this.provider.fixes?.autoDeclare(this, m.key, m.text, m.offset);
         return Promise.resolve();
+      case 'typeHierarchy':
+        void this.provider.typeHierarchy?.(this.fileKey, m.key, m.text, m.offset);
+        return Promise.resolve();
       case 'error':
         this.provider.log?.(`Split editor webview: ${m.message}`);
         return Promise.resolve();
@@ -607,6 +610,10 @@ export class EditorSession implements vscode.Disposable {
             result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
               .map(loc => this.provider.target(loc, this)).filter(t => t !== undefined);
             break;
+          case 'implementation':
+            result = features.implementationsAt(ctx, m.text, m.offset)
+              .map(loc => this.provider.target(loc, this)).filter(t => t !== undefined);
+            break;
           case 'prepareRename':
             result = this.provider.renames?.prepare(ctx, m.text, m.offset);
             break;
@@ -687,6 +694,8 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     runFix(session: EditorSession, id: number): Promise<void>;
     autoDeclare(session: EditorSession, key: string, text: string, offset: number): Promise<void>;
   };
+  /** Show Type Hierarchy in the context menu of a pane: of the type at an offset of a section of a file (see typeHierarchy.ts). */
+  typeHierarchy?: (fk: string, key: string, text: string, offset: number) => Promise<void>;
   log?: (message: string) => void;
   private readonly disposables: vscode.Disposable[] = [];
   private changesContext: boolean | undefined;

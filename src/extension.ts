@@ -19,6 +19,7 @@ import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree'
 import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { SymbolRename } from './vscode/rename';
+import { TypeHierarchy } from './vscode/typeHierarchy';
 import { ShownTab } from './vscode/tabs';
 import { itemOrder } from './core/project';
 import { isInFolder } from './lang/objects';
@@ -254,6 +255,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.languages.registerCompletionItemProvider(stSelector, features, '.'),
     vscode.languages.registerSignatureHelpProvider(stSelector, features, { triggerCharacters: ['(', ','], retriggerCharacters: [] }),
     vscode.languages.registerReferenceProvider(stSelector, features),
+    vscode.languages.registerImplementationProvider(stSelector, features),
     vscode.languages.registerDocumentSymbolProvider(stSelector, features),
     vscode.languages.registerWorkspaceSymbolProvider(features),
   );
@@ -940,6 +942,20 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   });
   objectEditors.renames = renames;
   context.subscriptions.push(vscode.languages.registerRenameProvider(stSelector, renames));
+  // The type hierarchy: VS Code's own in notebook cells; TwinCAT: Show Type Hierarchy where it does not reach, the
+  // split editor (a webview) and the TwinCAT tree. Go to Implementation of the tree (the editors have their own).
+  const hierarchy = new TypeHierarchy(index, features, showUses);
+  objectEditors.typeHierarchy = (fk, key, text, offset) => hierarchy.showAt(fk, key, text, offset);
+  context.subscriptions.push(
+    vscode.languages.registerTypeHierarchyProvider(stSelector, hierarchy),
+    vscode.commands.registerCommand('twincatExplorer.showTypeHierarchy', async (arg?: unknown) => {
+      // From the Command Palette in a notebook cell: at its cursor.
+      const editor = vscode.window.activeTextEditor;
+      if (arg === undefined && editor && cellInfo(editor.document)) await hierarchy.showInCell(editor.document, editor.selection.active);
+      else await hierarchy.showObject(target(arg));
+    }),
+    vscode.commands.registerCommand('twincatExplorer.goToImplementation', (arg?: unknown) => hierarchy.goToImplementation(target(arg))),
+  );
   /**
    * Where a new object goes: the PLC project or folder of a tree node; else the folder of the active editor's
    * object, or a PLC project picked.

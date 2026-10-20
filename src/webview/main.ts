@@ -370,6 +370,33 @@ function registerProviders(): void {
       return (ts ?? []).map(locationOf);
     },
   });
+  // Go to Implementations (Ctrl+F12) and Peek Implementations: the function blocks that implement an interface or
+  // extend a function block, the methods and properties that implement or override one.
+  monaco.languages.registerImplementationProvider(LANG, {
+    async provideImplementation(model, position) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      pruneForeign();
+      const ts = await request<TargetRange[]>('implementation', pane.section.key, model, model.getOffsetAt(position));
+      return (ts ?? []).map(locationOf);
+    },
+  });
+  // VS Code's type hierarchy does not reach the panes: the host shows the one of the type at the cursor.
+  monaco.editor.addEditorAction({
+    id: 'twincat.showTypeHierarchy',
+    label: 'Show Type Hierarchy',
+    // Not in peek views.
+    precondition: '!inReferenceSearchEditor',
+    contextMenuGroupId: 'navigation',
+    contextMenuOrder: 1.5,
+    run(editor) {
+      const model = editor.getModel();
+      const position = editor.getPosition();
+      const pane = model ? ownPane(model) : undefined;
+      if (!model || !pane || !position) return;
+      post({ type: 'typeHierarchy', key: pane.section.key, text: model.getValue(), offset: model.getOffsetAt(position) });
+    },
+  });
   monaco.languages.registerHoverProvider(LANG, {
     async provideHover(model, position) {
       const pane = ownPane(model);

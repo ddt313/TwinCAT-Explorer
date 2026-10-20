@@ -2,7 +2,7 @@
 // needs, write its file as XAE 3.1.4026 does (see newObjects.ts) and its item into the .plcproj (see project.ts),
 // then open it. Add Existing Item and Add Existing Folder Content add files from disk as XAE does (see existing.ts).
 // Rename, Move to Folder and Delete of a POU, DUT, GVL or interface, and of a folder, change the files and the
-// items the way XAE does, and close or move the tabs.
+// items the way XAE does, and close or move the tabs; Rename also changes what uses the object (see rename.ts).
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -12,17 +12,18 @@ import {
   PlcProject, addCompileItem, addFolderItem, itemOrder, removeItem, renameCompileItem, renameFolderItems, renameTaskCalls, taskCalls,
 } from '../core/project';
 import { ChosenFile, ExistingPlan, objectIds, planExistingFiles } from '../core/existing';
-import { SectionRange, addMember, nameRanges, newGuid, renameObject } from '../core/splice';
-import { TcObject, decodeBytes, encodeText, fileKindFromPath, parseTcFile, parseTcText } from '../core/tcfile';
+import { addMember, newGuid } from '../core/splice';
+import { TcObject, decodeBytes, encodeText, fileKindFromPath, parseTcText } from '../core/tcfile';
 import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
-import { typeProblem, usesLeftByRename } from '../lang/members';
+import { typeProblem } from '../lang/members';
 import {
   BaseProblem, baseProblem, folderNameProblem, isInFolder, newObjectStubs, objectNameProblem, projectFolderList, projectObjectNames,
 } from '../lang/objects';
+import { Analyse, RenamePlan, planFiles, planRename, renameAlone, renameTexts } from '../lang/rename';
 import { Loc } from '../lang/symbols';
-import { reportReferences } from './members';
 import { hasUnsavedEdits } from './openDocs';
+import { askRename, readFromDisk, reportRename } from './rename';
 import { ShownTab, closeTabs, shownTabs, tabsOf } from './tabs';
 
 /** Where a new object or folder goes: a PLC project and one of its folders (`POUs\Sub`, empty for the project). */
@@ -36,9 +37,9 @@ export interface ObjectHooks {
   written(): Promise<void>;
   /** Opens a new object. */
   open(fsPath: string, objectId: string): Promise<void>;
-  /** Where the language index finds an object used (not declared). */
-  references(fsPath: string, objectId: string): Loc[];
-  /** Lists places found by references, to open one. */
+  /** The analysis of a section, which finds the uses of what is renamed. */
+  analyse: Analyse;
+  /** Lists places, to open one. */
   showReferences(title: string, locs: Loc[]): Promise<void>;
   /** Opens tabs again in a file, where they were. */
   reopen(fsPath: string, tabs: ShownTab[]): Promise<void>;
@@ -372,12 +373,24 @@ export class ObjectCommands {
   }
 
   /**
-   * Renames a POU, DUT, GVL or interface as XAE does: its file (`FB_A.TcPOU` to `FB_B.TcPOU`, in its folder), the
-   * object in it (see renameObject), its <Compile> item in place, and the calls of the tasks that call a renamed
-   * program. Its tabs open again under the new name. What uses it keeps the old name: the message says how many
-   * uses the language index finds.
+   * What renaming the object of a file changes (see planRename): what uses it in the workspace, as the language
+   * index finds it, and the object itself. Only the object when the index does not know it.
    */
-  async rename(fsPath: string): Promise<void> {
+  private renamePlan(fsPath: string, root: TcObject, name: string): RenamePlan {
+    const decl = root.sections.find(s => s.role === 'decl' && !s.accessor) ?? root.sections[0];
+    const ctx = decl && this.index.context(fileKey(fsPath), decl.key);
+    const sym = ctx && (ctx.pou ?? ctx.gvl ?? ctx.types[0]);
+    return sym ? planRename(this.index, [sym], name, this.hooks.analyse) : renameAlone(fsPath, root.id, true, root.name, name);
+  }
+
+  /**
+   * Renames a POU, DUT, GVL or interface as XAE does: its file (`FB_A.TcPOU` to `FB_B.TcPOU`, in its folder), the
+   * object in it (see renameObject), its <Compile> item in place, the calls of the tasks that call a renamed
+   * program, and what uses it elsewhere, as the language index finds it (see planRename): after a confirmation
+   * that lists the objects that change, any of which can keep the old name. `newName`, given by F2 in an editor,
+   * is used instead of asking. Its tabs open again under the new name.
+   */
+  async rename(fsPath: string, newName?: string): Promise<void> {
     const source = this.sourceOf(fsPath);
     if (!source) return;
     const { entry, root } = source;
@@ -388,27 +401,40 @@ export class ObjectCommands {
     const newPathOf = (name: string) => path.join(path.dirname(fsPath), `${name}${ext}`);
     const names = projectObjectNames(this.ws, project);
     names.delete(root.name.toUpperCase());
-    const name = (await vscode.window.showInputBox({
-      title: `Rename ${root.name}`, prompt: `New name of the ${objectWord(root)}`,
-      value: root.name,
-      validateInput: v => {
-        const n = v.trim();
-        const problem = objectNameProblem(this.ws, project, n, names);
-        if (problem) return problem;
-        const target = newPathOf(n);
-        return fileKey(target) !== fileKey(fsPath) && fs.existsSync(target) ? `${path.basename(target)} is already on disk in ${path.dirname(target)}` : undefined;
-      },
-    }))?.trim();
+    const problemOf = (n: string) => {
+      const problem = objectNameProblem(this.ws, project, n, names);
+      if (problem) return problem;
+      const target = newPathOf(n);
+      return fileKey(target) !== fileKey(fsPath) && fs.existsSync(target) ? `${path.basename(target)} is already on disk in ${path.dirname(target)}` : undefined;
+    };
+    let name = newName?.trim();
+    if (name === undefined) {
+      name = (await vscode.window.showInputBox({
+        title: `Rename ${root.name}`, prompt: `New name of the ${objectWord(root)}`, value: root.name, validateInput: v => problemOf(v.trim()),
+      }))?.trim();
+    } else if (name !== root.name && problemOf(name)) {
+      void vscode.window.showWarningMessage(problemOf(name)!);
+      return;
+    }
     if (!name || name === root.name) return;
     const newPath = newPathOf(name);
     const newInclude = `${entry.include.slice(0, slash + 1)}${name}${ext}`;
-    const uses = this.hooks.references(fsPath, root.id);
-    let renamed: SectionRange[];
+    const title = `Rename ${root.name} to ${name}`;
+    let plan: RenamePlan;
+    try {
+      plan = this.renamePlan(fsPath, root, name);
+    } catch (e) {
+      void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
+      return;
+    }
+    const leaveOut = await askRename(this.index, plan, title, this.hooks.analyse, this.hooks.showReferences);
+    if (!leaveOut) return;
     let tasks: Written[];
     let written: Written[];
     try {
-      const file = parseTcFile(fsPath, fs.readFileSync(fsPath));
-      renamed = nameRanges(file, root.id);
+      // The file of the object goes to its new name, with the uses of it in it.
+      const texts = [...renameTexts(plan, readFromDisk, leaveOut).values()]
+        .map(f => ({ fsPath: fileKey(f.filePath) === fileKey(fsPath) ? newPath : f.filePath, text: f.text, bom: f.bom }));
       const plcproj = decodeBytes(fs.readFileSync(project.path));
       tasks = root.pouKind === 'PRG'
         ? this.tasksOf(project).flatMap(t => {
@@ -416,17 +442,13 @@ export class ObjectCommands {
           return text === t.text ? [] : [{ fsPath: t.fsPath, text, bom: t.bom }];
         })
         : [];
-      written = [
-        { fsPath: newPath, text: renameObject(file, name), bom: file.bom },
-        { fsPath: project.path, text: renameCompileItem(plcproj.text, entry.include, newInclude), bom: plcproj.bom },
-        ...tasks,
-      ];
+      written = [...texts, { fsPath: project.path, text: renameCompileItem(plcproj.text, entry.include, newInclude), bom: plcproj.bom }, ...tasks];
     } catch (e) {
       void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
       return;
     }
-    // An editor may have been edited while the question was asked.
-    if (this.refuseUnsavedFiles([fsPath, project.path, ...tasks.map(t => t.fsPath)])) return;
+    // An editor may have been edited while the questions were asked.
+    if (this.refuseUnsavedFiles([fsPath, project.path, ...planFiles(plan, leaveOut), ...tasks.map(t => t.fsPath)])) return;
     const tabs = tabsOf(fsPath);
     const shown = shownTabs(tabs);
     await closeTabs(tabs);
@@ -440,12 +462,8 @@ export class ObjectCommands {
     }
     await this.hooks.written();
     await this.hooks.reopen(newPath, shown);
-    // The uses left in the file itself are in the renamed file now.
-    const oldKey = fileKey(fsPath);
-    const left = usesLeftByRename(uses, oldKey, renamed, name.length - root.name.length)
-      .map(u => (u.fileKey === oldKey ? { ...u, fileKey: fileKey(newPath) } : u));
     const calls = tasks.length ? ` ${ObjectCommands.taskNames(tasks)} call${tasks.length === 1 ? 's' : ''} it by its new name.` : '';
-    reportReferences(root.name, name, left, this.hooks.showReferences, calls);
+    reportRename(plan, leaveOut, root.name, name, this.hooks.showReferences, calls);
   }
 
   /**

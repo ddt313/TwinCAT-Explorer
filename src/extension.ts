@@ -8,7 +8,7 @@ import { TcWorkspace, fileKey } from './core/workspace';
 import { objectAtOffset } from './core/tcfile';
 import { isInHiddenFolder } from './core/paths';
 import { debugLog } from './core/debugLog';
-import { LanguageIndex, StubSource } from './lang/index';
+import { LanguageIndex, SectionContext, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
 import { ObjectFileSystem } from './vscode/objectFs';
 import { parseObjectText, positionIn, viewSections } from './core/objectText';
@@ -18,6 +18,7 @@ import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serialize
 import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree';
 import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
+import { SymbolRename } from './vscode/rename';
 import { ShownTab } from './vscode/tabs';
 import { itemOrder } from './core/project';
 import { isInFolder } from './lang/objects';
@@ -831,14 +832,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
 
   const lastRefKey = 'twincatExplorer.lastCompareRef';
 
-  /** Where the language index finds an object or member of a file used: references to it, its declaration aside. */
-  const usesOf = (fsPath: string, objectId: string): Loc[] => {
-    const obj = ws.getFile(fsPath)?.objects.get(objectId);
-    // Any section of it: an action has only its implementation.
-    const ctx = obj?.sections[0] && index.context(fileKey(fsPath), obj.sections[0].key);
-    const sym = ctx && (obj!.parent ? ctx.member : ctx.pou ?? ctx.gvl ?? ctx.types[0]);
-    return sym ? features.referenceLocs(sym, false) : [];
-  };
+  /** The analysis of a section with a text, kept by the language features: a rename finds the uses in them. */
+  const analyse = (ctx: SectionContext, text: string) => features.analysisOf(ctx, text);
   /** The places, to open one in the split editor. */
   const showUses = async (title: string, locs: Loc[]) => {
     const items = locs.map(loc => {
@@ -883,7 +878,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       tree.rebuild();
     },
     open: (fsPath, objectId, accessor) => openDefault(fsPath, objectId, { accessor, preview: false }),
-    references: usesOf,
+    analyse,
     showReferences: showUses,
     reopen,
   });
@@ -910,7 +905,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     // At once, not after the .plcproj watcher's delay: the new object has its node when it opens.
     written: () => loadProjects(),
     open: (fsPath, objectId) => openDefault(fsPath, objectId, { preview: false }),
-    references: usesOf,
+    analyse,
     showReferences: showUses,
     reopen,
     reveal: async (fsPath, objectId) => {
@@ -919,6 +914,18 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       if (node) await treeView.reveal(node, { select: true, focus: false, expand: false });
     },
   });
+  // F2 in the split editor and in notebook cells: POUs and members as the tree renames them.
+  const renames = new SymbolRename(index, features, {
+    analyse, showPlaces: showUses,
+    written: paths => {
+      for (const p of paths) onSourceChanged(p);
+      tree.rebuild();
+    },
+    renameObject: (fsPath, newName) => objects.rename(fsPath, newName),
+    renameMember: (fsPath, objectId, newName) => members.rename(fsPath, objectId, newName),
+  });
+  objectEditors.renames = renames;
+  context.subscriptions.push(vscode.languages.registerRenameProvider(stSelector, renames));
   /**
    * Where a new object goes: the PLC project or folder of a tree node; else the folder of the active editor's
    * object, or a PLC project picked.

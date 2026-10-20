@@ -48,7 +48,7 @@ export function checkRename(section: Section, newText: string): void {
     ? `renames '${before}' to '${after}'`
     : `removes the declaration header of '${before}'`;
   throw new SpliceError(
-    `The declaration ${what}. Renaming is not supported here: rename the object in TwinCAT XAE.`);
+    `The declaration ${what}. A save does not rename: use Rename Symbol (F2) on the name, or Rename in the TwinCAT tree.`);
 }
 
 export interface SpliceResult {
@@ -349,8 +349,8 @@ function renamedAsExpected(file: TcSourceFile, out: string, objectId: string, ne
 /**
  * The file of a POU, DUT, GVL or interface with the object renamed, as XAE renames one: the Name attribute of its
  * root element, its name in its sections (see nameRanges), and the LineIds of it and of its members (`FB_X`,
- * `FB_X.M_Run`). Its members follow, their qualified names coming from it. What refers to it from elsewhere stays
- * as it is (XAE would change it too). The file itself and its <Compile> item are the caller's to rename.
+ * `FB_X.M_Run`). Its members follow, their qualified names coming from it. What refers to it from elsewhere is
+ * not changed here (see planRename). The file itself and its <Compile> item are the caller's to rename.
  */
 export function renameObject(file: TcSourceFile, newName: string): string {
   if (file.error) throw new SpliceError(`${file.path} cannot be read: ${file.error}`);
@@ -373,8 +373,8 @@ export function renameObject(file: TcSourceFile, newName: string): string {
  * The file with a member of its POU or interface (method, property, action, transition) renamed, as XAE renames
  * one: its Name attribute, its name in its sections (see nameRanges), its LineIds and those of the
  * accessors of a property. Then it moves to its place in XAE's order when the other members are in that order,
- * as XAE writes the file after a rename. What refers to the member from elsewhere stays as it is (XAE would
- * change it too).
+ * as XAE writes the file after a rename. What refers to the member from elsewhere is not changed here (see
+ * planRename).
  */
 export function renameMember(file: TcSourceFile, objectId: string, newName: string): string {
   if (file.error) throw new SpliceError(`${file.path} cannot be read: ${file.error}`);

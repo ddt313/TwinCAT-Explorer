@@ -70,6 +70,10 @@ export function docComment(text: string, trivia: Trivia[], span: A.Span): string
   return parts.map(cleanComment).join('\n').trim() || undefined;
 }
 
+function spanText(text: string, span: A.Span | undefined): string | undefined {
+  return span ? text.slice(span.start, span.end) : undefined;
+}
+
 function cleanComment(c: string): string {
   if (c.startsWith('//')) return c.slice(2).trim();
   if (c.startsWith('(*')) return c.slice(2, -2).trim();
@@ -156,6 +160,26 @@ export class LanguageIndex {
 
   invalidateAll(): void {
     this.allDirty = true;
+  }
+
+  /**
+   * An index of the workspace with some of its files (by file key) as given instead of as they are on disk, the
+   * rest as here: the stubs and the unsaved edits of the other files. What a change of these files makes of the
+   * code, before it is written.
+   */
+  withFiles(files: Map<string, TcSourceFile>): LanguageIndex {
+    const ws: TcWorkspace = Object.create(this.ws);
+    ws.getFile = p => files.get(fileKey(p)) ?? this.ws.getFile(p);
+    const other = new LanguageIndex(ws);
+    other.setStubs(this.stubSources);
+    for (const [key, sections] of this.overlays) {
+      if (files.has(key)) continue;
+      for (const [sectionKey, text] of sections) other.setOverlay(key, sectionKey, text);
+    }
+    // What is parsed here is parsed the same there.
+    for (const [text, r] of this.declCache) other.declCache.set(text, r);
+    for (const [text, r] of this.bodyCache) other.bodyCache.set(text, r);
+    return other;
   }
 
   // ------------------------------------------------------------------ building
@@ -400,6 +424,7 @@ export class LanguageIndex {
       kind: 'pou', pouKind, id: `${scope.name}::${name.toUpperCase()}`, name, scope,
       loc: this.loc(f, sectionKey, header?.name), vars: [], members: [],
       extendsNames: header?.extends ?? [], implementsNames: header?.implements ?? [], returnType: header?.returnType,
+      returnText: spanText(text, header?.returnType),
       signature: header ? text.slice(header.start, header.end).replace(/;\s*$/, '').trim() : name,
       doc: header ? docComment(text, trivia, header) : undefined,
     };
@@ -418,7 +443,7 @@ export class LanguageIndex {
     const name = header?.name?.name ?? fallbackName;
     const member: MemberSym = {
       kind, id: `${pou.id}.${name.toUpperCase()}`, name, owner: pou, scope: pou.scope, vars: [], getVars: [], setVars: [],
-      returnType: header?.returnType, loc: this.loc(f, sectionKey, header?.name),
+      returnType: header?.returnType, returnText: spanText(text, header?.returnType), loc: this.loc(f, sectionKey, header?.name),
       signature: header ? text.slice(header.start, header.end).replace(/;\s*$/, '').trim() : `${kind.toUpperCase()} ${name}`,
       doc: header ? docComment(text, trivia, header) : undefined,
     };
@@ -437,12 +462,13 @@ export class LanguageIndex {
 
   private makeVar(f: FileSyms, owner: VarSym['owner'], block: A.VarBlock, decl: A.VarDecl, n: A.Ident, text: string,
     trivia: Trivia[], sectionKey: string | undefined, accessor?: 'Get' | 'Set'): VarSym {
-    const typeText = decl.type ? text.slice(decl.type.start, decl.type.end) : '?';
-    const init = decl.init ? ` := ${text.slice(decl.init.start, decl.init.end)}` : '';
+    const typeText = spanText(text, decl.type) ?? '?';
+    const initText = spanText(text, decl.init);
     const v: VarSym = {
       kind: 'var', id: `${owner.id}#${accessor ? accessor + '.' : ''}${n.upper}`, name: n.name, scope: owner.scope,
-      section: block.section, constant: block.qualifiers.includes('CONSTANT'), typeSpec: decl.type, owner, accessor,
-      loc: this.loc(f, sectionKey, n), signature: `${n.name} : ${typeText}${init}`, doc: docComment(text, trivia, decl),
+      section: block.section, constant: block.qualifiers.includes('CONSTANT'), typeSpec: decl.type, typeText, initText, owner, accessor,
+      loc: this.loc(f, sectionKey, n), signature: `${n.name} : ${typeText}${initText !== undefined ? ` := ${initText}` : ''}`,
+      doc: docComment(text, trivia, decl),
     };
     this.register(f, sectionKey, n, v);
     return v;

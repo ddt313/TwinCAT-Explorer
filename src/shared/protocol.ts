@@ -30,6 +30,9 @@ export interface TargetRange {
   end: number;
 }
 
+/** The name F2 renames at an offset and its range, or why there is none (answer to 'prepareRename'). */
+export type RenameInfo = { start: number; end: number; text: string } | { problem: string };
+
 export interface EditorConfig {
   /** Monaco editor options taken from the VS Code settings (font, tab size, ...). */
   options: Record<string, unknown>;
@@ -112,18 +115,21 @@ export type HostMessage =
   /** The document's section texts; `ack` is the last webview edit applied. Answered with 'synced'. */
   | { type: 'sync'; id: number; sections: { key: string; text: string }[]; ack: number }
   | { type: 'markers'; markers: { key: string; markers: Marker[] }[] }
+  /** Runs Auto Declare... in the pane edited last, at its cursor (the command from the Command Palette). */
+  | { type: 'autoDeclare' }
   | { type: 'reveal'; key: string; start: number; end: number; focus: boolean }
   | { type: 'theme'; theme: TokenRule[] }
   | { type: 'config'; config: EditorConfig }
   | { type: 'response'; id: number; result: unknown }
   | { type: 'probe'; id: number; action: ProbeAction };
 
-export type RequestKind = 'definition' | 'hover' | 'completion' | 'references';
+export type RequestKind = 'definition' | 'hover' | 'completion' | 'references' | 'signature' | 'prepareRename' | 'rename' | 'codeActions';
 
 export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'edit'; seq: number; key: string; changes: { offset: number; length: number; text: string }[]; text: string }
-  | { type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean }
+  /** `newName`: the name a 'rename' gives. */
+  | { type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean; newName?: string }
   | { type: 'open'; target: TargetRange; side?: boolean }
   /** A VS Code command the panes cannot run themselves (see WORKBENCH_CHORDS). */
   | { type: 'command'; command: string }
@@ -140,6 +146,10 @@ export type WebviewMessage =
   | { type: 'blameOpen'; sha: string }
   /** Shows the commits that changed this object (TwinCAT History view). */
   | { type: 'showHistory' }
+  /** Makes a quick fix of a 'codeActions' answer (see QuickFixResult). */
+  | { type: 'runFix'; id: number }
+  /** Auto Declare... at an offset of a pane (Shift+F2): the host asks for the scope, name, type, initial value and comment. */
+  | { type: 'autoDeclare'; key: string; text: string; offset: number }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 
@@ -186,6 +196,18 @@ export const WEBVIEW_COMMANDS = new Set<string>([
   'workbench.action.showCommands', 'workbench.action.quickOpen', ...WORKBENCH_CHORDS.map(c => c.command),
 ]);
 
+/**
+ * A quick fix of the problem at the offset of a 'codeActions' request: `start` and `end` are the problem's. The host
+ * keeps what it does; the webview asks for it with 'runFix' and its `id`.
+ */
+export interface QuickFixResult {
+  id: number;
+  title: string;
+  start: number;
+  end: number;
+  preferred: boolean;
+}
+
 export interface HoverResult {
   markdown: string;
   start: number;
@@ -197,6 +219,25 @@ export interface CompletionResult {
   kind: string;
   detail?: string;
   documentation?: string;
+  /** Shown right after the label, less prominently: the arguments a call item inserts. */
+  labelDetail?: string;
+  /** Inserted instead of the label, in VS Code's snippet syntax (`fbTimer(IN := ${1}, PT := ${2});`). */
+  snippet?: string;
+  /** Compared with the typed text instead of the label. */
+  filterText?: string;
+  /** Offsets of the text the item replaces, when it is not the word before the cursor. */
+  range?: { start: number; end: number };
+  /** Shows the signature help once inserted (a call with its arguments). */
+  signatureHelp?: boolean;
+}
+
+/** The signature of the call the cursor is in: the label shows the parameters at the offsets given for them. */
+export interface SignatureResult {
+  label: string;
+  documentation?: string;
+  parameters: { label: [number, number]; documentation?: string }[];
+  /** Index of the parameter the cursor is at; -1 for none. */
+  activeParameter: number;
 }
 
 /** Test hooks: the integration tests drive and inspect the webview through these. */

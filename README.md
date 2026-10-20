@@ -98,8 +98,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Reloads:** open tabs without unsaved edits reload when the file changes on disk. Undoing back to
   the text on disk makes the tab clean again.
 - **Renaming is blocked:** changing the name in a declaration header (`METHOD OnEntry` to
-  `METHOD OnEnter`) makes the save fail with a message. Rename the object with Rename... in the
-  TwinCAT tree instead (see
+  `METHOD OnEnter`) makes the save fail with a message. Rename the object with Rename Symbol (F2) on
+  its name, or Rename... in the TwinCAT tree, instead (see
   [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)
   and [Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders](#renaming-moving-and-deleting-pous-duts-gvls-interfaces-and-folders)).
 
@@ -142,10 +142,12 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
     (`M_Start := TRUE;`), a property's value in its `Get` and `Set`.
   - Its `LineIds` and those of its accessors, in files that have them.
   - Its place: XAE keeps the members in name order, so a renamed member moves to its new place.
-- **What uses the member elsewhere keeps the old name.** XAE's rename would change it too. The message
-  after the rename says how many uses of the old name the language index finds, and **Show Uses**
-  lists them so that you can open and change each one. The function blocks that implement an
-  interface keep their method or property under the old name: rename it there too.
+- **What uses the member elsewhere takes the new name too**, as with XAE's rename: its calls
+  (`fbPump.M_Start()`, `THIS^.M_Start()`, `SUPER^.M_Start()`, through an interface or a GVL) and the
+  uses of a property (see [Renaming with the uses](#renaming-with-the-uses)).
+- **Implementations and overrides:** for a method or property of an interface, or one that function
+  blocks implement or override, a list of these comes first: the checked ones are renamed with it,
+  their uses too.
 - **Delete** asks first. Then it removes the member, or the accessor, from the file with its
   `LineIds`, as XAE does. What uses it is not changed.
 - The rest of the file stays byte-identical. Open tabs of the member open again under its new name, or
@@ -218,9 +220,10 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
     declares none), its `LineIds` and those of its members.
   - Inside a function, its return value (`F_Sum := nA + nB;`).
   - The call of a task that calls a renamed program (`<PouCall>` in its `.TcTTO`).
-- **What uses the object elsewhere keeps the old name.** XAE's rename would change it too. The message
-  after the rename says how many uses of the old name the language index finds, and **Show Uses**
-  lists them.
+- **What uses the object elsewhere takes the new name too**, as with XAE's rename: declarations
+  (`fbPump : FB_Pump;`, `POINTER TO`, `ARRAY OF`), `EXTENDS` and `IMPLEMENTS`, calls, names qualified by
+  a GVL (`GVL_Main.nCount`) and the types in DUTs and GVLs (see
+  [Renaming with the uses](#renaming-with-the-uses)).
 - **Rename** of a folder renames it on disk. Its `<Folder>` item and the items of everything in it take
   the new path where they are, as XAE renames a folder. Nothing in the files changes.
 - **Move to Folder...** picks a folder of the PLC project, or the project itself. The file, or the
@@ -234,6 +237,29 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   editor. To take a change back, use git: the TwinCAT Changes view shows the files, and the `.plcproj`
   under Project files.
 
+### Renaming with the uses
+
+- **Rename...** in the TwinCAT tree and **Rename Symbol** (F2) in the split editor and in notebook
+  cells change what they rename and its uses in every PLC project of the workspace, as the language
+  index finds them.
+- **F2** renames what the name under the cursor stands for: a variable; an input or output, also as a
+  named parameter (`fbPump(nSpeed := 5)`) and as a member (`fbPump.nSpeed`); a DUT field; an enum
+  value (`E_State.Idle`, `E_State#Idle`). POUs, DUTs, GVLs, interfaces and members it renames as the
+  TwinCAT tree does.
+- **Before writing**, a list shows each object whose code changes, by file, with the number of changes
+  and the first changed line. Uncheck an object to leave it with the old name. A rename that changes
+  nothing outside what it renames writes at once.
+- **When the new name would change what other code means** (a variable renamed to the name of another
+  one that its uses would then mean, or that a local variable would hide), a warning names the places
+  first: Rename Anyway, or Show Places.
+- **What is written:** only the CDATA of the sections that change. Every other byte of each file stays
+  as it was, its BOM and line breaks too. Comments and strings keep the old name.
+- **After it**, the message says how many places changed, and what keeps the old name: places the
+  language index does not resolve (Show Places lists them), and implementations in other languages
+  (CFC, SFC, FBD, LD, IL) and other files (visualizations) that have it, to change in TwinCAT XAE.
+- A file with unsaved changes in an editor is refused; F2 in a tab with unsaved changes offers to save
+  it first. To take a rename back, use Discard Changes in the TwinCAT Changes view.
+
 ### Structured Text language features
 
 These work in both panes and in notebook cells. They come from a parser of the TwinCAT dialect
@@ -244,11 +270,41 @@ These work in both panes and in notebook cells. They come from a parser of the T
   extends, at the method name; a local variable moves the cursor to the declaration pane.
 - **Hover** with the declaration, its comments and where it is declared.
 - **Completion** after `.` (members, inherited members, enum values) and of the names in scope.
+  - **Calls with their arguments**, like `Insert with arguments` in XAE's Input Assistant: next to a
+    function block instance, function, program, method or action, a second item inserts the call with
+    all its parameters, inputs with `:=` and outputs with `=>`, and a tab stop for each value:
+    `fbTimer(IN := , PT := , Q => , ET => );`. Where a statement starts the call ends with `;`; a
+    call without a value (of an instance, a program, an action) is offered only there.
+  - **Snippets** for `IF`, `IF ELSE`, `IF ELSIF ELSE`, `ELSIF`, `CASE`, `FOR`, `WHILE` and `REPEAT`
+    where a statement starts, and for `{region "..."}` ... `{endregion}` on a line of its own.
+- **Signature help** after `(` and `,` in a call of a function, function block instance, program,
+  method, action or built-in (`LIMIT`, `MID`, `INT_TO_REAL`, ...): the inputs as declared
+  (`PT : TIME := T#1S`), the outputs with `=>` (`Q => BOOL`), and the declaration and comment of the
+  parameter at the cursor. That parameter follows the argument's position, or the name being typed.
+  An action shows the inputs and outputs of its function block; a declaration shows those of `FB_init`
+  (`fbValve : FB_Valve(`). `Ctrl+Shift+Space` shows it again, as in XAE.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it.
+- **Rename Symbol** (F2): the name under the cursor and its uses (see
+  [Renaming with the uses](#renaming-with-the-uses)).
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
   unknown identifiers, unknown members and unknown named parameters. A click in the Problems panel
   opens the split editor at the problem.
+- **Quick fixes** (light bulb, `Ctrl+.`), as XAE's Auto Declare:
+  - An unknown identifier: `Declare bDone in VAR`, `in VAR_INPUT`, `in VAR_OUTPUT`, `in VAR_IN_OUT`
+    and `in VAR_TEMP`, the blocks the object can have (`VAR_GLOBAL` in a GVL; an action declares in its
+    POU). The type comes from the use: `TRUE` or a condition gives `BOOL`, `1.5` `LREAL`, `5` `INT`
+    (`DINT` or `LINT` when larger), `16#FF` `WORD`, `'text'` `STRING`, `T#1s` `TIME`; a variable, call
+    or parameter gives its type. Otherwise `BOOL`, which XAE's dialog starts with.
+  - `bDone : BOOL;` goes before the `END_VAR` of the block, indented like its declarations; a missing
+    block is added. It is an edit of the declaration pane or cell: `Ctrl+Z` there takes it back, and
+    saving writes it.
+  - A member that a function block, program or interface of the workspace lacks (`fbValve.M_Reset()`):
+    `Add method M_Reset to FB_Valve` or `Add property ...`, the one the use asks for first. It gets the
+    type of the use and opens.
+- **Auto Declare...** (`Shift+F2`, as in XAE, or the context menu) asks for the scope (`CONSTANT`,
+  `RETAIN` and `PERSISTENT` blocks too), name, type, initial value and comment. It starts with the
+  unknown name at the cursor and the type of its use.
 - **Ctrl+T** finds POUs, methods, properties, DUTs, GVLs and global variables, and opens the split
   editor at the symbol.
 - **Outline** of the declared variables (notebook cells).
@@ -410,6 +466,8 @@ Commit SHA and Copy Name.
 | `TwinCAT: Add Existing Item...` / `TwinCAT: Add Existing Folder Content...` | Add POU, DUT, GVL and interface files that are on disk already (see [Adding existing items and folder content](#adding-existing-items-and-folder-content)). |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
+| `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |
+| `TwinCAT: Auto Declare...` | Declare a variable at the cursor of a split editor or notebook cell, as XAE's Auto Declare (Shift+F2). |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as inline diffs against `HEAD`, or back as normal panes. |
 | `TwinCAT: Open Changes as TwinCAT Notebook` | Compare a whole file with `HEAD` (or the index), section by section. |
 | `TwinCAT: Compare with Git Ref as TwinCAT Notebook...` | Compare a whole file with any branch, tag or commit. |
@@ -434,6 +492,10 @@ Commit SHA and Copy Name.
 | Delete | TwinCAT tree | Delete the selected POU, DUT, GVL, interface, method, property, action, transition, `Get`, `Set` or empty folder |
 | F12, Ctrl+click | split editor, notebook cells | Go to Definition |
 | Shift+F12 | split editor, notebook cells | Find All References (peek view) |
+| Ctrl+Shift+Space | split editor, notebook cells | The parameters of the call at the cursor (signature help) |
+| F2 | split editor, notebook cells | Rename Symbol: the name under the cursor and its uses |
+| Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property |
+| Shift+F2 | split editor, notebook cells | Auto Declare... |
 | Alt+F5 / Shift+Alt+F5 | split editor | Next / previous change vs `HEAD` |
 | F1, Ctrl+Shift+P, Ctrl+P | split editor | The VS Code pickers |
 | Ctrl+K S, Ctrl+K W, Ctrl+K Ctrl+W, ... | split editor | The common VS Code `Ctrl+K` chords (see the limitations) |
@@ -461,8 +523,8 @@ bundles stubs for the parts in common use:
 - Tc2_MC2: axis function blocks;
 - Tc2_Math, Tc3_Module and TcUnit.
 
-Symbols of other libraries are reported as unknown. Add them to a stub file and list that file in
-`twincatExplorer.stubFiles`:
+Symbols of other libraries are reported as unknown, and have no hover, signature help or call
+completion. Add them to a stub file and list that file in `twincatExplorer.stubFiles`:
 
 ```
 LIBRARY Tc2_EtherCAT
@@ -496,10 +558,10 @@ sources.
   in it is deleted there.
 - XAE's own move of a file or folder could not be driven in a hidden XAE: a move here changes the paths
   of the items in place, as XAE does when it renames a file or folder.
-- Rename changes the object or member and the code inside it, and the task that calls a renamed
-  program, not what uses it elsewhere, which XAE's rename also changes. The uses it counts are those the
-  language index finds: not uses in implementation languages other than Structured Text, nor uses it
-  cannot resolve.
+- Rename changes the uses the language index finds in Structured Text. It does not read the other
+  implementation languages, visualizations and other files, nor change names it cannot resolve: the
+  message after a rename names those that have the old name. The parameters of a method keep their
+  names in the methods that implement or override it.
 - A member added here has no `LineIds` element, the line map for breakpoints that some XAE versions
   keep in the file. TwinCAT 3.1.4026 writes none either in the projects it creates (their option
   `WriteLineIDs` is off).
@@ -548,6 +610,9 @@ sources.
   - Its `Show Active File Only` filter and the error colour of the tab title do not apply to split
     editors.
   - `F8` inside a split editor moves only between the problems of that object.
+- The quick fixes are in the panes and cells (light bulb, `Ctrl+.`), not in the Problems panel of the
+  split editors. Adding a method or property from its use refuses a file with unsaved changes, as Add
+  Method... does.
 - Opening a problem or a symbol briefly opens a read-only copy of the section, which the split editor
   then replaces. A copy opened pinned (double click, `Ctrl+T`) is closed instead, and
   `Reopen Closed Editor` then brings back the split editor of that object.

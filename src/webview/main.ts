@@ -9,9 +9,10 @@ import * as monacoAll from 'monaco-editor/esm/vs/editor/edcore.main.js';
 import type * as Monaco from 'monaco-editor';
 import {
   BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
-  ProbeState, RequestKind, SectionBlame, SectionRef, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
+  ProbeState, RenameInfo, RequestKind, SectionBlame, SectionRef, SignatureResult, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
 import { escapeMarkdown } from '../shared/markdown';
+import { registerQuickFixes } from './quickFixes';
 import { relativeTime } from '../shared/time';
 import { TextMateHighlighter, parseColor, toHex } from './textmate';
 // Internal Monaco services: the public registerEditorOpener can only answer with the source editor, which
@@ -162,11 +163,12 @@ const NOT_COMMITTED: BlameCommitInfo = { sha: '', author: '', you: true, time: 0
 /** Wait after the last keystroke before the annotation shows again. */
 const TYPING_PAUSE = 800;
 
-function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextModel, offset: number, includeDeclaration?: boolean): Promise<T | null> {
+function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextModel, offset: number, includeDeclaration?: boolean,
+  newName?: string): Promise<T | null> {
   const id = ++requestId;
   return new Promise(resolve => {
     pending.set(id, r => resolve(r as T | null));
-    post({ type: 'request', id, kind, key, text: model.getValue(), offset, includeDeclaration });
+    post({ type: 'request', id, kind, key, text: model.getValue(), offset, includeDeclaration, newName });
   });
 }
 
@@ -315,7 +317,41 @@ function locationOf(t: TargetRange): Monaco.languages.Location {
   return { uri: model.uri, range: rangeOf(model, t.start, t.end) };
 }
 
+/**
+ * F2 (Rename Symbol): the host finds what the name stands for, asks its questions and writes the files, which the
+ * panes then show; Monaco applies no edit of its own.
+ */
+function registerRename(): void {
+  monaco.languages.registerRenameProvider(LANG, {
+    async resolveRenameLocation(model, position) {
+      const pane = ownPane(model);
+      const here = new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column);
+      const r = pane && await request<RenameInfo>('prepareRename', pane.section.key, model, model.getOffsetAt(position));
+      if (!r || 'problem' in r) return { range: here, text: '', rejectReason: r ? r.problem : 'Nothing to rename here.' };
+      return { range: rangeOf(model, r.start, r.end), text: r.text };
+    },
+    async provideRenameEdits(model, position, newName) {
+      const pane = ownPane(model);
+      if (pane) await request<null>('rename', pane.section.key, model, model.getOffsetAt(position), undefined, newName);
+      return { edits: [] };
+    },
+  });
+}
+
+/** Auto Declare... in the pane edited last (see quickFixes.ts). */
+let autoDeclare = () => {};
+
 function registerProviders(): void {
+  registerRename();
+  autoDeclare = registerQuickFixes(monaco, LANG, {
+    keyOf: model => {
+      const pane = ownPane(model);
+      return pane?.section.editable ? pane.section.key : undefined;
+    },
+    request,
+    post,
+    lastEditor: () => panes.find(p => p.section.key === lastFocused)?.editor,
+  });
   monaco.languages.registerDefinitionProvider(LANG, {
     async provideDefinition(model, position) {
       const pane = ownPane(model);
@@ -354,14 +390,39 @@ function registerProviders(): void {
       const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
       const kinds = monaco.languages.CompletionItemKind as unknown as Record<string, number>;
       return {
-        suggestions: (items ?? []).map(i => ({
-          label: i.label,
+        suggestions: (items ?? []).map((i): Monaco.languages.CompletionItem => ({
+          label: i.labelDetail ? { label: i.label, detail: i.labelDetail } : i.label,
           kind: kinds[i.kind] ?? monaco.languages.CompletionItemKind.Text,
           detail: i.detail,
           documentation: i.documentation ? { value: i.documentation } : undefined,
-          insertText: i.label,
-          range,
+          insertText: i.snippet ?? i.label,
+          insertTextRules: i.snippet ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+          filterText: i.filterText,
+          range: i.range ? rangeOf(model, i.range.start, i.range.end) : range,
+          command: i.signatureHelp ? { id: 'editor.action.triggerParameterHints', title: 'Show the parameters' } : undefined,
         })),
+      };
+    },
+  });
+  monaco.languages.registerSignatureHelpProvider(LANG, {
+    signatureHelpTriggerCharacters: ['(', ','],
+    async provideSignatureHelp(model, position) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const s = await request<SignatureResult>('signature', pane.section.key, model, model.getOffsetAt(position));
+      if (!s) return null;
+      const markdown = (value: string | undefined) => (value ? { value } : undefined);
+      return {
+        value: {
+          signatures: [{
+            label: s.label,
+            documentation: markdown(s.documentation),
+            parameters: s.parameters.map(p => ({ label: p.label, documentation: markdown(p.documentation) })),
+          }],
+          activeSignature: 0,
+          activeParameter: s.activeParameter,
+        },
+        dispose() {},
       };
     },
   });
@@ -1275,6 +1336,9 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
             };
           }));
         }
+        break;
+      case 'autoDeclare':
+        autoDeclare();
         break;
       case 'reveal':
         reveal(m);

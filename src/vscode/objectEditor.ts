@@ -22,6 +22,7 @@ import { BlameCommit, isUncommitted } from '../core/gitLog';
 import { BlameService, ViewBlame } from './blame';
 import { GitChanges } from './gitChanges';
 import { ObjectRef, ST_LANGUAGE, locUriOf, parseObjectUri } from './uris';
+import type { SymbolRename } from './rename';
 import {
   EditorConfig, HostMessage, LanguageConfig, Marker, PaneSection, ProbeAction, SectionRef, TargetRange, WEBVIEW_COMMANDS, WebviewMessage,
 } from '../shared/protocol';
@@ -61,7 +62,7 @@ const EDITOR_OPTIONS = [
   'wordWrap', 'wordWrapColumn', 'cursorStyle', 'cursorBlinking', 'cursorSmoothCaretAnimation', 'cursorWidth', 'smoothScrolling',
   'mouseWheelZoom', 'folding', 'foldingHighlight', 'showFoldingControls', 'renderLineHighlight', 'rulers', 'bracketPairColorization',
   'guides', 'minimap', 'scrollBeyondLastLine', 'stickyScroll', 'roundedSelection', 'renderControlCharacters', 'multiCursorModifier',
-  'quickSuggestions', 'quickSuggestionsDelay', 'suggestOnTriggerCharacters', 'acceptSuggestionOnEnter', 'tabCompletion',
+  'quickSuggestions', 'quickSuggestionsDelay', 'suggestOnTriggerCharacters', 'acceptSuggestionOnEnter', 'tabCompletion', 'snippetSuggestions',
   'wordBasedSuggestions', 'suggestSelection', 'suggest', 'parameterHints', 'hover', 'autoClosingBrackets', 'autoClosingQuotes',
   'autoClosingDelete', 'autoClosingOvertype', 'autoSurround', 'autoIndent', 'matchBrackets', 'occurrencesHighlight', 'selectionHighlight',
   'links', 'emptySelectionClipboard', 'copyWithSyntaxHighlighting', 'dragAndDrop', 'find', 'unicodeHighlight', 'padding',
@@ -285,6 +286,12 @@ export class EditorSession implements vscode.Disposable {
       case 'showHistory':
         void this.provider.showHistory?.(this.ref);
         return Promise.resolve();
+      case 'runFix':
+        return this.provider.fixes?.runFix(this, m.id) ?? Promise.resolve();
+      case 'autoDeclare':
+        // Not queued: the questions take their time, and the edits made meanwhile must not wait for them.
+        void this.provider.fixes?.autoDeclare(this, m.key, m.text, m.offset);
+        return Promise.resolve();
       case 'error':
         this.provider.log?.(`Split editor webview: ${m.message}`);
         return Promise.resolve();
@@ -464,6 +471,24 @@ export class EditorSession implements vscode.Disposable {
   }
 
   /**
+   * Changes the document from the host (a quick fix, Auto Declare...), in order with the webview's edits: `change`
+   * gets the sections as they are then and gives the edit, or nothing. The panes get the new text as for any change
+   * of the document, so Ctrl+Z in the pane takes it back. Resolves to whether the edit was made.
+   */
+  changeDocument(change: (parsed: ParsedObjectText) => vscode.WorkspaceEdit | undefined): Promise<boolean> {
+    let applied = false;
+    return this.enqueue(async () => {
+      const parsed = this.parse();
+      const edit = parsed && change(parsed);
+      if (!edit) return;
+      const version = this.document.version;
+      applied = await vscode.workspace.applyEdit(edit);
+      // The webview's next edit needs the new text (see applyEdit).
+      if (applied) await this.untilVersion(version + 1);
+    }).then(() => applied);
+  }
+
+  /**
    * Resolves once every edit the webview made so far is in the document (before a save). Bounded well
    * below VS Code's 1.5 s limit for save participants, which disables a listener that is too slow.
    */
@@ -558,6 +583,9 @@ export class EditorSession implements vscode.Disposable {
       const ctx = this.provider.index.context(this.fileKey, m.key);
       if (ctx) {
         switch (m.kind) {
+          case 'codeActions':
+            result = this.provider.fixes?.quickFixes(this, m.key, m.text, m.offset);
+            break;
           case 'definition': {
             const loc = features.definitionAt(ctx, m.text, m.offset);
             // The declaration under the cursor comes in the request's text; any other location in the index's.
@@ -571,10 +599,20 @@ export class EditorSession implements vscode.Disposable {
           case 'completion':
             result = features.completionsAt(ctx, m.text, m.offset);
             break;
+          case 'signature':
+            result = features.signatureHelpAt(ctx, m.text, m.offset);
+            break;
           case 'references':
             // Found in the index's texts of all sections, this one included.
             result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
               .map(loc => this.provider.target(loc, this)).filter(t => t !== undefined);
+            break;
+          case 'prepareRename':
+            result = this.provider.renames?.prepare(ctx, m.text, m.offset);
+            break;
+          case 'rename':
+            // Answered at once: the rename asks its questions and writes the files, which the panes then show.
+            void this.provider.renames?.rename(ctx, m.text, m.offset, m.newName ?? '');
             break;
         }
       }
@@ -641,6 +679,14 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
   showHistory?: (ref: ObjectRef) => Promise<void>;
   onDidActivate?: (uri: vscode.Uri) => void;
   openView?: (request: OpenViewRequest) => Promise<void>;
+  /** F2 (Rename Symbol) in the panes. */
+  renames?: Pick<SymbolRename, 'prepare' | 'rename'>;
+  /** The quick fixes of the problems in the panes (QuickFixResult[]) and Auto Declare... (see autoDeclare.ts). */
+  fixes?: {
+    quickFixes(session: EditorSession, key: string, text: string, offset: number): unknown[];
+    runFix(session: EditorSession, id: number): Promise<void>;
+    autoDeclare(session: EditorSession, key: string, text: string, offset: number): Promise<void>;
+  };
   log?: (message: string) => void;
   private readonly disposables: vscode.Disposable[] = [];
   private changesContext: boolean | undefined;

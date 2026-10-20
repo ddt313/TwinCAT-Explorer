@@ -8,7 +8,7 @@ import { MemberSpec, SpliceError, addMember, declaredNameRange, nameRanges, remo
 import { viewChanges } from '../../src/core/objectChanges';
 import { TcWorkspace } from '../../src/core/workspace';
 import { LanguageIndex } from '../../src/lang/index';
-import { interfaceStubs, newMemberNameProblem, typeProblem, usesLeftByRename } from '../../src/lang/members';
+import { interfaceStubs, newMemberNameProblem, typeProblem } from '../../src/lang/members';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 
 const FB = '{11111111-1111-1111-1111-111111111111}';
@@ -299,14 +299,6 @@ END_IF]]></ST>
   assert.deepEqual(ranges.map(r => [r.section.role, r.section.text.slice(r.start, r.end)]),
     [['decl', 'Run'], ['impl', 'Run'], ['impl', 'run'], ['impl', 'Run']]);
   assert.equal(renameMember(parse(before), id(RUN), 'Go'), pou(declared('Go') + caller));
-  // The uses left: THIS^.Run, 3 characters earlier after the 3 renamed before it; the call in Stop as it was.
-  const impl = ranges[1].section;
-  const at = (key: string, text: string, word: string, from = 0) => ({ fileKey: 'fb', sectionKey: key, start: text.indexOf(word, from), end: text.indexOf(word, from) + word.length });
-  const self = at(impl.key, impl.text, 'Run(');
-  const call = at(`${id(STOP)}:impl`, 'Run();', 'Run');
-  const own = { fileKey: 'fb', sectionKey: impl.key, start: ranges[3].start, end: ranges[3].end };
-  assert.deepEqual(usesLeftByRename([self, call, own], 'fb', ranges, -1), [{ ...self, start: self.start - 3, end: self.end - 3 }, call]);
-  assert.deepEqual(usesLeftByRename([self], 'other', ranges, -1), [self], 'another file');
   // The value of a property in its Get and Set.
   const level = (name: string) => `
     <Property Name="${name}" Id="${PROP}">

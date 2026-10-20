@@ -133,6 +133,7 @@ function pou(name: string, guid: string, decl: string, impl: string, members = '
 const FB_VALVE_DECL = `FUNCTION_BLOCK FB_Valve IMPLEMENTS I_Valve
 VAR_INPUT
 	bOpen : BOOL;
+	nSpeed : INT;
 END_VAR
 VAR
 	fPos : LREAL;
@@ -338,6 +339,10 @@ test('the type comes from the use: literals, conditions, variables, calls, param
     // The first use that tells: nLater is an INT by its second use.
     const two = 'nLater := nLater2;\nnLater := 7;';
     assert.equal(unknownNameAt(idx, impl, two, 0)?.type, 'INT');
+    // An action takes the inputs and outputs of its function block.
+    const call = 'fbValve.A_Reset(nSpeed := nWanted);';
+    const wanted = unknownNameAt(idx, ctxOf('MAIN', 'impl'), call, call.indexOf('nWanted'));
+    assert.deepEqual([wanted?.type, wanted?.fromUse], ['INT', true]);
     // Known names, keywords and literals are not unknown.
     assert.equal(unknownNameAt(idx, impl, 'fPos := 1;', 1), undefined);
     assert.equal(unknownNameAt(idx, impl, 'fPos := 1;', 9), undefined);

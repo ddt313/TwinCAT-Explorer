@@ -1,6 +1,7 @@
 // Add POU, Add DUT, Add Global Variable List, Add Interface and New Folder: they ask for what the new object
 // needs, write its file as XAE 3.1.4026 does (see newObjects.ts) and its item into the .plcproj (see project.ts),
-// then open it. Add Existing Item and Add Existing Folder Content add files from disk as XAE does (see existing.ts).
+// then open it. Add Existing Item and Add Existing Folder Content add files from disk as XAE does (see existing.ts),
+// and Add Library a reference to a library of the library repositories (see libraries.ts).
 // Rename, Move to Folder and Delete of a POU, DUT, GVL or interface, and of a folder, change the files and the
 // items the way XAE does, and close or move the tabs; Rename also changes what uses the object (see rename.ts).
 
@@ -9,9 +10,11 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { FileStyle, NewObjectKind, NewObjectSpec, XAE_FILE_STYLE, fileStyleOf, newObjectText, objectExtension } from '../core/newObjects';
 import {
-  PlcProject, addCompileItem, addFolderItem, itemOrder, removeItem, renameCompileItem, renameFolderItems, renameTaskCalls, taskCalls,
+  LibraryRef, PlcProject, addCompileItem, addFolderItem, addPlaceholderReference, itemOrder, referenceTo, removeItem, renameCompileItem,
+  renameFolderItems, renameTaskCalls, taskCalls,
 } from '../core/project';
 import { ChosenFile, ExistingPlan, objectIds, planExistingFiles } from '../core/existing';
+import { InstalledLibrary, libraryReference, placeholderName, readRepositories, systemRepositories } from '../core/libraries';
 import { addMember, newGuid } from '../core/splice';
 import { TcObject, decodeBytes, encodeText, fileKindFromPath, parseTcText } from '../core/tcfile';
 import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
@@ -45,6 +48,8 @@ export interface ObjectHooks {
   reopen(fsPath: string, tabs: ShownTab[]): Promise<void>;
   /** Selects an object in the TwinCAT tree. */
   reveal(fsPath: string, objectId: string): Promise<void>;
+  /** Selects a library under References in the TwinCAT tree, by the Include of its reference. */
+  revealLibrary(plcprojPath: string, include: string): Promise<void>;
 }
 
 /** A file to write, with its text and BOM. */
@@ -76,6 +81,9 @@ const KIND_WORDS: Record<NewObjectKind, string> = {
 
 /** Existing Folder Content refuses a folder with more files than this (a whole drive picked by mistake). */
 const MAX_FOLDER_FILES = 2000;
+
+/** The setting with the folders of the library repositories XAE was told about besides the system ones. */
+const REPOSITORIES_SETTING = 'twincatExplorer.libraryRepositories';
 
 /** The files a plan skips and why, the first ten of them. */
 function skippedText(plan: ExistingPlan): string {
@@ -338,6 +346,74 @@ export class ObjectCommands {
       + (renewed.length ? ` New GUIDs in ${renewed.join(', ')}, which the PLC project had already.` : ''));
     if (plan.skipped.length) void vscode.window.showWarningMessage(skippedText(plan));
     await this.hooks.reveal(plan.files[0].target, plan.files[0].objectId);
+  }
+
+  /**
+   * Add Library...: a library installed in the library repositories (see readRepositories), and its version, picked;
+   * then its placeholder reference goes into the .plcproj as XAE 3.1.4026's Library Manager > Add library writes it
+   * (see libraryReference, addPlaceholderReference), and the tree selects it under References. A library the
+   * project references already is marked, and refused.
+   */
+  async addLibrary(plcprojPath: string): Promise<void> {
+    const project = this.project({ plcprojPath, folder: '' });
+    if (!project || this.refuseUnsaved(project)) return;
+    const setting = vscode.workspace.getConfiguration().get<unknown>(REPOSITORIES_SETTING);
+    const configured = (Array.isArray(setting) ? setting : []).filter((f): f is string => typeof f === 'string').map(f => f.trim()).filter(f => f);
+    const repositories = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Reading the TwinCAT library repositories' },
+      () => readRepositories([...systemRepositories(), ...configured]));
+    const openSetting = (choice: string | undefined) => {
+      if (choice) void vscode.commands.executeCommand('workbench.action.openSettings', REPOSITORIES_SETTING);
+    };
+    const looked = repositories.missing.map(m => `${m.folder} (${m.reason})`).join('; ');
+    if (!repositories.found.length) {
+      void vscode.window.showWarningMessage(`No TwinCAT library repository found${looked ? ` in ${looked}` : ': TwinCAT XAE keeps them on Windows'}. `
+        + `Add the folder of one to the setting ${REPOSITORIES_SETTING}.`, 'Open Settings').then(openSetting);
+      return;
+    }
+    const unread = repositories.missing.filter(m => configured.includes(m.folder));
+    if (unread.length) {
+      void vscode.window.showWarningMessage(`${REPOSITORIES_SETTING}: not read: ${unread.map(m => `${m.folder} (${m.reason})`).join('; ')}.`, 'Open Settings')
+        .then(openSetting);
+    }
+    if (!repositories.libraries.length) {
+      void vscode.window.showWarningMessage(`No libraries are installed in ${repositories.found.join('; ')}.`);
+      return;
+    }
+    const title = `Add Library to ${project.name}`;
+    const items = repositories.libraries.map((library): Choice<{ library: InstalledLibrary; reference?: LibraryRef }> => {
+      const include = placeholderName(library, repositories.placeholders);
+      const reference = referenceTo(project.libraries, include, library.title, library.company);
+      const newest = library.versions[0];
+      return {
+        label: library.title,
+        description: [library.company, newest.version, ...(reference ? ['referenced already'] : [])].join(' · '),
+        detail: [
+          ...(include !== library.title ? [`Placeholder: ${include}`] : []),
+          `Namespace: ${newest.namespace}`,
+          ...(newest.categories.length ? [`Category: ${newest.categories.join(', ')}`] : []),
+        ].join(' · '),
+        value: { library, reference },
+      };
+    });
+    const pick = (await vscode.window.showQuickPick(items, {
+      title, placeHolder: 'Library to add: type to filter by title, company, namespace or category', matchOnDescription: true, matchOnDetail: true,
+    }))?.value;
+    if (!pick) return;
+    const { library, reference } = pick;
+    if (reference) {
+      void vscode.window.showWarningMessage(`${project.name} references ${library.title} already: ${reference.resolution ?? reference.include}.`);
+      return;
+    }
+    const versions: Choice<string>[] = [
+      { label: 'Always newest (*)', description: `now ${library.versions[0].version}`, value: '*' },
+      ...library.versions.map(v => ({ label: v.version, value: v.version })),
+    ];
+    const version = (await vscode.window.showQuickPick(versions, { title, placeHolder: `The version of ${library.title} to reference` }))?.value;
+    if (!version) return;
+    const ref = libraryReference(library, version, repositories.placeholders);
+    if (!this.write(project, text => addPlaceholderReference(text, ref), () => undefined)) return;
+    await this.hooks.written();
+    await this.hooks.revealLibrary(project.path, ref.include);
   }
 
   /** The entry and root object of the file of a POU, DUT, GVL or interface of a PLC project, or a message why it is none. */

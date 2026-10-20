@@ -178,6 +178,11 @@ export class CommitDiffPanel implements vscode.Disposable {
         resolve?.(m.result);
         return;
       }
+      case 'typeHierarchy': {
+        const live = this.content?.livePath;
+        if (live) void this.provider.typeHierarchy?.(fileKey(live), m.key, m.text, m.offset);
+        return;
+      }
       case 'error':
         this.provider.log?.(`Commit diff webview: ${m.message}`);
         return;
@@ -206,6 +211,10 @@ export class CommitDiffPanel implements vscode.Disposable {
             break;
           case 'references':
             result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
+              .map(loc => this.provider.target(loc)).filter(t => t !== undefined);
+            break;
+          case 'implementation':
+            result = features.implementationsAt(ctx, m.text, m.offset)
               .map(loc => this.provider.target(loc)).filter(t => t !== undefined);
             break;
           case 'completion':

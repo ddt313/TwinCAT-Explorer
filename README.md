@@ -44,6 +44,10 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Adding methods, properties and actions](#adding-methods-properties-and-actions)).
 - Right-click a method, property, action or transition to rename or delete it (F2, Delete; see
   [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)).
+- Right-click a function block, an interface, or a method or property of one: `Go to Implementation`
+  opens what implements or overrides it (a list when there are several), and `Show Type Hierarchy`
+  shows the supertypes and subtypes of a function block or interface (see
+  [Structured Text language features](#structured-text-language-features)).
 - Right-click a POU, DUT, GVL or interface to rename it, move it to another folder or delete it, or drag
   it onto a folder; a folder to rename it or move it with everything in it (see
   [Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders](#renaming-moving-and-deleting-pous-duts-gvls-interfaces-and-folders)).
@@ -318,6 +322,18 @@ These work in both panes and in notebook cells. They come from a parser of the T
   (`fbValve : FB_Valve(`). `Ctrl+Shift+Space` shows it again, as in XAE.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it.
+- **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that
+  implement it, directly, through an interface that extends it or by extending one that implements it;
+  on a function block, those that extend it, at any depth; on a method or property, also at a call
+  through an interface (`itfValve.Open()`), the methods and properties of these function blocks that
+  implement or override it. Other objects are shown read-only in a peek view. A library's function
+  block or interface lists what extends or implements it in the workspace.
+- **Type hierarchy**: notebook cells have VS Code's `Show Type Hierarchy`. In the split editor (context
+  menu, at the cursor; the editor title's `...` menu, for the object) and the TwinCAT tree,
+  `TwinCAT: Show Type Hierarchy` shows a function block or interface with its supertypes (`EXTENDS` and
+  `IMPLEMENTS`, up to the roots) and its subtypes (what extends or implements it) in VS Code's
+  References view; a click opens the split editor there. Without VS Code's built-in References view
+  extension, a quick pick lists them.
 - **Rename Symbol** (F2): the name under the cursor and its uses (see
   [Renaming with the uses](#renaming-with-the-uses)).
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
@@ -500,6 +516,8 @@ Commit SHA and Copy Name.
 | `TwinCAT: Add Library...` | Add a reference to a library of the TwinCAT library repository to a PLC project (see [Adding libraries](#adding-libraries)). |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
+| `TwinCAT: Show Type Hierarchy` | The supertypes and subtypes of a function block or interface in the References view: of a tree node, of the split editor's object, or at the cursor of a pane (context menu) or notebook cell. |
+| `Go to Implementation` | In the TwinCAT tree: open what implements or overrides the function block, interface, method or property (Ctrl+F12 in the editors). |
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |
 | `TwinCAT: Auto Declare...` | Declare a variable at the cursor of a split editor or notebook cell, as XAE's Auto Declare (Shift+F2). |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as inline diffs against `HEAD`, or back as normal panes. |
@@ -526,6 +544,7 @@ Commit SHA and Copy Name.
 | Delete | TwinCAT tree | Delete the selected POU, DUT, GVL, interface, method, property, action, transition, `Get`, `Set` or empty folder |
 | F12, Ctrl+click | split editor, notebook cells | Go to Definition |
 | Shift+F12 | split editor, notebook cells | Find All References (peek view) |
+| Ctrl+F12 / Ctrl+Shift+F12 | split editor, notebook cells | Go to / Peek Implementations: what implements or overrides the interface, function block, method or property at the cursor |
 | Ctrl+Shift+Space | split editor, notebook cells | The parameters of the call at the cursor (signature help) |
 | F2 | split editor, notebook cells | Rename Symbol: the name under the cursor and its uses |
 | Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property |
@@ -654,6 +673,9 @@ sources.
 - Opening a problem or a symbol briefly opens a read-only copy of the section, which the split editor
   then replaces. A copy opened pinned (double click, `Ctrl+T`) is closed instead, and
   `Reopen Closed Editor` then brings back the split editor of that object.
+- The type hierarchy in the References view shows the code as it was when it was shown; the view's
+  `Refresh` shows it again. Its nodes open the split editor as a problem does. `TwinCAT: Show Type
+  Hierarchy` from the Command Palette takes the split editor's object, not the type at its cursor.
 
 **Git**
 - Line blame is git's, by lines of the XML file. The first and last line of a section share their

@@ -5,9 +5,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { analyze } from '../../src/lang/analyzer';
 import { LanguageIndex } from '../../src/lang/index';
+import { relatedMembers } from '../../src/lang/hierarchy';
 import {
-  RenamePlan, changesElsewhere, objectKey, planFiles, planObjects, planRename, relatedMembers, renameConflicts, renameTargetAt, renameTexts,
-  symbolNameProblem,
+  RenamePlan, changesElsewhere, objectKey, planFiles, planObjects, planRename, renameConflicts, renameTargetAt, renameTexts, symbolNameProblem,
 } from '../../src/lang/rename';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 import { MemberSym, Sym, TypeSym, VarSym } from '../../src/lang/symbols';

@@ -10,6 +10,16 @@ All notable changes to Explorer for TwinCAT. The format follows
   the libraries installed in the TwinCAT library repository, read without XAE, and writes the reference
   XAE 3.1.4026 writes, a placeholder resolved to the newest version (`*`) or to the one picked.
   `twincatExplorer.libraryRepositories` adds other repositories.
+- `Go to Implementation` (Ctrl+F12) in the split editor and in notebook cells: on an interface, the
+  function blocks that implement it, directly, through an interface that extends it or by extending one
+  that implements it; on a function block, those that extend it; on a method or property, also at a
+  call through an interface (`itfValve.Open()`), the methods and properties that implement or override
+  it. Other objects show read-only in a peek view. The TwinCAT tree has it on function blocks,
+  interfaces, methods and properties.
+- `TwinCAT: Show Type Hierarchy` in the TwinCAT tree and the split editor (context menu, editor title):
+  the supertypes (`EXTENDS`, `IMPLEMENTS`, up to the roots) and the subtypes of a function block or
+  interface, together in VS Code's References view; a click opens the split editor there. Without the
+  References view a quick pick lists them. Notebook cells get VS Code's own `Show Type Hierarchy`.
 
 ### Changed
 - The annotation of the line blame is no longer a link: the pointer stays the text cursor over it and

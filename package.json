@@ -370,6 +370,16 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.goToImplementation",
+        "title": "Go to Implementation",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.showTypeHierarchy",
+        "title": "Show Type Hierarchy",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.checkWorkspace",
         "title": "Check All Structured Text",
         "category": "TwinCAT"
@@ -538,6 +548,14 @@
         {
           "command": "twincatExplorer.implementInterfaces",
           "when": "resourceScheme == twincat || resourceExtname =~ /^\\.TcPOU$/i"
+        },
+        {
+          "command": "twincatExplorer.goToImplementation",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.showTypeHierarchy",
+          "when": "twincatExplorer.hasProjects"
         },
         {
           "command": "twincatExplorer.autoDeclare",
@@ -743,6 +761,16 @@
           "group": "navigation@5"
         },
         {
+          "command": "twincatExplorer.goToImplementation",
+          "when": "view == twincatExplorer.tree && viewItem =~ /goToImplementation/",
+          "group": "1_hierarchy@1"
+        },
+        {
+          "command": "twincatExplorer.showTypeHierarchy",
+          "when": "view == twincatExplorer.tree && viewItem =~ /typeHierarchy/",
+          "group": "1_hierarchy@2"
+        },
+        {
           "command": "twincatExplorer.addPou",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
           "group": "2_add@1"
@@ -928,6 +956,11 @@
           "command": "twincatExplorer.openChanges",
           "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
           "group": "1_twincat@1"
+        },
+        {
+          "command": "twincatExplorer.showTypeHierarchy",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && resourcePath =~ /\\.(TcPOU|TcIO)\\b/i",
+          "group": "1_twincat@2"
         },
         {
           "command": "twincatExplorer.commitDiff.openCurrent",

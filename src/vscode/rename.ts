@@ -10,9 +10,10 @@ import { positionIn } from '../core/objectText';
 import { ObjectKind, TcSourceFile, encodeText, parseTcFile } from '../core/tcfile';
 import { fileKey } from '../core/workspace';
 import { LanguageIndex, SectionContext } from '../lang/index';
+import { relatedMembers } from '../lang/hierarchy';
 import {
-  Analyse, RenameConflict, RenamePlan, changesElsewhere, planFiles, planObjects, planRename, relatedMembers, renameConflicts,
-  renameTargetAt, renameTexts, symbolHome, symbolLabel, symbolNameProblem,
+  Analyse, RenameConflict, RenamePlan, changesElsewhere, planFiles, planObjects, planRename, renameConflicts, renameTargetAt,
+  renameTexts, symbolHome, symbolLabel, symbolNameProblem,
 } from '../lang/rename';
 import { EnumValueSym, Loc, MemberSym, VarSym } from '../lang/symbols';
 import { RenameInfo } from '../shared/protocol';

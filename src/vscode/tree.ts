@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { Accessor } from '../core/objectText';
 import { InnerFolder, ObjectKind, TcObject, TcSourceFile, stripTrivia } from '../core/tcfile';
-import { PlcProject, TsProject, resolutionLibraryName } from '../core/project';
+import { PlcProject, TsProject, libraryName, resolutionLibraryName } from '../core/project';
 import { isSourcePath, objectUri } from './uris';
 
 export type NodeKind = 'tsproj' | 'plcproj' | 'references' | 'library' | 'folder' | 'file' | 'innerFolder' | 'object' | 'accessor';
@@ -46,6 +46,8 @@ export class TreeNode {
   memberTarget?: MemberTarget;
   /** POUs, DUTs, GVLs, interfaces and folders can be added here: a PLC project or one of its folders. */
   objectTarget?: { plcprojPath: string; folder: string };
+  /** Libraries can be added here: the .plcproj of a References node. */
+  libraryTarget?: string;
   /** A function block that names interfaces after IMPLEMENTS. */
   implementsInterfaces = false;
   /** The file of a POU, DUT, GVL or interface: it can be renamed, moved and deleted. */
@@ -61,6 +63,7 @@ export class TreeNode {
     if (this.name) parts.push('named');
     if (this.memberTarget) parts.push(this.memberTarget.actions ? 'addMember addAction' : 'addMember');
     if (this.objectTarget) parts.push('addObject');
+    if (this.libraryTarget) parts.push('addLibrary');
     if (this.implementsInterfaces) parts.push('implements');
     if (this.objectFile) parts.push('objectFile');
     if (this.kind === 'folder' && this.children.length === 0) parts.push('emptyFolder');
@@ -150,6 +153,7 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
   /** Every node per object and per file: a PLC project shared by two .tsproj files appears twice. */
   private readonly byObject = new Map<string, TreeNode[]>();
   private readonly byFile = new Map<string, TreeNode[]>();
+  private readonly byLibrary = new Map<string, TreeNode[]>();
   private refreshTimer: NodeJS.Timeout | undefined;
   /** VS Code asked for the roots, so it rendered the tree. */
   private fetched = false;
@@ -166,6 +170,7 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
     this.refreshTimer = undefined;
     this.byObject.clear();
     this.byFile.clear();
+    this.byLibrary.clear();
     this.roots = this.ws.tsProjects.map(ts => this.buildTsProject(ts));
     // Until VS Code asks for the roots it has not rendered the tree, and gets these when it does.
     if (this.fetched) this.refresh();
@@ -247,6 +252,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     const refs = this.add(new TreeNode(`refs:${prefix}`, 'references', 'References', node));
     refs.icon = twincatIcon('references');
     refs.sortGroup = 0;
+    refs.libraryTarget = plc.path;
     // Node ids must be unique (VS Code refuses or replaces a repeated one): a library referenced twice (placeholder and
     // library reference), a file the .plcproj lists twice (a merge) and an object whose GUID is repeated appear once.
     const libraries = new Set<string>();
@@ -259,6 +265,8 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       l.description = lib.resolution ?? '';
       l.tooltip = `${lib.include}${resolved !== lib.name ? `\nResolves to ${resolved}` : ''}\nNamespace: ${lib.namespace}`;
       l.name = lib.name;
+      const lk = `${fileKey(plc.path)}|${lib.name.toUpperCase()}`;
+      this.byLibrary.set(lk, [...(this.byLibrary.get(lk) ?? []), l]);
     }
 
     const folders = new Map<string, TreeNode>();
@@ -422,6 +430,11 @@ ${error ?? 'The .plcproj file does not exist.'}`;
 
   nodesForFile(fsPath: string): TreeNode[] {
     return this.byFile.get(fileKey(fsPath)) ?? [];
+  }
+
+  /** The nodes of a library under References: by the Include of its reference (`Tc2_Utilities`). */
+  nodesForLibrary(plcprojPath: string, include: string): TreeNode[] {
+    return this.byLibrary.get(`${fileKey(plcprojPath)}|${libraryName(include).toUpperCase()}`) ?? [];
   }
 
   get rootNodes(): TreeNode[] {

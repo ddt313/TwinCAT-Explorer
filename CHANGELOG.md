@@ -3,6 +3,14 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- `Add Library...` on `References` of a PLC project, like XAE's Library Manager > Add library: it lists
+  the libraries installed in the TwinCAT library repository, read without XAE, and writes the reference
+  XAE 3.1.4026 writes, a placeholder resolved to the newest version (`*`) or to the one picked.
+  `twincatExplorer.libraryRepositories` adds other repositories.
+
 ## 0.13.0 - 2026-10-20
 
 ### Added

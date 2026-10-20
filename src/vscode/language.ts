@@ -1,19 +1,21 @@
 // Language features for Structured Text: go to definition, hover, completion,
-// references, workspace symbols and diagnostics. The *At methods work on a
-// section and an offset and serve the split editor (objectEditor.ts); the
-// VS Code providers serve notebook cells. Locations are in the split editor
+// signature help, references, workspace symbols and diagnostics. The *At methods
+// work on a section and an offset and serve the split editor (objectEditor.ts);
+// the VS Code providers serve notebook cells. Locations are in the split editor
 // (through twincat-loc renderings) or in object notebooks, by setting.
 
 import * as vscode from 'vscode';
 import { LanguageIndex, SectionContext } from '../lang/index';
 import { Analysis, Analyzer, Occurrence, analyze } from '../lang/analyzer';
 import { Loc, Sym, Ty, tyToString } from '../lang/symbols';
-import { expressionBeforeDot } from '../lang/completion';
+import { completionContext, expressionBeforeDot } from '../lang/completion';
+import { CallParam, Callable, callArguments, callSnippet, callableOfSymbol, returnsValue, signatureAt } from '../lang/calls';
+import { snippetsAt } from '../lang/snippets';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { positionIn } from '../core/objectText';
 import { TcSourceFile, sectionOffsetToFileOffset } from '../core/tcfile';
 import { escapeMarkdown } from '../shared/markdown';
-import { CompletionResult, HoverResult } from '../shared/protocol';
+import { CompletionResult, HoverResult, SignatureResult } from '../shared/protocol';
 import { cellMeta } from './serializers';
 import { openObjectDocument } from './openDocs';
 import {
@@ -44,9 +46,25 @@ function codeblock(code: string): string {
   return '\n```' + ST_LANGUAGE + '\n' + code + '\n```\n';
 }
 
-/** A symbol's doc comment (its line breaks kept) and where it is declared, as Markdown after its signature. */
+/** A doc comment as Markdown, its line breaks kept. */
+function docText(doc: string | undefined): string {
+  return doc ? `\n\n${escapeMarkdown(doc).replace(/\n/g, '  \n')}` : '';
+}
+
+/** A symbol's doc comment and where it is declared, as Markdown after its signature. */
 function symbolDoc(s: Sym): string {
-  return (s.doc ? `\n\n${escapeMarkdown(s.doc).replace(/\n/g, '  \n')}` : '') + `\n\n*${describeOwner(s)}*`;
+  return docText(s.doc) + `\n\n*${describeOwner(s)}*`;
+}
+
+/** What a call calls: its declaration (without the parameters the label shows), comment and where it is declared. */
+function callableDoc(c: Callable): string {
+  if (c.kind === 'builtin') return symbolDoc(c.sym).trimStart();
+  return codeblock(c.sym.signature.split('\n')[0]) + symbolDoc(c.sym);
+}
+
+/** A parameter of a call: its declaration, section included, and its comment. */
+function paramDoc(p: CallParam): string | undefined {
+  return p.sym ? codeblock(`${p.section} ${p.sym.signature}`) + docText(p.sym.doc) : undefined;
 }
 
 export interface CellInfo {
@@ -166,7 +184,7 @@ interface CachedAnalysis {
 }
 
 export class LanguageFeatures implements
-  vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.ReferenceProvider,
+  vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.SignatureHelpProvider, vscode.ReferenceProvider,
   vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
   /** Analyses per section, of the index version `cacheVersion`. */
   private readonly cache = new Map<string, CachedAnalysis>();
@@ -248,11 +266,25 @@ export class LanguageFeatures implements
   completionsAt(ctx: SectionContext, text: string, offset: number): CompletionResult[] {
     const analyzer = new Analyzer(this.index, ctx, text);
     const exprText = expressionBeforeDot(text, offset);
+    const cc = completionContext(text, offset);
+    // Calls with their arguments (XAE's "Insert with arguments"), in implementations, where none is written yet
+    // and a call can go (not as the variable an output goes to).
+    const calls = ctx.role === 'impl' && !cc.inComment && !cc.callFollows && !cc.outputTarget;
+    const hints = vscode.workspace.getConfiguration('editor', { languageId: ST_LANGUAGE }).get<boolean>('parameterHints.enabled', true);
     const items: CompletionResult[] = [];
     const add = (s: Sym, ty: Ty) => {
       const firstLine = (s.signature || '').split('\n')[0];
       const doc = (s.signature ? codeblock(s.signature) : '') + symbolDoc(s);
-      items.push({ label: s.name, kind: completionKind(s), detail: firstLine || tyToString(ty), documentation: doc });
+      const item: CompletionResult = { label: s.name, kind: completionKind(s), detail: firstLine || tyToString(ty), documentation: doc };
+      items.push(item);
+      const c = calls ? callableOfSymbol(analyzer, s, ty) : undefined;
+      // A call without a value (of a function block instance, an action) is a statement of its own.
+      if (c && (cc.statement || returnsValue(c))) {
+        items.push({
+          ...item, labelDetail: callArguments(c), snippet: callSnippet(c, s.name, cc.statement && !cc.semicolonFollows),
+          signatureHelp: hints && c.params.length > 0,
+        });
+      }
     };
     if (exprText !== undefined) {
       let t = analyzer.typeOfText(exprText);
@@ -262,7 +294,25 @@ export class LanguageFeatures implements
     }
     for (const r of analyzer.listScope()) add(r.sym, r.ty);
     for (const kw of KEYWORDS) items.push({ label: kw, kind: 'Keyword' });
+    for (const s of snippetsAt(ctx.role, cc)) {
+      items.push({
+        label: s.label, kind: 'Snippet', detail: s.detail, documentation: codeblock(s.preview), snippet: s.body, filterText: s.filterText,
+        range: s.range,
+      });
+    }
     return items;
+  }
+
+  /** The signature of the call the cursor is in, and the parameter the cursor is at. */
+  signatureHelpAt(ctx: SectionContext, text: string, offset: number): SignatureResult | undefined {
+    const s = signatureAt(this.index, ctx, text, offset);
+    if (!s) return undefined;
+    return {
+      label: s.label,
+      documentation: callableDoc(s.callable),
+      parameters: s.callable.params.map((p, i) => ({ label: s.params[i], documentation: paramDoc(p) })),
+      activeParameter: s.active,
+    };
   }
 
   /** References of the symbol at an offset, across all sections (unsaved edits included). */
@@ -322,11 +372,34 @@ export class LanguageFeatures implements
     const ctx = this.index.context(info.fileKey, info.sectionKey);
     if (!ctx) return undefined;
     return this.completionsAt(ctx, doc.getText(), doc.offsetAt(pos)).map(e => {
-      const item = new vscode.CompletionItem(e.label, vscode.CompletionItemKind[e.kind as CompletionKindName]);
+      const label = e.labelDetail ? { label: e.label, detail: e.labelDetail } : e.label;
+      const item = new vscode.CompletionItem(label, vscode.CompletionItemKind[e.kind as CompletionKindName]);
       item.detail = e.detail;
       if (e.documentation) item.documentation = new vscode.MarkdownString(e.documentation);
+      if (e.snippet) item.insertText = new vscode.SnippetString(e.snippet);
+      if (e.filterText) item.filterText = e.filterText;
+      if (e.range) item.range = new vscode.Range(doc.positionAt(e.range.start), doc.positionAt(e.range.end));
+      if (e.signatureHelp) item.command = { command: 'editor.action.triggerParameterHints', title: 'Show the parameters' };
       return item;
     });
+  }
+
+  // ------------------------------------------------------------------ signature help
+
+  provideSignatureHelp(doc: vscode.TextDocument, pos: vscode.Position): vscode.SignatureHelp | undefined {
+    const info = cellInfo(doc);
+    const ctx = info && this.index.context(info.fileKey, info.sectionKey);
+    const s = ctx && this.signatureHelpAt(ctx, doc.getText(), doc.offsetAt(pos));
+    if (!s) return undefined;
+    const markdown = (text: string | undefined) => (text ? new vscode.MarkdownString(text) : undefined);
+    const signature = new vscode.SignatureInformation(s.label, markdown(s.documentation));
+    signature.parameters = s.parameters.map(p => new vscode.ParameterInformation(p.label, markdown(p.documentation)));
+    signature.activeParameter = s.activeParameter;
+    const help = new vscode.SignatureHelp();
+    help.signatures = [signature];
+    help.activeSignature = 0;
+    help.activeParameter = s.activeParameter;
+    return help;
   }
 
   // ------------------------------------------------------------------ references

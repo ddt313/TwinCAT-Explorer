@@ -61,7 +61,7 @@ const EDITOR_OPTIONS = [
   'wordWrap', 'wordWrapColumn', 'cursorStyle', 'cursorBlinking', 'cursorSmoothCaretAnimation', 'cursorWidth', 'smoothScrolling',
   'mouseWheelZoom', 'folding', 'foldingHighlight', 'showFoldingControls', 'renderLineHighlight', 'rulers', 'bracketPairColorization',
   'guides', 'minimap', 'scrollBeyondLastLine', 'stickyScroll', 'roundedSelection', 'renderControlCharacters', 'multiCursorModifier',
-  'quickSuggestions', 'quickSuggestionsDelay', 'suggestOnTriggerCharacters', 'acceptSuggestionOnEnter', 'tabCompletion',
+  'quickSuggestions', 'quickSuggestionsDelay', 'suggestOnTriggerCharacters', 'acceptSuggestionOnEnter', 'tabCompletion', 'snippetSuggestions',
   'wordBasedSuggestions', 'suggestSelection', 'suggest', 'parameterHints', 'hover', 'autoClosingBrackets', 'autoClosingQuotes',
   'autoClosingDelete', 'autoClosingOvertype', 'autoSurround', 'autoIndent', 'matchBrackets', 'occurrencesHighlight', 'selectionHighlight',
   'links', 'emptySelectionClipboard', 'copyWithSyntaxHighlighting', 'dragAndDrop', 'find', 'unicodeHighlight', 'padding',
@@ -570,6 +570,9 @@ export class EditorSession implements vscode.Disposable {
             break;
           case 'completion':
             result = features.completionsAt(ctx, m.text, m.offset);
+            break;
+          case 'signature':
+            result = features.signatureHelpAt(ctx, m.text, m.offset);
             break;
           case 'references':
             // Found in the index's texts of all sections, this one included.

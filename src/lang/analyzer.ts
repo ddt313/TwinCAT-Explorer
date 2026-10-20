@@ -651,17 +651,26 @@ export class Analyzer {
         return this.resolveTypeSpec(s.returnType, s.scope);
       }
       const m = s as MemberSym;
+      if (m.kind === 'action') {
+        // An action takes the inputs and outputs of its POU: fbValve.A_Close(bForce := TRUE).
+        this.args(e.args, this.instanceParams(m.owner), this.chainComplete(m.owner));
+        return UNKNOWN;
+      }
       this.args(e.args, m.vars.filter(v => PARAM_SECTIONS.has(v.section)), !isLibrarySym(m));
       return this.resolveTypeSpec(m.returnType, m.scope);
     }
     if (t.k === 'pou') {
       // Function block instance call: fbTimer(IN := x, PT := T#1s).
-      const params = this.listMembers(t).map(r => r.sym).filter((v): v is VarSym => v.kind === 'var' && PARAM_SECTIONS.has(v.section));
-      this.args(e.args, params, this.chainComplete(t.sym));
+      this.args(e.args, this.instanceParams(t.sym), this.chainComplete(t.sym));
       return UNKNOWN;
     }
     this.args(e.args, undefined, false);
     return UNKNOWN;
+  }
+
+  /** Inputs, outputs and in-outs of a function block or program, inherited ones included. */
+  private instanceParams(pou: PouSym): VarSym[] {
+    return this.listMembers({ k: 'pou', sym: pou }).map(r => r.sym).filter((v): v is VarSym => v.kind === 'var' && PARAM_SECTIONS.has(v.section));
   }
 
   private args(args: A.Arg[], params: VarSym[] | undefined, complete: boolean): void {

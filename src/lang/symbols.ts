@@ -31,6 +31,8 @@ export interface PouSym extends SymBase {
   extendsNames: A.QualName[];
   implementsNames: A.QualName[];
   returnType?: A.TypeSpec;
+  /** The return type as written. */
+  returnText?: string;
 }
 
 export type MemberKind = 'method' | 'property' | 'action' | 'transition';
@@ -42,6 +44,8 @@ export interface MemberSym extends SymBase {
   getVars: VarSym[];
   setVars: VarSym[];
   returnType?: A.TypeSpec;
+  /** The return type (of a property: its type) as written. */
+  returnText?: string;
 }
 
 export interface VarSym extends SymBase {
@@ -49,6 +53,9 @@ export interface VarSym extends SymBase {
   section: string;
   constant: boolean;
   typeSpec?: A.TypeSpec;
+  /** The type and the initial value as written. */
+  typeText: string;
+  initText?: string;
   owner: PouSym | MemberSym | TypeSym | GvlSym;
   accessor?: 'Get' | 'Set';
 }

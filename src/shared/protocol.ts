@@ -118,7 +118,7 @@ export type HostMessage =
   | { type: 'response'; id: number; result: unknown }
   | { type: 'probe'; id: number; action: ProbeAction };
 
-export type RequestKind = 'definition' | 'hover' | 'completion' | 'references';
+export type RequestKind = 'definition' | 'hover' | 'completion' | 'references' | 'signature';
 
 export type WebviewMessage =
   | { type: 'ready' }
@@ -197,6 +197,25 @@ export interface CompletionResult {
   kind: string;
   detail?: string;
   documentation?: string;
+  /** Shown right after the label, less prominently: the arguments a call item inserts. */
+  labelDetail?: string;
+  /** Inserted instead of the label, in VS Code's snippet syntax (`fbTimer(IN := ${1}, PT := ${2});`). */
+  snippet?: string;
+  /** Compared with the typed text instead of the label. */
+  filterText?: string;
+  /** Offsets of the text the item replaces, when it is not the word before the cursor. */
+  range?: { start: number; end: number };
+  /** Shows the signature help once inserted (a call with its arguments). */
+  signatureHelp?: boolean;
+}
+
+/** The signature of the call the cursor is in: the label shows the parameters at the offsets given for them. */
+export interface SignatureResult {
+  label: string;
+  documentation?: string;
+  parameters: { label: [number, number]; documentation?: string }[];
+  /** Index of the parameter the cursor is at; -1 for none. */
+  activeParameter: number;
 }
 
 /** Test hooks: the integration tests drive and inspect the webview through these. */

@@ -9,6 +9,14 @@ All notable changes to Explorer for TwinCAT. The format follows
 - `Add Existing Item...` and `Add Existing Folder Content...` on a PLC project and its folders, as in
   XAE: a file already in the folder on disk is added where it is, others are copied, sub-folders
   become folders, and GUIDs the project has already get new ones. Clashing files are skipped.
+- Signature help in the split editor and in notebook cells, after `(` and `,` in a call of a function,
+  function block instance, program, method, action or built-in: the inputs as declared, the outputs
+  with `=>`, and the declaration and comment of the parameter at the cursor, which follows the
+  argument's position or the name being typed. In a declaration it shows the inputs of `FB_init`.
+- Completion inserts a call with all its parameters, like XAE's `Insert with arguments`:
+  `fbTimer(IN := , PT := , Q => , ET => );`, with a tab stop for each value.
+- Snippets for `IF`, `IF ELSE`, `IF ELSIF ELSE`, `ELSIF`, `CASE`, `FOR`, `WHILE`, `REPEAT` and the
+  `{region "..."}` and `{endregion}` pragmas, in the split editor and in notebook cells.
 
 ### Changed
 - The TwinCAT tree and the git views have icons of their own, in the manner of XAE's tree and in a
@@ -19,6 +27,8 @@ All notable changes to Explorer for TwinCAT. The format follows
 ### Fixed
 - The minimap of the split editor no longer shows a label for every `IF`, `CASE` and `VAR` line. Code
   folds by its indentation, and `{region "..."}` and `{endregion}` pragmas fold as regions.
+- An action called with the inputs and outputs of its function block, as XAE allows
+  (`fbValve.A_Close(bForce := TRUE)`), no longer reports unknown parameters.
 
 ## 0.12.0 - 2026-10-19
 

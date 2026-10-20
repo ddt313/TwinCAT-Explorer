@@ -1,8 +1,9 @@
 // Language features for Structured Text: go to definition, hover, completion,
-// signature help, references, workspace symbols and diagnostics. The *At methods
-// work on a section and an offset and serve the split editor (objectEditor.ts);
-// the VS Code providers serve notebook cells. Locations are in the split editor
-// (through twincat-loc renderings) or in object notebooks, by setting.
+// signature help, references, implementations, workspace symbols and
+// diagnostics. The *At methods work on a section and an offset and serve the
+// split editor (objectEditor.ts); the VS Code providers serve notebook cells.
+// Locations are in the split editor (through twincat-loc renderings) or in
+// object notebooks, by setting.
 
 import * as vscode from 'vscode';
 import { LanguageIndex, SectionContext } from '../lang/index';
@@ -11,6 +12,7 @@ import { Loc, Sym, Ty, tyToString } from '../lang/symbols';
 import { completionContext, expressionBeforeDot } from '../lang/completion';
 import { CallParam, Callable, callArguments, callSnippet, callableOfSymbol, returnsValue, signatureAt } from '../lang/calls';
 import { snippetsAt } from '../lang/snippets';
+import { implementations } from '../lang/hierarchy';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { positionIn } from '../core/objectText';
 import { TcSourceFile, sectionOffsetToFileOffset } from '../core/tcfile';
@@ -185,7 +187,7 @@ interface CachedAnalysis {
 
 export class LanguageFeatures implements
   vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.SignatureHelpProvider, vscode.ReferenceProvider,
-  vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
+  vscode.ImplementationProvider, vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
   /** Analyses per section, of the index version `cacheVersion`. */
   private readonly cache = new Map<string, CachedAnalysis>();
   private cacheVersion = -1;
@@ -336,6 +338,15 @@ export class LanguageFeatures implements
     return out;
   }
 
+  /**
+   * Where the implementations of the symbol at an offset are declared (see implementations): the function blocks
+   * that implement an interface or extend a function block, the methods and properties that implement or override one.
+   */
+  implementationsAt(ctx: SectionContext, text: string, offset: number): Loc[] {
+    const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
+    return o ? implementations(this.index, o.sym).flatMap(s => (s.loc ? [s.loc] : [])) : [];
+  }
+
   /** Problems of a section with the given text. */
   problemsOf(ctx: SectionContext, text: string) {
     return this.analysisOf(ctx, text).problems;
@@ -415,6 +426,19 @@ export class LanguageFeatures implements
   async findReferences(target: Sym, includeDeclaration: boolean): Promise<vscode.Location[]> {
     const out: vscode.Location[] = [];
     for (const loc of this.referenceLocs(target, includeDeclaration)) {
+      const l = await this.toLocation(loc);
+      if (l) out.push(l);
+    }
+    return out;
+  }
+
+  // ------------------------------------------------------------------ implementations
+
+  async provideImplementation(doc: vscode.TextDocument, pos: vscode.Position): Promise<vscode.Location[]> {
+    const r = this.analysisForDocument(doc);
+    if (!r) return [];
+    const out: vscode.Location[] = [];
+    for (const loc of this.implementationsAt(r.ctx, doc.getText(), doc.offsetAt(pos))) {
       const l = await this.toLocation(loc);
       if (l) out.push(l);
     }

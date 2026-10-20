@@ -1,9 +1,11 @@
 // Parsing of TwinCAT project files: .tsproj (system project), the Independent Project Files (.xti) of its PLC
 // projects, and .plcproj (PLC project); the items of the .plcproj for new, renamed, moved and deleted source files
-// and folders; the calls of a task (.TcTTO).
+// and folders, and for new library references; the calls of a task (.TcTTO).
 
 import * as path from 'path';
-import { XmlElement, attributeRange, child, children, elementLines, elementText, escapeAttr, indentBefore, parseXml } from './xml';
+import {
+  XmlElement, attributeRange, child, children, elementLines, elementText, escapeAttr, escapeText, findAll, indentBefore, parseXml,
+} from './xml';
 
 /** A PLC project of a .tsproj. */
 export interface PlcProjectRef {
@@ -44,14 +46,6 @@ export interface PlcProject {
   /** Relative folder paths declared by <Folder Include>. */
   folders: string[];
   libraries: LibraryRef[];
-}
-
-function findAll(el: XmlElement, name: string, out: XmlElement[] = []): XmlElement[] {
-  for (const c of el.children) {
-    if (c.name === name) out.push(c);
-    findAll(c, name, out);
-  }
-  return out;
 }
 
 /** A PLC project's <Project> element, its PrjFilePath taken from `dir`. */
@@ -98,9 +92,26 @@ export function parseXtiProject(xtiPath: string, text: string): PlcProjectRef {
   throw new Error('The file holds no PLC project (no <Project> with a PrjFilePath)');
 }
 
-function libraryName(include: string): string {
+export function libraryName(include: string): string {
   // "Tc2_Standard, * (Beckhoff Automation GmbH)" -> "Tc2_Standard"
   return include.split(',')[0].trim();
+}
+
+/** The elements of library references: placeholders, and libraries named with their version (older projects). */
+const REFERENCE_KINDS = ['PlaceholderReference', 'LibraryReference'];
+
+/** The reference of a `<PlaceholderReference>` or `<LibraryReference>` element, or undefined without an Include. */
+function libraryRefOf(text: string, r: XmlElement): LibraryRef | undefined {
+  const include = r.attrs.get('Include');
+  if (!include) return undefined;
+  const name = libraryName(include);
+  return {
+    include,
+    name,
+    namespace: elementText(text, child(r, 'Namespace')) || name,
+    resolution: elementText(text, child(r, 'DefaultResolution')),
+    system: (elementText(text, child(r, 'SystemLibrary')) ?? '').toLowerCase() === 'true',
+  };
 }
 
 export function parsePlcProject(filePath: string, text: string): PlcProject {
@@ -127,18 +138,10 @@ export function parsePlcProject(filePath: string, text: string): PlcProject {
     const inc = f.attrs.get('Include');
     if (inc) project.folders.push(inc.replace(/[\\/]+$/, ''));
   }
-  for (const tag of ['PlaceholderReference', 'LibraryReference']) {
+  for (const tag of REFERENCE_KINDS) {
     for (const r of findAll(doc, tag)) {
-      const inc = r.attrs.get('Include');
-      if (!inc) continue;
-      const name = libraryName(inc);
-      project.libraries.push({
-        include: inc,
-        name,
-        namespace: elementText(text, child(r, 'Namespace')) || name,
-        resolution: elementText(text, child(r, 'DefaultResolution')),
-        system: (elementText(text, child(r, 'SystemLibrary')) ?? '').toLowerCase() === 'true',
-      });
+      const lib = libraryRefOf(text, r);
+      if (lib) project.libraries.push(lib);
     }
   }
   return project;
@@ -163,7 +166,45 @@ export function itemOrder(a: string, b: string): number {
   return a.length - b.length;
 }
 
+/** Whether two names are the same, as XAE compares them: case aside (see itemOrder). */
+export function sameName(a: string, b: string): boolean {
+  return itemOrder(a, b) === 0;
+}
+
 export class PlcProjectEditError extends Error {}
+
+/** Makes an element for the indentation of its line and the step of one level, its first line without the indentation. */
+type ElementText = (indent: string, step: string) => string;
+
+/**
+ * The text with an element in an ItemGroup, with the indentation of the items there: before `before`, else after
+ * `last`.
+ */
+function withItem(text: string, eol: string, group: XmlElement, element: ElementText, before: XmlElement | undefined, last: XmlElement): string {
+  const anchor = before ?? last;
+  const groupIndent = indentBefore(text, group.start) ?? '  ';
+  const indent = indentBefore(text, anchor.start) ?? `${groupIndent}  `;
+  const step = indent.length > groupIndent.length && indent.startsWith(groupIndent) ? indent.slice(groupIndent.length) : '  ';
+  const el = element(indent, step);
+  return before
+    ? text.slice(0, before.start) + el + eol + indent + text.slice(before.start)
+    : text.slice(0, last.end) + eol + indent + el + text.slice(last.end);
+}
+
+/**
+ * The text with a new ItemGroup that holds an element: after the group `after`, else before the group `before`,
+ * else after the last PropertyGroup, else first in the project.
+ */
+function withNewGroup(text: string, eol: string, project: XmlElement, element: ElementText, place: { after?: XmlElement; before?: XmlElement }): string {
+  const lastPropertyGroup = children(project, 'PropertyGroup').pop();
+  const sibling = place.after ?? place.before ?? lastPropertyGroup ?? project.children[0];
+  const groupIndent = (sibling && indentBefore(text, sibling.start)) ?? '  ';
+  const newGroup = `<ItemGroup>${eol}${groupIndent}  ${element(`${groupIndent}  `, '  ')}${eol}${groupIndent}</ItemGroup>`;
+  if (place.before) return text.slice(0, place.before.start) + newGroup + eol + groupIndent + text.slice(place.before.start);
+  const after = place.after ?? lastPropertyGroup;
+  if (after) return text.slice(0, after.end) + eol + groupIndent + newGroup + text.slice(after.end);
+  return text.slice(0, project.contentStart) + eol + groupIndent + newGroup + text.slice(project.contentStart);
+}
 
 /**
  * The .plcproj with one more `<Compile Include>` (a source file) or `<Folder Include>` item, where XAE puts it:
@@ -177,35 +218,19 @@ function addItem(text: string, kind: 'Compile' | 'Folder', include: string): str
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const groups = children(project, 'ItemGroup');
   const group = groups.find(g => g.children.some(c => c.name === kind));
-  const element = (indent: string, step: string) => (kind === 'Compile'
+  const element: ElementText = (indent, step) => (kind === 'Compile'
     ? [`<Compile Include="${escapeAttr(include)}">`, `${indent}${step}<SubType>Code</SubType>`, `${indent}</Compile>`].join(eol)
     : `<Folder Include="${escapeAttr(include)}" />`);
   if (group) {
     const items = group.children.filter(c => c.name === kind);
-    const clash = items.find(i => itemOrder(i.attrs.get('Include') ?? '', include) === 0);
+    const clash = items.find(i => sameName(i.attrs.get('Include') ?? '', include));
     if (clash) throw new PlcProjectEditError(`The project already has ${clash.attrs.get('Include')}`);
     const before = items.find(i => itemOrder(i.attrs.get('Include') ?? '', include) > 0);
-    const anchor = before ?? items[items.length - 1];
-    const groupIndent = indentBefore(text, group.start) ?? '  ';
-    const indent = indentBefore(text, anchor.start) ?? `${groupIndent}  `;
-    const step = indent.length > groupIndent.length && indent.startsWith(groupIndent) ? indent.slice(groupIndent.length) : '  ';
-    const el = element(indent, step);
-    return before
-      ? text.slice(0, before.start) + el + eol + indent + text.slice(before.start)
-      : text.slice(0, anchor.end) + eol + indent + el + text.slice(anchor.end);
+    return withItem(text, eol, group, element, before, items[items.length - 1]);
   }
   // A new ItemGroup: the Compile items before every other group, the folders right after them.
   const compileGroup = groups.find(g => g.children.some(c => c.name === 'Compile'));
-  const afterGroup = kind === 'Folder' ? compileGroup : undefined;
-  const beforeGroup = afterGroup ? undefined : groups[0];
-  const lastPropertyGroup = children(project, 'PropertyGroup').pop();
-  const sibling = afterGroup ?? beforeGroup ?? lastPropertyGroup ?? project.children[0];
-  const groupIndent = (sibling && indentBefore(text, sibling.start)) ?? '  ';
-  const newGroup = `<ItemGroup>${eol}${groupIndent}  ${element(`${groupIndent}  `, '  ')}${eol}${groupIndent}</ItemGroup>`;
-  if (beforeGroup) return text.slice(0, beforeGroup.start) + newGroup + eol + groupIndent + text.slice(beforeGroup.start);
-  const after = afterGroup ?? lastPropertyGroup;
-  if (after) return text.slice(0, after.end) + eol + groupIndent + newGroup + text.slice(after.end);
-  return text.slice(0, project.contentStart) + eol + groupIndent + newGroup + text.slice(project.contentStart);
+  return withNewGroup(text, eol, project, element, kind === 'Folder' && compileGroup ? { after: compileGroup } : { before: groups[0] });
 }
 
 /** The .plcproj with the `<Compile>` item of a new source file (`POUs\FB_X.TcPOU`), see addItem. */
@@ -216,6 +241,79 @@ export function addCompileItem(text: string, include: string): string {
 /** The .plcproj with the `<Folder>` item of a new folder (`POUs\Valves`), see addItem. */
 export function addFolderItem(text: string, include: string): string {
   return addItem(text, 'Folder', include);
+}
+
+/** A library as a .plcproj names it: `Tc2_Standard, * (Beckhoff Automation GmbH)`, `*` for the newest installed. */
+export interface LibrarySpec {
+  title: string;
+  version: string;
+  company: string;
+}
+
+/** The library a resolution or the Include of a `<LibraryReference>` names, or undefined when it names none. */
+export function parseLibrarySpec(spec: string): LibrarySpec | undefined {
+  const m = /^\s*([^,]*?)\s*,\s*(\S+?)\s*\((.*)\)\s*$/.exec(spec);
+  return m && m[1] ? { title: m[1], version: m[2], company: m[3].trim() } : undefined;
+}
+
+/** `Tc2_Utilities, 3.4.5.0 (Beckhoff Automation GmbH)`. */
+export function formatLibrarySpec(lib: LibrarySpec): string {
+  return `${lib.title}, ${lib.version} (${lib.company})`;
+}
+
+/**
+ * The reference of a PLC project to a library, of either kind: the one with the Include given (a placeholder,
+ * case aside), else one that resolves to the library of that title and company (case aside).
+ */
+export function referenceTo(references: LibraryRef[], include: string, title: string, company: string): LibraryRef | undefined {
+  return references.find(r => sameName(r.include, include)) ?? references.find(r => {
+    const lib = parseLibrarySpec(r.resolution ?? r.include);
+    return !!lib && sameName(lib.title, title) && sameName(lib.company, company);
+  });
+}
+
+/** A placeholder reference to a library, as XAE 3.1.4026's Library Manager > Add library writes one. */
+export interface PlaceholderReferenceSpec {
+  /** The placeholder: `Tc2_Utilities`. */
+  include: string;
+  /** The library it resolves to by default: `Tc2_Utilities, * (Beckhoff Automation GmbH)`. */
+  resolution: string;
+  namespace: string;
+}
+
+/**
+ * The .plcproj with a `<PlaceholderReference>` more, where XAE 3.1.4026 puts it: among the references, before the
+ * first one whose Include comes after it in itemOrder, as XAE keeps them; after the last one when they are not in
+ * that order. Without references, a new ItemGroup holds it, after those of the files and folders, before the others
+ * (`<None>`). The rest of the file stays byte-identical. A library the project references already (see
+ * referenceTo) is refused.
+ */
+export function addPlaceholderReference(text: string, ref: PlaceholderReferenceSpec): string {
+  const lib = parseLibrarySpec(ref.resolution);
+  if (!lib) throw new PlcProjectEditError(`${ref.resolution} names no library (Title, version (Company))`);
+  const project = projectElement(text);
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const references = REFERENCE_KINDS.flatMap(k => findAll(project, k)).flatMap(r => libraryRefOf(text, r) ?? []);
+  const clash = referenceTo(references, ref.include, lib.title, lib.company);
+  if (clash) throw new PlcProjectEditError(`The project references ${clash.include} already`);
+  const element: ElementText = (indent, step) => [
+    `<PlaceholderReference Include="${escapeAttr(ref.include)}">`,
+    `${indent}${step}<DefaultResolution>${escapeText(ref.resolution)}</DefaultResolution>`,
+    `${indent}${step}<Namespace>${escapeText(ref.namespace)}</Namespace>`,
+    `${indent}</PlaceholderReference>`,
+  ].join(eol);
+  const groups = children(project, 'ItemGroup');
+  const holding = (kind: string) => groups.find(g => g.children.some(c => c.name === kind));
+  const group = holding('PlaceholderReference') ?? holding('LibraryReference');
+  if (group) {
+    const items = group.children.filter(c => REFERENCE_KINDS.includes(c.name));
+    const names = items.map(i => i.attrs.get('Include') ?? '');
+    const sorted = names.every((n, i) => i === 0 || itemOrder(names[i - 1], n) <= 0);
+    const before = sorted ? items.find((_, i) => itemOrder(names[i], ref.include) > 0) : undefined;
+    return withItem(text, eol, group, element, before, items[items.length - 1]);
+  }
+  const fileGroups = groups.filter(g => g.children.some(c => c.name === 'Compile' || c.name === 'Folder'));
+  return withNewGroup(text, eol, project, element, fileGroups.length ? { after: fileGroups[fileGroups.length - 1] } : { before: groups[0] });
 }
 
 function projectElement(text: string): XmlElement {

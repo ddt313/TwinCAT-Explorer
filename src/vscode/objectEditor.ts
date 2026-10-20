@@ -21,7 +21,7 @@ import { debugLog } from '../core/debugLog';
 import { BlameCommit, isUncommitted } from '../core/gitLog';
 import { BlameService, ViewBlame } from './blame';
 import { GitChanges } from './gitChanges';
-import { ObjectRef, ST_LANGUAGE, locUriOf, parseObjectUri } from './uris';
+import { INDEX, ObjectRef, ST_LANGUAGE, locUriOf, parseObjectUri } from './uris';
 import type { SymbolRename } from './rename';
 import {
   EditorConfig, HostMessage, LanguageConfig, Marker, PaneSection, ProbeAction, SectionRef, TargetRange, WEBVIEW_COMMANDS, WebviewMessage,
@@ -43,8 +43,8 @@ export interface OpenViewRequest {
 }
 
 /**
- * What a split editor compares its panes with: a git ref or commit, or the merge base of HEAD with a branch
- * (taken again after a rebase), and the name shown for it.
+ * What a split editor compares its panes with: a git ref or commit, the index (INDEX), or the merge base of HEAD
+ * with a branch (taken again after a rebase), and the name shown for it.
  */
 export interface CompareBase {
   ref: string;
@@ -55,6 +55,8 @@ export interface CompareBase {
 }
 
 export const HEAD_BASE: CompareBase = { ref: 'HEAD', label: 'HEAD' };
+/** The index (stage 0), what the changes not staged yet are made against. */
+export const INDEX_BASE: CompareBase = { ref: INDEX, label: 'Index' };
 
 /** Monaco options taken from the VS Code editor settings of the Structured Text language. */
 const EDITOR_OPTIONS = [
@@ -196,7 +198,7 @@ export class EditorSession implements vscode.Disposable {
   baseAvailable: boolean | undefined;
   private baseRequest = 0;
   private baseSent: Promise<void> = Promise.resolve();
-  /** The line blame sent last (a click on an annotation opens one of its commits). */
+  /** The line blame sent last (Open Changes in the hover of an annotation opens one of its commits). */
   blame: ViewBlame | undefined;
   private blameRequest = 0;
   private blameTimer: NodeJS.Timeout | undefined;
@@ -291,6 +293,9 @@ export class EditorSession implements vscode.Disposable {
       case 'autoDeclare':
         // Not queued: the questions take their time, and the edits made meanwhile must not wait for them.
         void this.provider.fixes?.autoDeclare(this, m.key, m.text, m.offset);
+        return Promise.resolve();
+      case 'typeHierarchy':
+        void this.provider.typeHierarchy?.(this.fileKey, m.key, m.text, m.offset);
         return Promise.resolve();
       case 'error':
         this.provider.log?.(`Split editor webview: ${m.message}`);
@@ -607,6 +612,10 @@ export class EditorSession implements vscode.Disposable {
             result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
               .map(loc => this.provider.target(loc, this)).filter(t => t !== undefined);
             break;
+          case 'implementation':
+            result = features.implementationsAt(ctx, m.text, m.offset)
+              .map(loc => this.provider.target(loc, this)).filter(t => t !== undefined);
+            break;
           case 'prepareRename':
             result = this.provider.renames?.prepare(ctx, m.text, m.offset);
             break;
@@ -687,6 +696,8 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     runFix(session: EditorSession, id: number): Promise<void>;
     autoDeclare(session: EditorSession, key: string, text: string, offset: number): Promise<void>;
   };
+  /** Show Type Hierarchy in the context menu of a pane: of the type at an offset of a section of a file (see typeHierarchy.ts). */
+  typeHierarchy?: (fk: string, key: string, text: string, offset: number) => Promise<void>;
   log?: (message: string) => void;
   private readonly disposables: vscode.Disposable[] = [];
   private changesContext: boolean | undefined;
@@ -794,6 +805,11 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
       void s.sendBase();
       s.scheduleBlame();
     }
+  }
+
+  /** The index changed (a stage or unstage): split editors that compare with it get its texts again. */
+  refreshIndexBases(): void {
+    for (const s of this.sessions) if (s.ready && s.base.ref === INDEX) void s.sendBase();
   }
 
   /** twincatExplorer.blame changed: the annotation is turned on or off. */

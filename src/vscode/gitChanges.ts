@@ -8,8 +8,8 @@ import { cached } from '../core/cache';
 import { ObjectChange, ViewChange, changeKey, objectChanges, viewChanges } from '../core/objectChanges';
 import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
-import { GitDirWatcher, changedSourceFiles, headCommit, mergeBase, originalPath, repositoryRoot, showAtRef } from './git';
-import { isSourcePath, parseObjectUri } from './uris';
+import { GitDirWatcher, changedSourceFiles, headCommit, mergeBase, originalPath, readBlobs, repositoryRoot, showAtRef } from './git';
+import { INDEX, isSourcePath, parseObjectUri } from './uris';
 
 /** HEAD text of each section of an object view; null for a section that is not in HEAD (a new object). */
 export interface ViewBase {
@@ -272,8 +272,8 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
   // ------------------------------------------------------------------ split editor
 
   /**
-   * Texts of sections of a file at HEAD, at a commit, or at the merge base of HEAD with a branch (the base of
-   * a comparison); undefined when that version cannot be read (no repository, no such branch).
+   * Texts of sections of a file at HEAD, at a commit, in the index, or at the merge base of HEAD with a branch (the
+   * base of a comparison); undefined when that version cannot be read (no repository, no such branch).
    */
   async viewBase(fsPath: string, sectionKeys: string[], base: { ref: string; mergeBase?: boolean; path?: string }): Promise<ViewBase | undefined> {
     let file: TcSourceFile | undefined;
@@ -281,6 +281,10 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
       const head = await this.headFile(fsPath);
       if (!head) return undefined;
       file = head.file;
+    } else if (base.ref === INDEX) {
+      const read = await this.fileInIndex(fsPath, base.path);
+      if (read.error) return undefined;
+      file = read.file;
     } else {
       const root = await this.root(fsPath);
       if (!root) return undefined;
@@ -301,6 +305,25 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
    */
   fileAtCommit(fsPath: string, commit: string, from?: string): Promise<CommitFile> {
     return cached(this.commitFiles, `${commit}|${from ?? fileKey(fsPath)}`, () => this.readAt(fsPath, commit, from), 400, r => !!r.error);
+  }
+
+  /** A source file as the index has it now (at `from`, its repository-relative path there), read each time. */
+  fileInIndex(fsPath: string, from?: string): Promise<CommitFile> {
+    return this.readAt(fsPath, INDEX, from);
+  }
+
+  /** A source file as a blob of a repository has it (one listed in its index); blobs never change. */
+  fileAtBlob(root: string, fsPath: string, blob: string): Promise<CommitFile> {
+    return cached(this.commitFiles, `${blob}|${fileKey(fsPath)}`, async (): Promise<CommitFile> => {
+      try {
+        const bytes = (await readBlobs(root, [blob]))[0];
+        if (!bytes) return { error: `${path.basename(fsPath)}: blob ${blob.slice(0, 7)} is missing` };
+        const file = parseTcFile(fsPath, bytes);
+        return file.error ? { error: `${path.basename(fsPath)} does not parse in the index: ${file.error}` } : { file };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    }, 400, r => !!r.error);
   }
 
   /**

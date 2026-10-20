@@ -266,6 +266,30 @@
         "icon": "$(discard)"
       },
       {
+        "command": "twincatExplorer.changes.stage",
+        "title": "Stage Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(add)"
+      },
+      {
+        "command": "twincatExplorer.changes.unstage",
+        "title": "Unstage Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "twincatExplorer.changes.stageAll",
+        "title": "Stage All Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(add)"
+      },
+      {
+        "command": "twincatExplorer.changes.unstageAll",
+        "title": "Unstage All Changes",
+        "category": "TwinCAT Changes",
+        "icon": "$(remove)"
+      },
+      {
         "command": "twincatExplorer.changes.openNotebook",
         "title": "Open Changes as TwinCAT Notebook",
         "category": "TwinCAT Changes",
@@ -370,6 +394,16 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.goToImplementation",
+        "title": "Go to Implementation",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.showTypeHierarchy",
+        "title": "Show Type Hierarchy",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.checkWorkspace",
         "title": "Check All Structured Text",
         "category": "TwinCAT"
@@ -412,6 +446,11 @@
       {
         "command": "twincatExplorer.addExistingFolderContent",
         "title": "Add Existing Folder Content...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.addLibrary",
+        "title": "Add Library...",
         "category": "TwinCAT"
       },
       {
@@ -515,6 +554,10 @@
           "when": "twincatExplorer.hasProjects"
         },
         {
+          "command": "twincatExplorer.addLibrary",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
           "command": "twincatExplorer.addMethod",
           "when": "resourceScheme == twincat || resourceExtname =~ /^\\.(TcPOU|TcIO)$/i"
         },
@@ -529,6 +572,14 @@
         {
           "command": "twincatExplorer.implementInterfaces",
           "when": "resourceScheme == twincat || resourceExtname =~ /^\\.TcPOU$/i"
+        },
+        {
+          "command": "twincatExplorer.goToImplementation",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.showTypeHierarchy",
+          "when": "twincatExplorer.hasProjects"
         },
         {
           "command": "twincatExplorer.autoDeclare",
@@ -564,6 +615,22 @@
         },
         {
           "command": "twincatExplorer.changes.discard",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.stage",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.unstage",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.stageAll",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.changes.unstageAll",
           "when": "false"
         },
         {
@@ -734,6 +801,16 @@
           "group": "navigation@5"
         },
         {
+          "command": "twincatExplorer.goToImplementation",
+          "when": "view == twincatExplorer.tree && viewItem =~ /goToImplementation/",
+          "group": "1_hierarchy@1"
+        },
+        {
+          "command": "twincatExplorer.showTypeHierarchy",
+          "when": "view == twincatExplorer.tree && viewItem =~ /typeHierarchy/",
+          "group": "1_hierarchy@2"
+        },
+        {
           "command": "twincatExplorer.addPou",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
           "group": "2_add@1"
@@ -767,6 +844,11 @@
           "command": "twincatExplorer.addExistingFolderContent",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
           "group": "2_add@7"
+        },
+        {
+          "command": "twincatExplorer.addLibrary",
+          "when": "view == twincatExplorer.tree && viewItem =~ /addLibrary/",
+          "group": "2_add@1"
         },
         {
           "command": "twincatExplorer.addMethod",
@@ -826,6 +908,46 @@
         {
           "command": "twincatExplorer.changes.discard",
           "when": "view == twincatExplorer.changes && viewItem =~ /discard-/",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "twincatExplorer.changes.stage",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stage-/",
+          "group": "inline@3"
+        },
+        {
+          "command": "twincatExplorer.changes.unstage",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstage-/",
+          "group": "inline@3"
+        },
+        {
+          "command": "twincatExplorer.changes.stageAll",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stageAll/",
+          "group": "inline@1"
+        },
+        {
+          "command": "twincatExplorer.changes.unstageAll",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstageAll/",
+          "group": "inline@1"
+        },
+        {
+          "command": "twincatExplorer.changes.stage",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stage-/",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "twincatExplorer.changes.unstage",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstage-/",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "twincatExplorer.changes.stageAll",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stageAll/",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "twincatExplorer.changes.unstageAll",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstageAll/",
           "group": "1_modification@1"
         },
         {
@@ -914,6 +1036,11 @@
           "command": "twincatExplorer.openChanges",
           "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
           "group": "1_twincat@1"
+        },
+        {
+          "command": "twincatExplorer.showTypeHierarchy",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && resourcePath =~ /\\.(TcPOU|TcIO)\\b/i",
+          "group": "1_twincat@2"
         },
         {
           "command": "twincatExplorer.commitDiff.openCurrent",
@@ -1035,6 +1162,14 @@
           "default": [],
           "description": "Extra Structured Text stub files with library declarations (absolute paths or paths relative to the first workspace folder). Wrap declarations in LIBRARY <Name> ... END_LIBRARY."
         },
+        "twincatExplorer.libraryRepositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Folders of TwinCAT library repositories (absolute paths) that Add Library... lists the libraries of, besides the system repository of TwinCAT 3.1.4026 (%ProgramData%\\Beckhoff\\TwinCAT\\PlcEngineering\\Managed Libraries) and of 3.1.4024 and older (%TWINCAT3DIR%Components\\Plc\\Managed Libraries). For the repositories added in XAE's Library Repository dialog."
+        },
         "twincatExplorer.exclude": {
           "type": "string",
           "default": "**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**",
@@ -1043,7 +1178,7 @@
         "twincatExplorer.blame.currentLine": {
           "type": "boolean",
           "default": true,
-          "description": "Show at the end of the current line of the split editor who last changed it, when, and the commit message (like GitLens' current line blame). A click shows the commit's changes of the object."
+          "description": "Show at the end of the current line of the split editor who last changed it, when, and the commit message (like GitLens' current line blame). Open Changes in its hover shows the commit's changes of the object."
         }
       }
     },

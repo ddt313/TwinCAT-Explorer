@@ -563,7 +563,9 @@ class Uses {
 
   /** The parameters of what is called: of a function or method, or the inputs and outputs of a function block. */
   private paramsOf(call: A.Expr & { kind: 'Call' }): VarSym[] | undefined {
-    const t = deref(this.analyzer.expr(call.callee));
+    let t = deref(this.analyzer.expr(call.callee));
+    // An action takes the inputs and outputs of its POU: fbValve.A_Close(bForce := TRUE).
+    if (t.k === 'callable' && t.sym.kind === 'action') t = { k: 'pou', sym: t.sym.owner };
     if (t.k === 'callable' && t.sym.kind !== 'builtin') return t.sym.vars.filter(v => PARAM_SECTIONS.has(v.section));
     if (t.k === 'pou') {
       return this.analyzer.listMembers(t).map(r => r.sym).filter((v): v is VarSym => v.kind === 'var' && PARAM_SECTIONS.has(v.section));

@@ -24,6 +24,16 @@ export async function isKnownSite(origin: string): Promise<boolean> {
   }
 }
 
+/** Starts the content script in a tab of a granted site, unless it runs there already: true when it started it. */
+export async function startInTab(tabId: number): Promise<boolean> {
+  const target = { tabId };
+  const [probe] = await chrome.scripting.executeScript({ target, func: () => (globalThis as { tcxContent?: boolean }).tcxContent === true });
+  if (probe?.result) return false;
+  await chrome.scripting.insertCSS({ target, files: ['content.css'] });
+  await chrome.scripting.executeScript({ target, files: ['content.js'] });
+  return true;
+}
+
 /** Registers the content script on the granted sites, or updates or removes its registration, as they are now. */
 export async function syncContentScripts(): Promise<void> {
   const matches = await grantedPatterns();

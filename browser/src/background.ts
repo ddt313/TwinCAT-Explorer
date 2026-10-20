@@ -4,7 +4,7 @@
 
 import { fetchText } from './fetchText';
 import { WorkerRequest, fetchAllowed } from './protocol';
-import { BUILT_IN_SITES, isKnownSite, syncContentScripts } from './sites';
+import { BUILT_IN_SITES, isKnownSite, startInTab, syncContentScripts } from './sites';
 
 const warn = (e: unknown) => console.warn('[TwinCAT view]', e);
 
@@ -42,11 +42,7 @@ async function startInActiveTab(): Promise<void> {
     return;
   }
   if (BUILT_IN_SITES.includes(origin) || !(await isKnownSite(origin))) return;
-  const target = { tabId: tab.id };
-  const [probe] = await chrome.scripting.executeScript({ target, func: () => (globalThis as { tcxContent?: boolean }).tcxContent === true });
-  if (probe?.result) return;
-  await chrome.scripting.insertCSS({ target, files: ['content.css'] });
-  await chrome.scripting.executeScript({ target, files: ['content.js'] });
+  await startInTab(tab.id);
 }
 
 const sync = () => void syncContentScripts().catch(warn);

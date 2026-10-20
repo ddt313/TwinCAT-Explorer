@@ -173,8 +173,10 @@ template and the order of the ways to read, and know no host.
   is `line_<hash>_<old line>` or `line_<hash>_A<new line>`. The classic page has the same hooks as on gitlab.com.
   A merge request is compared with its merge ref (on the target branch's head) only when it can be merged; one with
   conflicts shows its latest version, from its merge base: the page's `diff_refs` say which, either way.
-- **Not tried**: a self-managed instance live (its session cookie's `SameSite` matters to the frame only: the page
-  reads first), a private project, a merge request compared with its merge ref after its target branch moved on.
+- **Checked live** by the user on a self-managed GitLab 19.4, signed in, in Edge: off until the popup's *Turn on for
+  this site*, then the toggles, the views and the tree on its merge requests, without a reload.
+- **Not tried**: a merge request compared with its merge ref after its target branch moved on; the frame's reads on
+  a self-managed instance (its session cookie's `SameSite` matters there; the page reads first).
 
 ## 1. Can both versions be fetched with the session, private repositories and renames included?
 
@@ -326,4 +328,5 @@ views show. The viewer, the tree and the packaging are GitHub's. Bitbucket would
 - GitLab, the same way on gitlab.com: see *Checked* under [GitLab](#gitlab). After the move to host adapters,
   pcdshub/lcls-twincat-motion#249 again: the toggles, a line link (`L7`), the tree (31 files, 125 changed objects),
   the click on `StateMachine` (150 px from the top).
-- *Pending:* a signed-in Chrome or Edge on the React page, with a private repository; a self-managed GitLab.
+- A self-managed GitLab 19.4, by the user in a signed-in Edge: see *Checked live* under [GitLab](#gitlab).
+- *Pending:* a signed-in Chrome or Edge on GitHub's React page, with a private repository.

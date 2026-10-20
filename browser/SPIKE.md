@@ -63,7 +63,7 @@ Read-only: no commenting.
 | `src/lineDiff.ts` | Myers line diff (as git's default) with deletions before additions in each block, and the changed middle of a line. |
 | `src/highlight.ts` | Structured Text highlighting from `src/lang/lexer.ts`. |
 | `src/background.ts` | Service worker: one of the ways to read a file (see question 1); registers the content script on the sites turned on. |
-| `build.js`, `tsconfig.json` | esbuild bundles (content 18 KB, viewer 30 KB, tree 25 KB, popup 2 KB, worker 1 KB, minified) and the tree's icons (`media/icons`); `tsc` checks with the DOM library and without Node's types. |
+| `build.js`, `tsconfig.json` | esbuild bundles (content 18 KB, viewer 30 KB, tree 25 KB, popup 2 KB, worker 2 KB, minified) and the tree's icons (`media/icons`); `tsc` checks with the DOM library and without Node's types. |
 
 The core is used as it is, without a fork: `parseTcText` (`src/core/tcfile.ts`) parses both versions,
 `viewChanges` (`objectChanges.ts`) says which object views changed (and their old names), `viewSections` and
@@ -149,8 +149,10 @@ template and the order of the ways to read, and know no host.
   GitLab's list renders only the rows it shows (none when hidden), and a click in the TwinCAT tree clicks GitLab's row
   of the file, which makes the classic page render its block.
 - **Self-managed instances.** The popup's *Turn on for this site* asks the browser for that origin
-  (`optional_host_permissions`), registers the content script there (`chrome.scripting.registerContentScripts`, again
-  after an update or a restart) and keeps the origin in `chrome.storage`. The frames work only in a page of
+  (`optional_host_permissions`). The browser's permissions are the list of sites: the service worker keeps the
+  content script registered on the granted ones (`chrome.scripting.registerContentScripts`, on
+  `permissions.onAdded` and `onRemoved`, after an update or a restart), and starts it at once in the tab the site
+  was turned on in, since the browser may close the popup while it asks. The frames work only in a page of
   github.com, gitlab.com or a site turned on, and only in the page that made them (`location.ancestorOrigins`). An
   instance served under a path (`https://example.com/gitlab`) works: the page names its project
   (`data-project-full-path`), and what comes before it in the URL is the instance's path.

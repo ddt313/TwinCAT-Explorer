@@ -165,10 +165,6 @@ let treeOn = false;
 let treeFrame: HTMLIFrameElement | undefined;
 let treeReady = false;
 let lastFiles = '';
-chrome.storage.local.get('tcxTree').then(v => {
-  treeOn = v.tcxTree === true;
-  schedule();
-}, () => undefined);
 
 function sizeTree(): void {
   // A floating panel and a panel over the host's tree have the height their CSS gives them.
@@ -357,7 +353,7 @@ function answerFetch(frame: HTMLIFrameElement, m: Extract<FrameMessage, { tcx: '
   });
 }
 
-window.addEventListener('message', e => {
+function onFrameMessage(e: MessageEvent): void {
   if (e.origin !== EXTENSION) return;
   const m = e.data as FrameMessage;
   if (treeFrame && e.source === treeFrame.contentWindow) {
@@ -396,7 +392,7 @@ window.addEventListener('message', e => {
     default:
       return;
   }
-});
+}
 
 let sizing = false;
 const resize = () => {
@@ -407,9 +403,18 @@ const resize = () => {
     sizeTree();
   });
 };
-window.addEventListener('resize', resize);
-// Any scrolling, of the page or of a panel in it (scroll events do not bubble; they are seen while captured).
-document.addEventListener('scroll', resize, { capture: true, passive: true });
-
-new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-schedule();
+// Once per page: the service worker also starts the script in the tab a site was just turned on in.
+const started = globalThis as { tcxContent?: boolean };
+if (!started.tcxContent) {
+  started.tcxContent = true;
+  window.addEventListener('message', onFrameMessage);
+  window.addEventListener('resize', resize);
+  // Any scrolling, of the page or of a panel in it (scroll events do not bubble; they are seen while captured).
+  document.addEventListener('scroll', resize, { capture: true, passive: true });
+  chrome.storage.local.get('tcxTree').then(v => {
+    treeOn = v.tcxTree === true;
+    schedule();
+  }, () => undefined);
+  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
+  schedule();
+}

@@ -12,6 +12,7 @@ declare namespace chrome.runtime {
   };
   const onInstalled: { addListener(callback: () => void): void };
   const onStartup: { addListener(callback: () => void): void };
+  function getManifest(): { host_permissions?: string[] };
 }
 
 declare namespace chrome.storage {
@@ -22,8 +23,15 @@ declare namespace chrome.storage {
 }
 
 declare namespace chrome.permissions {
+  interface Permissions {
+    origins?: string[];
+  }
   function request(permissions: { origins: string[] }): Promise<boolean>;
   function remove(permissions: { origins: string[] }): Promise<boolean>;
+  function contains(permissions: { origins: string[] }): Promise<boolean>;
+  function getAll(): Promise<Permissions>;
+  const onAdded: { addListener(callback: (permissions: Permissions) => void): void };
+  const onRemoved: { addListener(callback: (permissions: Permissions) => void): void };
 }
 
 declare namespace chrome.scripting {
@@ -36,7 +44,14 @@ declare namespace chrome.scripting {
   }
   function getRegisteredContentScripts(): Promise<RegisteredContentScript[]>;
   function registerContentScripts(scripts: RegisteredContentScript[]): Promise<void>;
+  function updateContentScripts(scripts: RegisteredContentScript[]): Promise<void>;
   function unregisterContentScripts(filter: { ids: string[] }): Promise<void>;
+  interface Target {
+    tabId: number;
+  }
+  function executeScript<T>(injection: { target: Target; func: () => T }): Promise<{ result?: T }[]>;
+  function executeScript(injection: { target: Target; files: string[] }): Promise<{ result?: unknown }[]>;
+  function insertCSS(injection: { target: Target; files: string[] }): Promise<void>;
 }
 
 declare namespace chrome.tabs {
@@ -44,7 +59,7 @@ declare namespace chrome.tabs {
     id?: number;
     url?: string;
   }
-  function query(info: { active: boolean; currentWindow: boolean }): Promise<Tab[]>;
+  function query(info: { active: boolean; currentWindow?: boolean; lastFocusedWindow?: boolean }): Promise<Tab[]>;
   function reload(tabId: number): Promise<void>;
 }
 

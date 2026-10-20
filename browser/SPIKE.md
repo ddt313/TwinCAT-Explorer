@@ -192,8 +192,21 @@ requested at run time for self-managed GitLab instances. Bitbucket would be anot
 
 - `npm test`: 108 tests, the 16 above included.
 - Headless Edge 155 with the unpacked extension (`--load-extension`, which Chrome 137+ ignores) in a throwaway
-  profile, driven over the DevTools protocol, signed out (so GitHub serves the classic page), on public TcUnit
-  pull requests: #274 (a renamed and modified POU, methods, a file loaded on scroll) and #268 (a new POU with a
-  property), in light and dark mode; toggle on and off, viewer contents, frame size, diagnostics, a line link and
-  where it lands, screenshots.
+  profile, driven over the DevTools protocol, signed out (so GitHub serves the classic page), in light and dark
+  mode: toggle on and off, viewer contents, frame size, diagnostics, a line link and where it lands, screenshots.
+  On public pull requests:
+  - tcunit/TcUnit#274: a renamed and modified POU, methods, a file loaded on scroll;
+  - tcunit/TcUnit#268: a new POU with a property;
+  - pcdshub/lcls-twincat-motion#249: a deleted DUT, a renamed DUT, new DUTs, a POU with 5 methods modified,
+    4 deleted and 16 unchanged;
+  - pcdshub/lcls-twincat-motion#248: 20 methods, properties and accessors added; a `.xti` whose only change is
+    the TmcHash;
+  - pcdshub/lcls-twincat-motion#245: files moved without changes (*Renamed, content unchanged*), a deleted POU
+    with properties, 53 TwinCAT files loaded as the page scrolls;
+  - pcdshub/lcls-twincat-motion#240: 8 property accessors modified, a POU renamed with its file, an interface
+    (`.TcIO`) with deleted methods;
+  - pcdshub/lcls-twincat-general#74: about 60 files whose only change is the removal of `ProductVersion`. They
+    show *No code changed: XML only, no code*: `metadataChange` names a ProductVersion change only when the
+    attribute is in both versions (its removal leaves a space behind in what it compares). Teaching it the
+    removal would change the label in the VS Code extension too, so the spike leaves it.
 - *Pending:* a signed-in Chrome or Edge on the React page, with a private repository.

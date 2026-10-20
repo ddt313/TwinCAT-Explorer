@@ -12,7 +12,7 @@ declare namespace chrome.runtime {
   };
   const onInstalled: { addListener(callback: () => void): void };
   const onStartup: { addListener(callback: () => void): void };
-  function getManifest(): { host_permissions?: string[] };
+  function getManifest(): { version: string; host_permissions?: string[] };
 }
 
 declare namespace chrome.storage {

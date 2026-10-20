@@ -6,6 +6,7 @@
 import { BUILT_IN_SITES, grantedPatterns, isKnownSite, startInTab, syncContentScripts } from './sites';
 
 const root = document.getElementById('root')!;
+document.getElementById('version')!.textContent = chrome.runtime.getManifest().version;
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const problem = (e: unknown) => esc(e instanceof Error ? e.message : String(e));
 

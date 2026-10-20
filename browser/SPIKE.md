@@ -17,8 +17,10 @@ npm run build:browser
 
 This type-checks `browser/` and bundles it into `browser/dist`. In Chrome or Edge, open `chrome://extensions`
 (or `edge://extensions`), turn on developer mode, *Load unpacked*, and pick `browser/dist`. On a pull request's
-*Files changed* tab each TwinCAT file gets a **TwinCAT view** toggle in its header (Alt+click toggles all of
-them). When it is on, the file's diff is replaced by the object view; off brings GitHub's diff back.
+*Files changed* tab each TwinCAT source file (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`) gets a **TwinCAT view**
+toggle in its header (Alt+click toggles all of them). When it is on, the file's diff is replaced by the object view;
+off brings GitHub's diff back. A project file (`.tsproj`, `.xti`) has no toggle: it keeps GitHub's diff, and the tree
+says when its only change is the TmcHash a build rewrites.
 
 The view of a file:
 
@@ -30,8 +32,7 @@ The view of a file:
   runs of unchanged lines folded (click to unfold), word-level highlights, Structured Text highlighting;
 - runs of unchanged objects folded into one row (click to list them, click one to see its code);
 - a file without code changes says what changed instead: `ProductVersion 3.1.4024.12 → 3.1.4026.13`,
-  `XML only, no code`, `Renamed, content unchanged`; a `.tsproj`/`.xti` whose only change is the TmcHash a
-  build rewrites says so;
+  `XML only, no code`, `Renamed, content unchanged`;
 - on every changed line, the XML line it is on (`L123` on the base side, `R124` on the head side), a link
   to that line in GitHub's own diff;
 - a *Diagnostics* block: the commits and where they came from, how each file was read, whether WebAssembly

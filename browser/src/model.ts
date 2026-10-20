@@ -97,9 +97,14 @@ export const SOURCE_FILE = /\.(tcpou|tcdut|tcgvl|tcio)$/i;
 /** Project files whose only change is often the TmcHash a build rewrites. */
 export const PROJECT_FILE = /\.(tsproj|xti)$/i;
 
-/** A file the extension shows as TwinCAT objects (or, for a project file, checks for a TmcHash-only change). */
+/** A file of the tree of the changes: shown as TwinCAT objects, or for a project file, checked for a TmcHash-only change. */
 export function isTwinCatFile(path: string): boolean {
   return SOURCE_FILE.test(path) || PROJECT_FILE.test(path);
+}
+
+/** A file with a TwinCAT view in the page: a source file. A project file keeps the host's diff. */
+export function hasObjectView(path: string): boolean {
+  return SOURCE_FILE.test(path);
 }
 
 export function buildFileView(input: FileInput): FileView {
@@ -118,7 +123,7 @@ export function buildFileView(input: FileInput): FileView {
     if (input.before !== undefined && input.after !== undefined && onlyTmcHashChanged(input.before, input.after)) {
       view.metadataOnly = 'TmcHash only, rewritten by a build';
     } else {
-      view.note = 'A project file: its changes are in GitHub\'s diff.';
+      view.note = 'A project file: its changes are in the page\'s diff.';
     }
     return view;
   }

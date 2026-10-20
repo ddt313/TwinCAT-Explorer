@@ -12,7 +12,7 @@ import { isChangesTab, mergeRequestPage } from './gitlab';
 import { Host } from './host';
 import { GitHubHost } from './hostGithub';
 import { GitLabHost } from './hostGitlab';
-import { isTwinCatFile } from './model';
+import { hasObjectView } from './model';
 import { Commits, ViewerParams, encodeTreeParams, encodeViewerParams } from './params';
 import { ChangedFile, FrameMessage, PageMessage, fetchAllowed } from './protocol';
 
@@ -139,7 +139,10 @@ function note(block: Block, text: string): void {
   setTimeout(() => span.remove(), 6000);
 }
 
-/** The block of a file's container: identified the first time (undefined for a file that is not TwinCAT), with its toggle. */
+/**
+ * The block of a file's container: identified the first time, with its toggle. Undefined for a file without a TwinCAT
+ * view (not TwinCAT, or a project file such as a `.tsproj`, which keeps the host's diff).
+ */
 async function blockOf(container: HTMLElement): Promise<Block | undefined> {
   const anchor = container.id;
   const header = host?.header(container);
@@ -147,7 +150,7 @@ async function blockOf(container: HTMLElement): Promise<Block | undefined> {
   let block = blocks.get(anchor);
   if (!block) {
     const file = await host.identify(container, header);
-    if (!file || !isTwinCatFile(file.path)) {
+    if (!file || !hasObjectView(file.path)) {
       skipped.add(anchor);
       return undefined;
     }

@@ -39,8 +39,8 @@ async function main(): Promise<void> {
   const before = files.textOf(base);
   if (after === null || before === null || (after === undefined && before === undefined)) {
     view = undefined;
-    root.innerHTML = `<p class="notice error">The file could not be read from GitHub with this browser's session
-      (see Diagnostics). Turn the toggle off for GitHub's diff.</p>${diagnosticsHtml()}`;
+    root.innerHTML = `<p class="notice error">The file could not be read with this browser's session (see
+      Diagnostics). Turn the toggle off for the page's diff.</p>${diagnosticsHtml()}`;
     return;
   }
   view = buildFileView({ path: params.path, oldPath: params.oldPath, before, after });
@@ -118,7 +118,7 @@ function sectionHtml(i: number, s: number): string {
   const sec = o.sections[s];
   const label = `<span class="sec-label">${esc(sec.label)}</span>`;
   if (!sec.text) {
-    const note = sec.status === 'same' ? 'unchanged' : `${sec.status}: graphical code is not shown, GitHub's diff has its XML`;
+    const note = sec.status === 'same' ? 'unchanged' : `${sec.status}: graphical code is not shown, the page's diff has its XML`;
     const link = sec.status === 'deleted' ? xmlLink('L', sec.oldXml) : sec.status !== 'same' ? xmlLink('R', sec.newXml) : '';
     return `<div class="sec sec-${sec.status}"><div class="sec-head">${label}<span class="muted">${note}</span>${link}</div></div>`;
   }

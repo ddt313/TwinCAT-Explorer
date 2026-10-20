@@ -8,7 +8,7 @@ import {
   commitsFromDiffRefs, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, mergeRequestApi, mergeRequestPage, rapidFileData, rapidLineAnchor,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
-import { FileInput, FileView, ObjectView, buildFileView, isTwinCatFile } from '../../browser/src/model';
+import { FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile } from '../../browser/src/model';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
 import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
@@ -238,13 +238,15 @@ test('a metadata-only change is labelled as such, with every object unchanged', 
   assert.equal(view({ before: valve(), after: valve({ crlf: true }) }).metadataOnly, 'XML only, no code');
 });
 
-test('project files: a TmcHash rewritten by a build is metadata, other changes are left to GitHub', () => {
+test('project files: a TmcHash rewritten by a build is metadata, other changes are left to the page\'s diff', () => {
   const tsproj = (hash: string, extra = '') => `<TcSmProject>\r\n<Project TmcHash="{${hash}}" TmcPath="Plc\\Plc.tmc">${extra}</Project>\r\n</TcSmProject>`;
   assert.equal(buildFileView({ path: 'Machine.tsproj', before: tsproj('AAAA-1'), after: tsproj('BBBB-2') }).metadataOnly,
     'TmcHash only, rewritten by a build');
   const other = buildFileView({ path: 'Machine.tsproj', before: tsproj('AAAA-1'), after: tsproj('BBBB-2', '<Task/>') });
   assert.equal(other.metadataOnly, undefined);
   assert.match(other.note ?? '', /project file/);
+  // On GitLab too.
+  assert.doesNotMatch(other.note ?? '', /GitHub/);
 });
 
 test('a new file is all added, a deleted file all removed; a renamed file keeps its old path', () => {
@@ -359,6 +361,9 @@ test('github: the pull request of a "Files changed" page, in the classic and the
   assert.equal(filesPage('/acme/plc/pull/12/commits'), undefined);
   assert.ok(isTwinCatFile('PLC/POUs/FB_Valve.TcPOU') && isTwinCatFile('a/E_State.tcdut') && isTwinCatFile('Machine.tsproj'));
   assert.ok(!isTwinCatFile('PLC/PLC.plcproj') && !isTwinCatFile('README.md'));
+  // A TwinCAT view for source files only: a project file is in the tree, and keeps the host's diff.
+  assert.ok(hasObjectView('PLC/POUs/FB_Valve.TcPOU') && hasObjectView('a/I_Motor.tcio') && hasObjectView('GVLs/GVL_Main.TcGVL'));
+  assert.ok(!hasObjectView('Machine.tsproj') && !hasObjectView('_Config/IO/Device 1 (EtherCAT).xti'));
   assert.equal(fileUrl(githubRawTemplate({ owner: 'acme', repo: 'plc', number: 12 }), A, 'PLC/My POUs/FB_#1.TcPOU'),
     `https://github.com/acme/plc/raw/${A}/PLC/My%20POUs/FB_%231.TcPOU`);
 });

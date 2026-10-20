@@ -1,0 +1,233 @@
+/* The viewer frame: GitHub's diff colors, VS Code's Light+ / Dark+ colors for Structured Text. */
+:root {
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --subtle: #f6f8fa;
+  --hover: #eff2f5;
+  --link: #0969da;
+  --add-line: #dafbe1;
+  --add-num: #aceebb;
+  --add-word: #aceebb;
+  --del-line: #ffebe9;
+  --del-num: #ffcecb;
+  --del-word: #ffcecb;
+  --fold: #ddf4ff;
+  --added: #1a7f37;
+  --modified: #9a6700;
+  --deleted: #d1242f;
+  --kw: #0000ff;
+  --ty: #267f99;
+  --num: #098658;
+  --str: #a31515;
+  --com: #008000;
+  --pra: #795e26;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0d1117;
+  --fg: #f0f6fc;
+  --muted: #9198a1;
+  --border: #3d444d;
+  --subtle: #151b23;
+  --hover: #262c36;
+  --link: #4493f8;
+  --add-line: rgba(46, 160, 67, 0.15);
+  --add-num: rgba(63, 185, 80, 0.3);
+  --add-word: rgba(46, 160, 67, 0.4);
+  --del-line: rgba(248, 81, 73, 0.1);
+  --del-num: rgba(248, 81, 73, 0.3);
+  --del-word: rgba(248, 81, 73, 0.4);
+  --fold: rgba(56, 139, 253, 0.1);
+  --added: #3fb950;
+  --modified: #d29922;
+  --deleted: #f85149;
+  --kw: #569cd6;
+  --ty: #4ec9b0;
+  --num: #b5cea8;
+  --str: #ce9178;
+  --com: #6a9955;
+  --pra: #dcdcaa;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    --bg: #0d1117;
+    --fg: #f0f6fc;
+    --muted: #9198a1;
+    --border: #3d444d;
+    --subtle: #151b23;
+    --hover: #262c36;
+    --link: #4493f8;
+    --add-line: rgba(46, 160, 67, 0.15);
+    --add-num: rgba(63, 185, 80, 0.3);
+    --add-word: rgba(46, 160, 67, 0.4);
+    --del-line: rgba(248, 81, 73, 0.1);
+    --del-num: rgba(248, 81, 73, 0.3);
+    --del-word: rgba(248, 81, 73, 0.4);
+    --fold: rgba(56, 139, 253, 0.1);
+    --added: #3fb950;
+    --modified: #d29922;
+    --deleted: #f85149;
+    --kw: #569cd6;
+    --ty: #4ec9b0;
+    --num: #b5cea8;
+    --str: #ce9178;
+    --com: #6a9955;
+    --pra: #dcdcaa;
+    color-scheme: dark;
+  }
+}
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+}
+#root { padding: 6px 0 4px; }
+code { font-family: var(--mono); font-size: 11.5px; }
+.muted { color: var(--muted); font-weight: 400; }
+.status { margin: 6px 16px; font-size: 12px; color: var(--muted); }
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 16px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.summary .title { color: var(--fg); font-weight: 600; }
+.summary .right { margin-left: auto; }
+.notice {
+  margin: 0 16px 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.notice.error { border-color: var(--deleted); }
+
+/* Objects: one row each, its sections below when open. */
+.obj, .group { border-top: 1px solid var(--border); }
+.obj-head, .group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+.obj-head:hover, .group-head:hover, .sec-head[role="button"]:hover { background: var(--hover); }
+.d1 > .obj-head { padding-left: 32px; }
+.d2 > .obj-head { padding-left: 48px; }
+.group-head { font-size: 12px; color: var(--muted); }
+.chev::before {
+  content: "▸";
+  display: inline-block;
+  width: 10px;
+  color: var(--muted);
+}
+.open > .obj-head .chev::before, .open > .sec-head .chev::before, .open > .group-head .chev::before { transform: rotate(90deg); }
+.badge {
+  width: 16px;
+  border-radius: 4px;
+  font: 600 11px/16px var(--mono);
+  text-align: center;
+  color: #ffffff;
+}
+.b-added { background: var(--added); }
+.b-modified { background: var(--modified); }
+.b-deleted { background: var(--deleted); }
+.name { font: 600 12.5px/20px var(--mono); }
+.obj-unchanged .name { font-weight: 400; color: var(--muted); }
+.kind { font-size: 12px; color: var(--muted); }
+.renamed { font-size: 12px; color: var(--modified); }
+.stat { margin-left: auto; font: 12px var(--mono); }
+.plus { color: var(--added); }
+.minus { color: var(--deleted); }
+.obj-body, .sec-body, .group-body { display: none; }
+.open > .obj-body, .open > .sec-body, .open > .group-body { display: block; }
+.obj-body { padding-bottom: 4px; }
+
+/* Sections: Declaration above Implementation, like the split editor. */
+.sec {
+  margin: 0 16px 8px 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.d1 .sec { margin-left: 48px; }
+.d2 .sec { margin-left: 64px; }
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  background: var(--subtle);
+}
+.sec-head[role="button"] { cursor: pointer; user-select: none; }
+.open > .sec-head { border-bottom: 1px solid var(--border); }
+.sec-label { font-weight: 600; }
+.sec-head .stat { font-size: 11px; }
+.sec-head a.xml { margin-left: auto; }
+
+table.diff {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12px/20px var(--mono);
+  tab-size: 4;
+}
+.diff td { padding: 0; vertical-align: top; }
+.diff td.n {
+  width: 1%;
+  min-width: 32px;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+.diff td.m { width: 12px; padding-right: 4px; color: var(--muted); text-align: center; user-select: none; }
+/* Long lines wrap, as in GitHub's diff: the XML line links stay in view. */
+.diff td.c { width: 100%; padding-right: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff td.x { width: 1%; padding: 0 8px; text-align: right; white-space: nowrap; }
+.l-add td { background: var(--add-line); }
+.l-add td.n { background: var(--add-num); }
+.l-del td { background: var(--del-line); }
+.l-del td.n { background: var(--del-num); }
+.l-add .chg { background: var(--add-word); border-radius: 2px; }
+.l-del .chg { background: var(--del-word); border-radius: 2px; }
+tr.fold td {
+  padding: 0 16px;
+  font: 12px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--muted);
+  background: var(--fold);
+  cursor: pointer;
+}
+tr.fold:hover td { color: var(--link); }
+a.xml { font: 11px/20px var(--mono); color: var(--link); text-decoration: none; }
+a.xml:hover { text-decoration: underline; }
+
+.kw { color: var(--kw); }
+.ty { color: var(--ty); }
+.num { color: var(--num); }
+.str { color: var(--str); }
+.com { color: var(--com); font-style: italic; }
+.pra { color: var(--pra); }
+
+.diag {
+  margin: 4px 16px 0;
+  padding-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+.diag summary { cursor: pointer; }
+.diag ul { margin: 4px 0; padding-left: 18px; }
+.diag button { margin: 4px 0; font-size: 12px; }

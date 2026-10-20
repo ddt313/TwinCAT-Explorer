@@ -1043,7 +1043,7 @@
         "twincatExplorer.blame.currentLine": {
           "type": "boolean",
           "default": true,
-          "description": "Show at the end of the current line of the split editor who last changed it, when, and the commit message (like GitLens' current line blame). A click shows the commit's changes of the object."
+          "description": "Show at the end of the current line of the split editor who last changed it, when, and the commit message (like GitLens' current line blame). Open Changes in its hover shows the commit's changes of the object."
         }
       }
     },

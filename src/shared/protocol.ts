@@ -254,17 +254,13 @@ export type ProbeAction =
   /** Reverts the change at a line (1-based) of a pane shown as a diff, like its Revert Block button. */
   | { kind: 'revertChange'; key: string; line: number }
   /** Puts the cursor on a line (1-based) and returns the blame annotation shown there (BlameProbe). */
-  | { kind: 'blame'; key: string; line: number }
-  /** A click on the blame annotation of a line (1-based). */
-  | { kind: 'blameClick'; key: string; line: number };
+  | { kind: 'blame'; key: string; line: number };
 
 /** The blame annotation of the current line. */
 export interface BlameProbe {
   text: string | null;
   sha: string | null;
   hover: string | null;
-  /** blameClick: the annotation was rendered and clicked. */
-  clicked?: boolean;
 }
 
 export interface PaneState {

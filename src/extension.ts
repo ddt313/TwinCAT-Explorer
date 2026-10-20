@@ -180,7 +180,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   history.openObject = item => commitDiff.show(item);
   const historyTree = vscode.window.createTreeView('twincatExplorer.history', { treeDataProvider: history, showCollapseAll: true });
   objectEditors.blame = new BlameService(gitChanges);
-  // A click on a line's blame: what that commit changed in the object, in the commit diff panel.
+  // Open Changes in the hover of a line's blame: what that commit changed in the object, in the commit diff panel.
   objectEditors.openBlame = async (session, root, commit) => {
     await commitDiff.show({
       root, commit: commit.sha, parent: await firstParent(root, commit.sha), path: commit.filename,

@@ -3,6 +3,12 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+- The annotation of the line blame is no longer a link: the pointer stays the text cursor over it and
+  a click opens nothing. `Open Changes` in its hover opens the commit.
+
 ## 0.13.0 - 2026-10-20
 
 ### Added

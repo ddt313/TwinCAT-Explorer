@@ -639,10 +639,6 @@ function wireEditor(pane: Pane, editor: Monaco.editor.ICodeEditor): void {
   editor.onMouseLeave(() => {
     pointerOnBlame = false;
   });
-  // A click on the blame annotation shows what its commit changed in this object.
-  editor.onMouseDown(e => {
-    if (e.event.leftButton && isBlameElement(e.event.browserEvent.target)) openBlame(pane);
-  });
 }
 
 function focused(pane: Pane): void {
@@ -743,14 +739,6 @@ function updateBlame(pane: Pane): void {
     },
   }]);
   pane.blameShown = { line, commit };
-}
-
-/** The click on an annotation: what its commit changed in this object, or the uncommitted changes. */
-function openBlame(pane: Pane): void {
-  const shown = pane.blameShown;
-  if (!shown) return;
-  if (!shown.commit.uncommitted) post({ type: 'blameOpen', sha: shown.commit.sha });
-  else if (baseState === 'available') setChangesMode(true, { pane, line: shown.line });
 }
 
 /** Line blame from the host (when the split editor opens, after the file changed on disk, after a commit). */
@@ -1145,28 +1133,6 @@ function focusForTest(pane: Pane): void {
   if (!pane.editor.hasTextFocus()) inputOf(pane)?.dispatchEvent(new FocusEvent('focus'));
 }
 
-/** Clicks the rendered blame annotation of a pane the way the mouse does; false when it is not rendered. */
-async function clickBlame(pane: Pane): Promise<boolean> {
-  let el: HTMLElement | null = null;
-  // Decorations render at the next animation frame.
-  for (let i = 0; i < 40 && !el; i++) {
-    el = pane.editor.getDomNode()?.querySelector<HTMLElement>('.tc-blame') ?? null;
-    if (!el) await new Promise(r => setTimeout(r, 50));
-  }
-  if (!el) return false;
-  const r = el.getBoundingClientRect();
-  const init: PointerEventInit = {
-    bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
-    button: 0, buttons: 1, pointerId: 1, pointerType: 'mouse', isPrimary: true,
-  };
-  // What a mouse click sends; Monaco's desktop mouse handler acts on mousedown.
-  el.dispatchEvent(new PointerEvent('pointerdown', init));
-  el.dispatchEvent(new MouseEvent('mousedown', init));
-  el.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
-  el.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
-  return true;
-}
-
 /** The element that takes the keyboard input of the editor a pane shows. */
 function inputOf(pane: Pane): HTMLElement | null {
   return pane.editor.getDomNode()?.querySelector('.native-edit-context, textarea') ?? null;
@@ -1272,8 +1238,7 @@ function probe(action: ProbeAction): unknown {
       (pane.diff.editor as unknown as { revertFocusedRangeMappings(): void }).revertFocusedRangeMappings();
       return true;
     }
-    case 'blame':
-    case 'blameClick': {
+    case 'blame': {
       const pane = panes.find(p => p.section.key === action.key);
       if (!pane) return null;
       pane.editor.setPosition({ lineNumber: action.line, column: 1 });
@@ -1287,8 +1252,7 @@ function probe(action: ProbeAction): unknown {
         sha: shown?.commit.sha || null,
         hover: shown ? blameHover(shown.commit).value : null,
       };
-      if (action.kind === 'blame') return result;
-      return clickBlame(pane).then(clicked => ({ ...result, clicked }));
+      return result;
     }
   }
 }
@@ -1419,7 +1383,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   font: 11px var(--vscode-font-family); color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); opacity: 0.9; }
 /* Blame of the current line, after its end (like GitLens' current line blame). */
 .monaco-editor .view-line .tc-blame { color: var(--vscode-editorCodeLens-foreground, #999999) !important; opacity: 0.8; font-style: italic;
-  margin-left: 3em; cursor: pointer; }
+  margin-left: 3em; }
 `;
 document.head.appendChild(style);
 

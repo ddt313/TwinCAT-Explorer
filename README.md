@@ -82,7 +82,7 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   - The end of the current line shows who changed it last, when, and the commit message
     (`You, 2 days ago • Fix the purge timer`).
   - The hover adds the date, `Open Changes` and `Show History`. `Open Changes` shows the commit's
-    changes of this object in the commit diff panel; a click on the annotation does the same.
+    changes of this object in the commit diff panel.
   - Lines changed since `HEAD`, saved or not, show `Uncommitted changes`.
   - `TwinCAT: Toggle Line Blame` or `twincatExplorer.blame.currentLine` turns it off.
 

@@ -46,6 +46,32 @@ extension's popup (its toolbar button, on a page of the instance) has turned it 
 
 Read-only: no commenting.
 
+## Releases
+
+The browser extension is released on its own, from the same repository as the VS Code extension:
+
+| | VS Code extension | Browser extension |
+| --- | --- | --- |
+| Version | `package.json` | `browser/static/manifest.json` |
+| Changes | `CHANGELOG.md` | `browser/CHANGELOG.md` |
+| Tags | `v0.13.0` | `browser-v0.1.0` |
+| Workflow | `.github/workflows/release.yml` | `.github/workflows/release-browser.yml` |
+| Release | a `.vsix` on GitHub, and the Marketplace | a zip on GitHub, never marked as the latest release |
+
+- **To release**: set the manifest's `version` (and `version_name` for a pre-release such as `0.2.0-beta.1`), turn
+  the changelog's *Unreleased* into `## 0.1.0 - <date>`, merge, then tag that commit `browser-v0.1.0` and push the
+  tag. The workflow tests, builds, checks the tag against the manifest, and attaches
+  `explorer-for-twincat-browser-0.1.0.zip` with the changelog's section and how to install as its notes.
+- **To install**: the zip holds one folder, loaded unpacked (*Developer mode*, *Load unpacked*); an update replaces
+  that folder, then the extension is reloaded. The manifest's `key` gives the extension one ID wherever its folder
+  is (`lhebeklloefnhcpmnolimpcnljneeijp`), so the sites turned on stay on. There is no private key: nothing is signed
+  outside a store, and a store listing would get the store's ID (the sites would be turned on again). A build of
+  `browser/dist` has the same ID: a browser holds either it or a release.
+- **Checks** (`.github/workflows/ci.yml`), on a pull request and on develop and master: the VS Code extension
+  (tests, a `.vsix` without `browser/`) when a file outside the browser extension's changed; the browser extension
+  (tests, build) when `browser/`, the core it is built on (`src/core`, `src/lang`), its tests or the build's setup
+  changed. Both packages are artifacts of the run, for trying a pull request out.
+
 ## How it is built
 
 | File | Role |

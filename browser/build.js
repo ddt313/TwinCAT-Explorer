@@ -1,6 +1,7 @@
 // Builds the browser extension (a spike, see browser/SPIKE.md) into browser/dist, the folder to load as an
-// unpacked extension in Chrome or Edge: content.js, viewer.js and background.js bundled from browser/src with
-// the platform-free core of the VS Code extension, beside the static files. Usage: node browser/build.js [--dev]
+// unpacked extension in Chrome or Edge: content.js, viewer.js, tree.js and background.js bundled from browser/src
+// with the platform-free core of the VS Code extension, beside the static files and the tree's icons
+// (media/icons). Usage: node browser/build.js [--dev]
 const fs = require('fs');
 const path = require('path');
 const esbuild = require('esbuild');
@@ -8,7 +9,7 @@ const esbuild = require('esbuild');
 const here = __dirname;
 const out = path.join(here, 'dist');
 const dev = process.argv.includes('--dev');
-const bundles = ['content', 'viewer', 'background'];
+const bundles = ['content', 'viewer', 'tree', 'background'];
 
 (async () => {
   fs.rmSync(out, { recursive: true, force: true });
@@ -27,6 +28,7 @@ const bundles = ['content', 'viewer', 'background'];
   });
   for (const f of fs.readdirSync(path.join(here, 'static'))) fs.copyFileSync(path.join(here, 'static', f), path.join(out, f));
   fs.copyFileSync(path.join(here, '..', 'media', 'icon.png'), path.join(out, 'icon.png'));
+  fs.cpSync(path.join(here, '..', 'media', 'icons'), path.join(out, 'icons'), { recursive: true });
   // The core's decodeBytes and encodeText use Node's Buffer: no bundle may keep them.
   for (const b of bundles) {
     if (/\bBuffer\b/.test(fs.readFileSync(path.join(out, `${b}.js`), 'utf8'))) throw new Error(`${b}.js uses Node's Buffer`);

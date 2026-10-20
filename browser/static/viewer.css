@@ -231,3 +231,7 @@ a.xml:hover { text-decoration: underline; }
 .diag summary { cursor: pointer; }
 .diag ul { margin: 4px 0; padding-left: 18px; }
 .diag button { margin: 4px 0; font-size: 12px; }
+
+/* An object the tree went to. */
+@keyframes tcx-flash { from { background: var(--fold); } to { background: transparent; } }
+.obj.flash > .obj-head { animation: tcx-flash 1.6s ease-out; }

@@ -36,25 +36,34 @@ The view of a file:
 - a *Diagnostics* block: the commits and where they came from, how each file was read, whether WebAssembly
   runs in the frame, and a button that tries every way of reading the file.
 
+Above GitHub's file tree, **Files | TwinCAT** tabs (the choice is remembered): *TwinCAT* shows the pull
+request's changes as XAE's Solution Explorer shows a project (see [The tree of the changes](#the-tree-of-the-changes)).
+A click on an object opens its file's TwinCAT view at that object.
+
 Read-only: no commenting.
 
 ## How it is built
 
 | File | Role |
 | --- | --- |
-| `src/content.ts` | Content script, the only code that knows GitHub's DOM: finds the TwinCAT files' blocks, adds the toggle, puts the viewer frame in place of the diff, passes the pull request's coordinates, scrolls to a line. |
-| `src/viewer.ts` + `static/viewer.html`, `viewer.css` | The viewer, an extension page in an iframe (`web_accessible_resources`): reads the two versions, builds the model, renders it. |
+| `src/content.ts` | Content script, the only code that knows GitHub's DOM: finds the TwinCAT files' blocks, adds the toggle, puts the viewer frame in place of the diff, passes the pull request's coordinates, scrolls to a line; adds the tabs and the tree's frame above GitHub's file tree, takes the tree's clicks to the files. |
+| `src/viewer.ts` + `static/viewer.html`, `viewer.css` | The viewer, an extension page in an iframe (`web_accessible_resources`): reads the two versions, builds the model, renders it, opens an object the tree asks for. |
+| `src/tree.ts` + `static/tree.html`, `tree.css` | The tree panel, another extension page in an iframe: lists the pull request's TwinCAT files, reads them all, renders the tree. |
 | `src/model.ts` | Platform-free model of one file: object views, section line diffs, XML line of each section line. |
-| `src/github.ts` | Platform-free GitHub knowledge: URLs, the commits in a page's markup, the frame's parameters. |
+| `src/treeModel.ts` | Platform-free tree of the changes: folders, files as their objects, changed members, groups for build output and project files. |
+| `src/github.ts` | Platform-free GitHub knowledge: URLs, the commits in a page's markup, the files of a pull request's diff, the frames' parameters. |
+| `src/reader.ts` | Reading a file in a frame, the three ways of question 1 in turn. |
 | `src/lineDiff.ts` | Myers line diff (as git's default) with deletions before additions in each block, and the changed middle of a line. |
 | `src/highlight.ts` | Structured Text highlighting from `src/lang/lexer.ts`. |
 | `src/background.ts` | Service worker: one of the ways to read a file (see question 1). |
-| `build.js`, `tsconfig.json` | esbuild bundles (content 8 KB, viewer 28 KB, worker 1 KB, minified); `tsc` checks with the DOM library and without Node's types. |
+| `build.js`, `tsconfig.json` | esbuild bundles (content 11 KB, viewer 29 KB, tree 24 KB, worker 1 KB, minified) and the tree's icons (`media/icons`); `tsc` checks with the DOM library and without Node's types. |
 
-The core is used as it is, without a fork and without changes: `parseTcText` (`src/core/tcfile.ts`) parses both
-versions, `viewChanges` (`objectChanges.ts`) says which object views changed (and their old names),
-`viewSections` and `viewLabel` (`objectText.ts`) give the sections of a view, `sectionFileLines` the XML line of
-each section line, `metadataChange` and `onlyTmcHashChanged` the label of a file without code changes.
+The core is used as it is, without a fork: `parseTcText` (`src/core/tcfile.ts`) parses both versions,
+`viewChanges` (`objectChanges.ts`) says which object views changed (and their old names), `viewSections` and
+`viewLabel` (`objectText.ts`) give the sections of a view, `sectionFileLines` the XML line of each section line,
+`metadataChange` and `onlyTmcHashChanged` the label of a file without code changes. One change, for the tree: XAE's
+labels, sort order and icon names moved from `src/vscode/tree.ts` (which imports `vscode`) to
+`src/core/treeLabels.ts`, which both extensions use; the VS Code extension behaves as before.
 `tcfile.ts` mentions Node's `Buffer` in `decodeBytes`/`encodeText`; the extension decodes with `TextDecoder`
 instead, esbuild drops both functions, and `build.js` fails if a bundle mentions `Buffer`.
 
@@ -62,10 +71,44 @@ The model adds two things on top of `viewChanges`: unchanged objects are listed 
 object whose graphical implementation (CFC, SFC, FBD/LD) changed is *modified* even though its Structured Text
 did not (`viewChanges` compares ST only; its XML is compared here). Graphical code itself is not drawn.
 
-Unit tests: `test/unit/browserView.test.ts` (16 tests, part of `npm test`) on made-up files: a modified method,
+Unit tests: `test/unit/browserView.test.ts` (18 tests, part of `npm test`) on made-up files: a modified method,
 an added and a deleted method, a changed property Get, a deleted accessor and property, a renamed method, a
 metadata-only change, project files, a new, deleted and renamed file, CRLF files, a changed CFC action, a broken
-file, the line diff (checked against an LCS on random inputs), and the GitHub helpers.
+file, the line diff (checked against an LCS on random inputs), the GitHub helpers, the tree of a pull request's
+changes, and the files of a pull request's diff.
+
+## The tree of the changes
+
+Built after the spike's questions: the pull request's TwinCAT changes as XAE's Solution Explorer shows a
+project, in a panel that takes the place of GitHub's file tree when its *TwinCAT* tab is on.
+
+- **Content.** The folders of the changed files (a chain of single folders on one row, as GitHub does); each
+  file as its object, labelled and drawn as XAE does (`FB_Valve (FB)`, `E_Mode (ENUM)`, the VS Code extension's
+  icons); under it the methods, properties, Get/Set, actions and transitions that changed, in the folders
+  TwinCAT keeps inside a POU, with an A/M/D/R letter and *renamed from …* / *moved from …*. A property whose
+  accessor changed is in the tree, dimmed, to hold it. Folders first, then by name, like `src/vscode/tree.ts`.
+  Files without code changes go to *Build output (no code changes)* with their label (ProductVersion, TmcHash),
+  as in the VS Code extension's TwinCAT Changes view; other project files to *Project files*.
+- **The list of files** comes from the pull request's diff, `github.com/{owner}/{repo}/pull/{n}.diff`, read with
+  the session like the raw files: it answers `302` to `patch-diff.githubusercontent.com`, which sends no CORS
+  header, so only the frame or the service worker can read it (with a host permission), not the page. Its headers
+  give every file with its old path and whether it was added or deleted (`filesInDiff`), without the DOM, and
+  also the files whose diff GitHub has not loaded yet. When the diff cannot be read, the tree takes the page's
+  list: the rows of GitHub's file tree (`[role="treeitem"] a[href^="#diff-…"]`, the path being a text of the row
+  whose sha256 is the anchor, like the blocks' headers) and the blocks themselves (old paths of renamed files).
+  On pcdshub/lcls-twincat-motion#249 both give the same 31 files and 125 changed objects.
+- **Reading.** Every file at the merge base and at the head (one side only for an added or deleted file), four
+  at a time, the tree filling in as they come: #249 (18 files added, 3 deleted, 1 renamed, 9 modified) means 41
+  reads, a few seconds in the background. The views then read the same URLs, mostly from the browser's cache.
+- **A click** on an object: the content script clicks GitHub's own tree link for the file (or sets the
+  location's hash), which makes GitHub scroll to it and load its diff if needed; then turns the file's TwinCAT
+  view on and asks the viewer for the object. The viewer opens it (out of its folded group of unchanged objects if
+  it is in one), marks it, and says where it is; the page scrolls it to just below GitHub's sticky bars. On #249,
+  `StateMachine` of `FB_MotionStageE727` lands 150 px from the top of the window.
+- **Hooks it adds**: the panel of GitHub's file tree (classic: `<file-tree>` and its filter field; React:
+  `[role="tree"][aria-label*="file"]` and its filter field, *pending*), medium brittleness; without it the tabs
+  and the tree float at the bottom left of the window. The tree rows, only when the diff cannot be read. GitHub's
+  link to a file, which is its public anchor format.
 
 ## 1. Can both versions be fetched with the session, private repositories and renames included?
 
@@ -166,7 +209,10 @@ toggle says so. The coupling is GitHub's public line-link format only. React pag
 - reading files: keep the way the private-repository test shows works, drop the others: 1 day;
 - the viewer: TextMate highlighting with the extension's grammar (wasm, see 2), better pairing of changed lines,
   keyboard navigation, the commit ranges a review can select: 3 to 4 days;
-- labels on the file headers without opening the view (metadata only, objects changed), cached reads: 2 days;
+- the tree (working here): a filter field, keyboard navigation, the row of the file in view marked, GitHub's
+  *Viewed* state, one cache for the tree's and the views' reads: 2 to 3 days;
+- labels on the file headers without opening the view (metadata only, objects changed), from the tree's reads:
+  1 day;
 - packaging for the Chrome Web Store and Edge Add-ons, a privacy note, a CI build, an end-to-end smoke test with
   a headless browser: 3 days.
 
@@ -190,7 +236,7 @@ requested at run time for self-managed GitLab instances. Bitbucket would be anot
 
 ## How it was tested
 
-- `npm test`: 108 tests, the 16 above included.
+- `npm test`: 110 tests, the 18 above included.
 - Headless Edge 155 with the unpacked extension (`--load-extension`, which Chrome 137+ ignores) in a throwaway
   profile, driven over the DevTools protocol, signed out (so GitHub serves the classic page), in light and dark
   mode: toggle on and off, viewer contents, frame size, diagnostics, a line link and where it lands, screenshots.
@@ -209,4 +255,8 @@ requested at run time for self-managed GitLab instances. Bitbucket would be anot
     show *No code changed: XML only, no code*: `metadataChange` names a ProductVersion change only when the
     attribute is in both versions (its removal leaves a space behind in what it compares). Teaching it the
     removal would change the label in the VS Code extension too, so the spike leaves it.
+- The tree, the same way on pcdshub/lcls-twincat-motion#249, in light and dark mode: the tabs above GitHub's
+  file tree, the tree read from the pull request's diff and, with a copy of the extension that cannot read the
+  diff, from the page's list (the same 31 files and 125 changed objects); a click on `StateMachine` opens
+  `FB_MotionStageE727`'s view at that method, 150 px from the top of the window.
 - *Pending:* a signed-in Chrome or Edge on the React page, with a private repository.

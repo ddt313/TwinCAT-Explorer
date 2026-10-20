@@ -3,9 +3,10 @@
 
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ViewerParams, commitsInPage, decodeParams, encodeParams, filesPage, isTwinCatFile, rawUrl } from '../../browser/src/github';
+import { ViewerParams, commitsInPage, decodeParams, encodeParams, filesInDiff, filesPage, isTwinCatFile, rawUrl } from '../../browser/src/github';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { FileInput, FileView, ObjectView, buildFileView } from '../../browser/src/model';
+import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
 
 const POU = '{a1000000-0000-0000-0000-000000000001}';
 const INIT = '{a1000000-0000-0000-0000-000000000002}';
@@ -382,4 +383,136 @@ test('github: the parameters of a viewer frame go through its URL', () => {
   assert.equal(decodeParams('#o=acme&r=plc&n=12&b=main&h=x&p=a.TcPOU'), undefined);
   // Only GitHub's file anchor goes into the links.
   assert.equal(decodeParams(`#${encodeParams({ ...p, anchor: 'diff-1" onclick="x' })}`)?.anchor, '');
+});
+
+// ------------------------------------------------------------------ the tree of the changes
+
+/** A function block without members, to fill a folder. */
+function pou(name: string, id: string, version = '3.1.4024.12'): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="${version}">
+  <POU Name="${name}" Id="${id}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ${name}]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>`;
+}
+
+const ENUM = `<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="E_Mode" Id="{b1000000-0000-0000-0000-000000000001}">
+    <Declaration><![CDATA[TYPE E_Mode :
+(
+	Auto,
+	Manual
+);
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>`;
+
+/** The tree as text: one node a line, indented, with its change letter and description. */
+function treeText(nodes: TreeNode[], depth = 0): string[] {
+  return nodes.flatMap(n => [
+    `${'  '.repeat(depth)}${n.label}${n.change ? ` [${n.change[0].toUpperCase()}]` : ''}${n.muted ? ' (unchanged)' : ''}${n.description ? ` · ${n.description}` : ''}`,
+    ...treeText(n.children, depth + 1),
+  ]);
+}
+
+test('tree: folders, each file as its object with the members that changed, in the order of XAE; build output apart', () => {
+  const valveAfter = valve({ close: false, reset: true, openImpl: 'bOpened := TRUE;', getImpl: 'State := 1;' })
+    .replace(`<Method Name="Reset" Id="${RESET}">`, `<Method Name="Reset" Id="${RESET}" FolderPath="Internal\\">`);
+  const tsproj = (hash: string) => `<TcSmProject>\r\n<Project TmcHash="{${hash}}" />\r\n</TcSmProject>`;
+  const file = (path: string, input: Omit<FileInput, 'path'>, anchor = path) => ({ path, oldPath: input.oldPath, anchor, view: buildFileView({ path, ...input }) });
+  const files = [
+    file('PLC/POUs/Valves/FB_Valve.TcPOU', { before: valve(), after: valveAfter }),
+    file('PLC/POUs/Valves/FB_Valve2.TcPOU', { oldPath: 'PLC/POUs/FB_Valve2.TcPOU', before: pou('FB_Valve2', POU), after: pou('FB_Valve2', POU) }),
+    file('PLC/DUTs/E_Mode.TcDUT', { after: ENUM }),
+    file('PLC/POUs/FB_Pump.TcPOU', { before: pou('FB_Pump', INIT), after: pou('FB_Pump', INIT, '3.1.4026.13') }),
+    file('Machine.tsproj', { before: tsproj('AAAA-1'), after: tsproj('BBBB-2') }),
+  ];
+  assert.deepEqual(treeText(buildTree(files)), [
+    'PLC',
+    '  DUTs',
+    '    E_Mode (ENUM) [A]',
+    '  POUs/Valves',
+    '    FB_Valve (FB)',
+    '      Internal',
+    '        Reset [A]',
+    '      Close [D]',
+    '      Open [M]',
+    '      State (unchanged)',
+    '        Get [M]',
+    '    FB_Valve2 (FB) [R] · moved from PLC/POUs',
+    'Build output (no code changes) · 2',
+    '  FB_Pump (FB) [M] · ProductVersion 3.1.4024.12 → 3.1.4026.13',
+    '  Machine.tsproj [M] · TmcHash only, rewritten by a build',
+  ]);
+  // Where a click goes: the file's block, the object (and accessor) in its view.
+  const valveNode = buildTree(files)[0].children[1].children[0];
+  const get = valveNode.children.find(n => n.label === 'State')!.children[0];
+  assert.deepEqual([get.anchor, get.objectId, get.accessor], ['PLC/POUs/Valves/FB_Valve.TcPOU', STATE.slice(1, -1), 'Get']);
+  assert.deepEqual([valveNode.icon, get.icon], ['fb', 'get']);
+  // While a file is read it shows by its name.
+  assert.deepEqual(treeText(buildTree([{ path: 'PLC/POUs/FB_Valve.TcPOU', anchor: 'x' }])), ['PLC/POUs', '  FB_Valve · reading…']);
+  assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU', anchor: 'y' }]), { files: 6, objects: 5, reading: 1 });
+});
+
+test('github: the files of a pull request\'s diff, renamed, added, deleted and quoted ones included', () => {
+  const diff = String.raw`diff --git a/PLC/POUs/FB_Valve.TcPOU b/PLC/POUs/FB_Valve.TcPOU
+index 1111111..2222222 100644
+--- a/PLC/POUs/FB_Valve.TcPOU
++++ b/PLC/POUs/FB_Valve.TcPOU
+@@ -1,3 +1,3 @@
+--- a removed line that looks like a header
++++ b/not/a/file
+diff --git a/PLC/POUs/FB_Old.TcPOU b/PLC/POUs/Valves/FB_New.TcPOU
+similarity index 90%
+rename from PLC/POUs/FB_Old.TcPOU
+rename to PLC/POUs/Valves/FB_New.TcPOU
+index 3333333..4444444 100644
+--- a/PLC/POUs/FB_Old.TcPOU
++++ b/PLC/POUs/Valves/FB_New.TcPOU
+@@ -1 +1 @@
+-x
++y
+diff --git a/PLC/DUTs/E_Moved.TcDUT b/PLC/DUTs/Enums/E_Moved.TcDUT
+similarity index 100%
+rename from PLC/DUTs/E_Moved.TcDUT
+rename to PLC/DUTs/Enums/E_Moved.TcDUT
+diff --git a/PLC/GVLs/GVL_New.TcGVL b/PLC/GVLs/GVL_New.TcGVL
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/PLC/GVLs/GVL_New.TcGVL
+@@ -0,0 +1 @@
++x
+diff --git a/PLC/POUs/FB_Gone.TcPOU b/PLC/POUs/FB_Gone.TcPOU
+deleted file mode 100644
+index 6666666..0000000
+--- a/PLC/POUs/FB_Gone.TcPOU
++++ /dev/null
+@@ -1 +0,0 @@
+-x
+diff --git "a/PLC/POUs/FB_Gr\303\266\303\237e.TcPOU" "b/PLC/POUs/FB_Gr\303\266\303\237e.TcPOU"
+index 7777777..8888888 100644
+--- "a/PLC/POUs/FB_Gr\303\266\303\237e.TcPOU"
++++ "b/PLC/POUs/FB_Gr\303\266\303\237e.TcPOU"
+@@ -1 +1 @@
+-x
++y
+diff --git a/My POUs/FB_Mode.TcPOU b/My POUs/FB_Mode.TcPOU
+old mode 100644
+new mode 100755
+`;
+  assert.deepEqual(filesInDiff(diff.replace(/\n/g, '\r\n')), [
+    { path: 'PLC/POUs/FB_Valve.TcPOU', status: 'modified' },
+    { path: 'PLC/POUs/Valves/FB_New.TcPOU', oldPath: 'PLC/POUs/FB_Old.TcPOU', status: 'renamed' },
+    { path: 'PLC/DUTs/Enums/E_Moved.TcDUT', oldPath: 'PLC/DUTs/E_Moved.TcDUT', status: 'renamed' },
+    { path: 'PLC/GVLs/GVL_New.TcGVL', status: 'added' },
+    { path: 'PLC/POUs/FB_Gone.TcPOU', status: 'deleted' },
+    { path: 'PLC/POUs/FB_Größe.TcPOU', status: 'modified' },
+    { path: 'My POUs/FB_Mode.TcPOU', status: 'modified' },
+  ]);
 });

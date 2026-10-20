@@ -3,12 +3,13 @@
 // shows its objects in the layout of the VS Code extension's commit diff: each changed object with its
 // Declaration diff above its Implementation diff, unchanged objects collapsed. Read-only.
 
-import { fetchText } from './fetchText';
+import { KIND_WORD } from '../../src/core/treeLabels';
 import { decodeParams, lineAnchor, rawUrl } from './github';
 import { Span, highlightLines } from './highlight';
 import { lineChange } from './lineDiff';
 import { DiffLine, FileView, ObjectView, buildFileView } from './model';
-import { FetchResult, FrameMessage, PageMessage } from './protocol';
+import { FrameMessage, PageMessage } from './protocol';
+import { Attempt, ORDER, Reader } from './reader';
 
 const GITHUB = 'https://github.com';
 /** Unchanged lines shown around a change; longer runs are folded. */
@@ -21,109 +22,8 @@ const post = (m: FrameMessage) => window.parent.postMessage(m, GITHUB);
 
 // ------------------------------------------------------------------ reading the two versions
 
-/**
- * The ways a file can be read, tried in this order until one works: from this frame (an extension page, with
- * host permissions), from the service worker, and from the GitHub page itself (same origin as github.com).
- */
-type Strategy = 'frame' | 'worker' | 'page';
-const ORDER: Strategy[] = ['frame', 'worker', 'page'];
-
-interface Attempt {
-  what: string;
-  strategy: Strategy;
-  status: number;
-  host?: string;
-  ms: number;
-  ok: boolean;
-  error?: string;
-}
-
-const attempts: Attempt[] = [];
+const files = new Reader(post);
 const probes: Attempt[] = [];
-/** The way that read a file of this repository: a 404 from it means the file is not in that version. */
-let reader: Strategy | undefined;
-
-const pending = new Map<number, (r: FetchResult) => void>();
-let nextId = 0;
-window.addEventListener('message', e => {
-  if (e.origin !== GITHUB || e.source !== window.parent) return;
-  const m = e.data as PageMessage;
-  if (m?.tcx !== 'fetched') return;
-  pending.get(m.id)?.(m.result);
-  pending.delete(m.id);
-});
-
-function viaPage(url: string): Promise<FetchResult> {
-  const id = ++nextId;
-  return new Promise(resolve => {
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      resolve({ ok: false, status: 0, error: 'the page did not answer' });
-    }, 20000);
-    pending.set(id, r => {
-      clearTimeout(timer);
-      resolve(r);
-    });
-    post({ tcx: 'fetch', id, url });
-  });
-}
-
-const STRATEGIES: Record<Strategy, (url: string) => Promise<FetchResult>> = {
-  frame: url => fetchText(url, 'include'),
-  worker: url => chrome.runtime.sendMessage<FetchResult>({ tcx: 'fetch', url })
-    .then(r => r ?? { ok: false, status: 0, error: 'no answer' }, e => ({ ok: false, status: 0, error: String(e) })),
-  page: viaPage,
-};
-
-/** A raw file, not an HTML page (a sign-in page, an error page). */
-const isFile = (r: FetchResult) => r.ok && r.text !== undefined && !/text\/html/i.test(r.contentType ?? '');
-
-async function attempt(what: string, strategy: Strategy, url: string, log: Attempt[]): Promise<FetchResult> {
-  const start = performance.now();
-  const r = await STRATEGIES[strategy](url);
-  let host: string | undefined;
-  try {
-    host = r.url ? new URL(r.url).host : undefined;
-  } catch {
-    host = undefined;
-  }
-  log.push({
-    what, strategy, status: r.status, host, ms: Math.round(performance.now() - start), ok: isFile(r),
-    error: r.error ?? (r.ok && !isFile(r) ? `not a file (${r.contentType})` : undefined),
-  });
-  return r;
-}
-
-interface Read {
-  text?: string;
-  /** The way that reads this repository did not find the file. */
-  absent?: boolean;
-  statuses: Map<Strategy, number>;
-}
-
-async function read(what: string, sha: string, path: string): Promise<Read> {
-  const url = rawUrl(params!, sha, path);
-  const statuses = new Map<Strategy, number>();
-  for (const strategy of reader ? [reader, ...ORDER.filter(s => s !== reader)] : ORDER) {
-    const r = await attempt(what, strategy, url, attempts);
-    statuses.set(strategy, r.status);
-    if (isFile(r)) {
-      reader ??= strategy;
-      return { text: r.text, statuses };
-    }
-    if (strategy === reader && r.status === 404) return { absent: true, statuses };
-  }
-  return { statuses };
-}
-
-/** The text of a version, undefined when the file is not in it, null when it could not be read. */
-function textOf(r: Read | undefined): string | undefined | null {
-  if (!r) return undefined;
-  if (r.text !== undefined) return r.text;
-  // Read before the way that works was known: what that way answered tells.
-  if (r.absent || (reader && r.statuses.get(reader) === 404)) return undefined;
-  return null;
-}
 
 async function main(): Promise<void> {
   post({ tcx: 'ready' });
@@ -131,10 +31,10 @@ async function main(): Promise<void> {
     root.innerHTML = '<p class="notice error">This view did not get the file to show.</p>';
     return;
   }
-  const head = params.deleted ? undefined : await read('head', params.head, params.path);
-  const base = await read('base', params.base, params.oldPath ?? params.path);
-  const after = textOf(head);
-  const before = textOf(base);
+  const head = params.deleted ? undefined : await files.read('head', rawUrl(params, params.head, params.path));
+  const base = await files.read('base', rawUrl(params, params.base, params.oldPath ?? params.path));
+  const after = files.textOf(head);
+  const before = files.textOf(base);
   if (after === null || before === null || (after === undefined && before === undefined)) {
     view = undefined;
     root.innerHTML = `<p class="notice error">The file could not be read from GitHub with this browser's session
@@ -143,6 +43,7 @@ async function main(): Promise<void> {
   }
   view = buildFileView({ path: params.path, oldPath: params.oldPath, before, after });
   render();
+  if (pendingReveal) reveal(pendingReveal.objectId, pendingReveal.accessor);
 }
 
 // ------------------------------------------------------------------ rendering
@@ -153,9 +54,6 @@ const highlights = new Map<string, { old: Span[][]; now: Span[][]; pairs: Map<nu
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const short = (sha: string) => sha.slice(0, 7);
 
-const KIND: Record<string, string> = {
-  pou: 'POU', method: 'Method', property: 'Property', action: 'Action', transition: 'Transition', dut: 'DUT', gvl: 'GVL', itf: 'Interface',
-};
 const BADGE: Record<string, string> = { added: 'A', modified: 'M', deleted: 'D' };
 
 function render(): void {
@@ -209,7 +107,7 @@ function objectHtml(i: number, open: boolean): string {
   const o = view!.objects[i];
   const badge = BADGE[o.change];
   return `<div class="obj obj-${o.change} d${o.depth}${open ? ' open' : ''}" data-o="${i}">
-    <div class="obj-head" role="button" tabindex="0" aria-expanded="${open}"><span class="chev"></span>${badge ? `<span class="badge b-${o.change}" title="${o.change}">${badge}</span>` : ''}<span class="name">${esc(o.label)}</span><span class="kind">${o.accessor ? `${o.accessor} accessor` : KIND[o.kind]}</span>${o.renamedFrom ? `<span class="renamed">renamed from ${esc(o.renamedFrom)}</span>` : ''}${o.change === 'unchanged' ? '<span class="muted">unchanged</span>' : stat(o.added, o.deleted)}</div>
+    <div class="obj-head" role="button" tabindex="0" aria-expanded="${open}"><span class="chev"></span>${badge ? `<span class="badge b-${o.change}" title="${o.change}">${badge}</span>` : ''}<span class="name">${esc(o.label)}</span><span class="kind">${o.accessor ? `${o.accessor} accessor` : KIND_WORD[o.kind]}</span>${o.renamedFrom ? `<span class="renamed">renamed from ${esc(o.renamedFrom)}</span>` : ''}${o.change === 'unchanged' ? '<span class="muted">unchanged</span>' : stat(o.added, o.deleted)}</div>
     <div class="obj-body">${open ? o.sections.map((_, s) => sectionHtml(i, s)).join('') : ''}</div></div>`;
 }
 
@@ -358,7 +256,7 @@ function diagnosticsHtml(): string {
   return `<details class="diag"><summary>Diagnostics</summary><ul>
     ${p ? `<li>Commits: base <code>${p.base}</code>, head <code>${p.head}</code> <span class="muted">(${esc(p.source ?? 'unknown source')})</span></li>
     <li>Paths: <code>${esc(p.path)}</code>${p.oldPath ? ` (base: <code>${esc(p.oldPath)}</code>)` : ''}</li>` : ''}
-    ${attemptsHtml(attempts)}
+    ${attemptsHtml(files.attempts)}
     <li>WebAssembly in this frame: ${esc(wasm())}</li>
     <li>Frame: <code>${esc(location.origin)}</code></li>
   </ul>
@@ -370,7 +268,7 @@ async function probeAll(button: HTMLButtonElement): Promise<void> {
   if (!params) return;
   button.disabled = true;
   const [what, sha, path] = params.deleted ? ['base', params.base, params.oldPath ?? params.path] : ['head', params.head, params.path];
-  for (const strategy of ORDER) await attempt(`probe ${what}`, strategy, rawUrl(params, sha, path), probes);
+  for (const strategy of ORDER) await files.attempt(`probe ${what}`, strategy, rawUrl(params, sha, path), probes);
   const list = button.nextElementSibling;
   if (list) list.innerHTML = attemptsHtml(probes);
   button.disabled = false;
@@ -378,10 +276,55 @@ async function probeAll(button: HTMLButtonElement): Promise<void> {
 
 // ------------------------------------------------------------------ interaction
 
-function setOpen(el: Element, head: Element, open: boolean): void {
-  el.classList.toggle('open', open);
+/** Opens or closes an object, a section or a group of unchanged objects, rendering its contents the first time. */
+function setOpen(box: HTMLElement, open: boolean): void {
+  const head = box.querySelector(':scope > .obj-head, :scope > .sec-head, :scope > .group-head')!;
+  const body = box.querySelector(':scope > .obj-body, :scope > .sec-body, :scope > .group-body')!;
+  if (open && body.childElementCount === 0) {
+    if (box.classList.contains('obj')) {
+      const i = Number(box.dataset.o);
+      body.innerHTML = view!.objects[i].sections.map((_, s) => sectionHtml(i, s)).join('');
+    } else if (box.classList.contains('sec')) {
+      body.innerHTML = tableHtml(Number(box.dataset.o), Number(box.dataset.s));
+    } else {
+      const items: string[] = [];
+      for (let i = Number(box.dataset.from); i < Number(box.dataset.to); i++) items.push(objectHtml(i, false));
+      body.innerHTML = items.join('');
+    }
+  }
+  box.classList.toggle('open', open);
   head.setAttribute('aria-expanded', String(open));
 }
+
+/** An object view the tree asked for, before the view was rendered. */
+let pendingReveal: { objectId: string; accessor?: string } | undefined;
+
+/** Opens an object view (out of its group of unchanged objects, if it is in one) and tells the page where it is. */
+function reveal(objectId: string, accessor?: string): void {
+  pendingReveal = undefined;
+  const i = view?.objects.findIndex(o => o.objectId === objectId && o.accessor === accessor) ?? -1;
+  if (i < 0) return;
+  let box = root.querySelector<HTMLElement>(`.obj[data-o="${i}"]`);
+  if (!box) {
+    const group = [...root.querySelectorAll<HTMLElement>('.group')].find(g => Number(g.dataset.from) <= i && i < Number(g.dataset.to));
+    if (group) setOpen(group, true);
+    box = root.querySelector<HTMLElement>(`.obj[data-o="${i}"]`);
+  }
+  if (!box) return;
+  setOpen(box, true);
+  box.classList.remove('flash');
+  void box.offsetWidth;
+  box.classList.add('flash');
+  post({ tcx: 'scroll', top: box.getBoundingClientRect().top + window.scrollY });
+}
+
+window.addEventListener('message', e => {
+  if (e.origin !== GITHUB || e.source !== window.parent) return;
+  const m = e.data as PageMessage;
+  if (m?.tcx !== 'reveal') return;
+  if (view) reveal(m.objectId, m.accessor);
+  else pendingReveal = { objectId: m.objectId, accessor: m.accessor };
+});
 
 root.addEventListener('click', e => {
   const target = e.target as Element;
@@ -407,23 +350,8 @@ root.addEventListener('click', e => {
   }
   const head = target.closest('.obj-head, .sec-head[role="button"], .group-head');
   if (!head) return;
-  const box = head.parentElement!;
-  const open = !box.classList.contains('open');
-  const body = box.querySelector(':scope > .obj-body, :scope > .sec-body, :scope > .group-body')!;
-  if (open && body.childElementCount === 0) {
-    if (box.classList.contains('obj')) {
-      const i = Number((box as HTMLElement).dataset.o);
-      body.innerHTML = view!.objects[i].sections.map((_, s) => sectionHtml(i, s)).join('');
-    } else if (box.classList.contains('sec')) {
-      body.innerHTML = tableHtml(Number((box as HTMLElement).dataset.o), Number((box as HTMLElement).dataset.s));
-    } else {
-      const { from, to } = (box as HTMLElement).dataset;
-      const items: string[] = [];
-      for (let i = Number(from); i < Number(to); i++) items.push(objectHtml(i, false));
-      body.innerHTML = items.join('');
-    }
-  }
-  setOpen(box, head, open);
+  const box = head.parentElement as HTMLElement;
+  setOpen(box, !box.classList.contains('open'));
 });
 
 root.addEventListener('keydown', e => {

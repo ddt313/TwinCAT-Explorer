@@ -5,7 +5,7 @@
 
 import { ViewChange, changeKey, metadataChange, onlyTmcHashChanged, viewChanges } from '../../src/core/objectChanges';
 import { Accessor, viewLabel, viewSections } from '../../src/core/objectText';
-import { ObjectKind, Section, TcSourceFile, normalizeEol, parseTcText, sectionFileLines } from '../../src/core/tcfile';
+import { DutKind, ObjectKind, PouKind, Section, TcSourceFile, normalizeEol, parseTcText, sectionFileLines } from '../../src/core/tcfile';
 import { diffLines } from './lineDiff';
 
 export type ObjectChangeKind = 'added' | 'modified' | 'deleted' | 'unchanged';
@@ -38,12 +38,26 @@ export interface SectionView {
   newXml?: number;
 }
 
+/** What a tree needs to name and draw an object: XAE's label and icon. */
+export interface ObjectInfo {
+  id: string;
+  kind: ObjectKind;
+  name: string;
+  pouKind?: PouKind;
+  dutKind?: DutKind;
+}
+
 export interface ObjectView {
   objectId: string;
   accessor?: Accessor;
   kind: ObjectKind;
   /** `FB_X`, `FB_X.Method`, `FB_X.Prop.Get` (as it was, for a deleted view). */
   label: string;
+  /** The object's own name (`Method`; the property's, for an accessor) and the folders inside its POU. */
+  name: string;
+  folderPath: string[];
+  pouKind?: PouKind;
+  dutKind?: DutKind;
   /** 0 for the POU, DUT or GVL; 1 for its members; 2 for the accessors of a property. */
   depth: number;
   change: ObjectChangeKind;
@@ -68,6 +82,8 @@ export interface FileView {
   path: string;
   oldPath?: string;
   change: 'added' | 'deleted' | 'modified';
+  /** The POU, DUT, GVL or interface of the file (at the head, or at the base for a deleted file). */
+  root?: ObjectInfo;
   objects: ObjectView[];
   counts: Record<ObjectChangeKind, number>;
   /** No code changed: what changed instead (`ProductVersion 3.1.4024.12 → 3.1.4026.13`, `XML only, no code`, ...). */
@@ -108,10 +124,12 @@ export function buildFileView(input: FileInput): FileView {
     view.error = `The file cannot be read as a TwinCAT file: ${error}`;
     return view;
   }
-  if (!(after ?? before)?.root) {
+  const root = (after ?? before)?.root;
+  if (!root) {
     view.note = 'No TwinCAT object in this file.';
     return view;
   }
+  view.root = { id: root.id, kind: root.kind, name: root.name, pouKind: root.pouKind, dutKind: root.dutKind };
 
   const changes = viewChanges(before, after);
   const byKey = new Map(changes.map(c => [changeKey(c.objectId, c.accessor), c]));
@@ -155,6 +173,10 @@ function objectView(before: TcSourceFile | undefined, after: TcSourceFile | unde
     accessor,
     kind: obj.kind,
     label: change?.label ?? viewLabel(obj, accessor),
+    name: obj.name,
+    folderPath: obj.folderPath,
+    pouKind: obj.pouKind,
+    dutKind: obj.dutKind,
     depth: !obj.parent ? 0 : accessor ? 2 : 1,
     change: kind,
     renamedFrom: change?.renamedFrom,

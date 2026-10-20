@@ -28,6 +28,90 @@ export function rawUrl(pr: PullRequest, sha: string, path: string): string {
   return `https://github.com/${pr.owner}/${pr.repo}/raw/${sha}/${encodePath(path)}`;
 }
 
+/** The pull request's diff as github.com serves it with the session: what the page shows, merge base to head. */
+export function pullDiffUrl(pr: PullRequest): string {
+  return `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}.diff`;
+}
+
+export interface DiffFile {
+  /** Path at the head (for a deleted file: at the base). */
+  path: string;
+  /** Path at the base, when it differs (renamed). */
+  oldPath?: string;
+  status: 'added' | 'deleted' | 'modified' | 'renamed';
+}
+
+/** A path as git writes it in a diff header: in double quotes, with C escapes and octal bytes, when unusual. */
+function unquote(s: string): string {
+  if (!(s.length >= 2 && s.startsWith('"') && s.endsWith('"'))) return s;
+  const bytes: number[] = [];
+  const simple: Record<string, number> = { n: 10, t: 9, r: 13, a: 7, b: 8, f: 12, v: 11, '"': 34, '\\': 92 };
+  for (let i = 1; i < s.length - 1; i++) {
+    const c = s[i];
+    if (c !== '\\') {
+      bytes.push(c.charCodeAt(0));
+      continue;
+    }
+    const e = s[++i];
+    if (/[0-7]/.test(e)) {
+      bytes.push(parseInt(s.slice(i, i + 3), 8));
+      i += 2;
+    } else bytes.push(simple[e] ?? e.charCodeAt(0));
+  }
+  try {
+    return decodeURIComponent(bytes.map(b => `%${b.toString(16).padStart(2, '0')}`).join(''));
+  } catch {
+    return String.fromCharCode(...bytes);
+  }
+}
+
+/** The files of a git diff, from the headers of each file's part (`rename from`, `new file mode`, `---`, `+++`). */
+export function filesInDiff(diff: string): DiffFile[] {
+  const out: DiffFile[] = [];
+  interface Part { a?: string; b?: string; from?: string; to?: string; minus?: string | null; plus?: string | null; added?: boolean; deleted?: boolean; body?: boolean }
+  let part: Part | undefined;
+  const side = (s: string, prefix: string) => {
+    if (s === '/dev/null') return null;
+    const p = unquote(s);
+    return p.startsWith(prefix) ? p.slice(prefix.length) : p;
+  };
+  const flush = () => {
+    if (!part) return;
+    const oldPath = part.from ?? part.minus ?? part.a;
+    const path = part.deleted ? oldPath : part.to ?? part.plus ?? part.b;
+    if (path) {
+      const status = part.added ? 'added' : part.deleted ? 'deleted' : oldPath && oldPath !== path ? 'renamed' : 'modified';
+      out.push({ path, status, ...(status === 'renamed' ? { oldPath: oldPath! } : {}) });
+    }
+    part = undefined;
+  };
+  for (const raw of diff.split('\n')) {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (line.startsWith('diff --git ')) {
+      flush();
+      part = {};
+      const names = line.slice(11);
+      const quoted = /^("(?:[^"\\]|\\.)*") ("(?:[^"\\]|\\.)*")$/.exec(names);
+      // Unquoted, the two names are only told apart when they are the same path (no rename).
+      const [a, b] = quoted ? [quoted[1], quoted[2]] : [names.slice(0, (names.length - 1) / 2), names.slice((names.length + 1) / 2)];
+      part.a = side(a, 'a/') ?? undefined;
+      part.b = side(b, 'b/') ?? undefined;
+      continue;
+    }
+    // The header of a file's part ends where its hunks start: a removed line can read `--- ...` too.
+    if (!part || part.body) continue;
+    if (line.startsWith('@@') || line.startsWith('Binary files ')) part.body = true;
+    else if (line.startsWith('rename from ')) part.from = unquote(line.slice(12));
+    else if (line.startsWith('rename to ')) part.to = unquote(line.slice(10));
+    else if (line.startsWith('new file mode')) part.added = true;
+    else if (line.startsWith('deleted file mode')) part.deleted = true;
+    else if (line.startsWith('--- ')) part.minus = side(line.slice(4), 'a/');
+    else if (line.startsWith('+++ ')) part.plus = side(line.slice(4), 'b/');
+  }
+  flush();
+  return out;
+}
+
 /** The same file through the REST API, which needs a token for a private repository. */
 export function apiContentUrl(pr: PullRequest, sha: string, path: string): string {
   return `https://api.github.com/repos/${pr.owner}/${pr.repo}/contents/${encodePath(path)}?ref=${sha}`;
@@ -117,6 +201,32 @@ export function decodeParams(fragment: string): ViewerParams | undefined {
   return {
     owner: get('o'), repo: get('r'), number, base: get('b'), head: get('h'), path: get('p'),
     oldPath: q.get('op') ?? undefined, deleted: q.get('d') === '1', anchor: /^diff-[0-9a-f]{64}$/.test(get('a')) ? get('a') : '',
+    theme: theme === 'light' || theme === 'dark' ? theme : 'auto', source: q.get('s') ?? undefined,
+  };
+}
+
+/** What the tree frame is told (in its URL's fragment): the pull request, its commits, the theme. */
+export interface TreeParams extends PullRequest {
+  base: string;
+  head: string;
+  theme: Theme;
+  source?: string;
+}
+
+export function encodeTreeParams(p: TreeParams): string {
+  const q = new URLSearchParams({ o: p.owner, r: p.repo, n: String(p.number), b: p.base, h: p.head, t: p.theme });
+  if (p.source) q.set('s', p.source);
+  return q.toString();
+}
+
+export function decodeTreeParams(fragment: string): TreeParams | undefined {
+  const q = new URLSearchParams(fragment.replace(/^#/, ''));
+  const get = (k: string) => q.get(k) ?? '';
+  const number = Number(get('n'));
+  if (!get('o') || !get('r') || !Number.isInteger(number) || !/^[0-9a-f]{40}$/.test(get('b')) || !/^[0-9a-f]{40}$/.test(get('h'))) return undefined;
+  const theme = get('t');
+  return {
+    owner: get('o'), repo: get('r'), number, base: get('b'), head: get('h'),
     theme: theme === 'light' || theme === 'dark' ? theme : 'auto', source: q.get('s') ?? undefined,
   };
 }

@@ -164,8 +164,15 @@ template and the order of the ways to read, and know no host.
   light and dark mode: toggles, views, files read from the page, line links (Rapid `#line_da56bf7eb_A4`, classic
   `#2f0d2bc…_10_10`), the tree in GitLab's sidebar (24 files, 44 objects), a click on `CheckEndStop` that shows it
   just below GitLab's sticky file header. The popup, and the frames refusing to work outside a known page, too.
-- **Not tried**: a self-managed instance (its version, which diff page it serves, its session cookie's `SameSite`),
-  a private project, the comparison with HEAD of a merge request whose target branch moved on.
+- **GitLab 19.4** (September 2026), from its source (`v19.4.2-ee`): Rapid Diffs is the default *Changes* page there
+  too (`rapid_diffs_on_mr_show` and `rapid_diffs_default_on_mr_show` are on by default; `?rapid_diffs_disabled=true`
+  or a `rapid_diffs_enabled=false` cookie bring the classic page back). Its Rapid Diffs templates are gitlab.com's
+  of October 2026 but for one CSS class; `data-file-data` has `old_path`, `new_path` and `diff_refs`; a line's id
+  is `line_<hash>_<old line>` or `line_<hash>_A<new line>`. The classic page has the same hooks as on gitlab.com.
+  A merge request is compared with its merge ref (on the target branch's head) only when it can be merged; one with
+  conflicts shows its latest version, from its merge base: the page's `diff_refs` say which, either way.
+- **Not tried**: a self-managed instance live (its session cookie's `SameSite` matters to the frame only: the page
+  reads first), a private project, a merge request compared with its merge ref after its target branch moved on.
 
 ## 1. Can both versions be fetched with the session, private repositories and renames included?
 

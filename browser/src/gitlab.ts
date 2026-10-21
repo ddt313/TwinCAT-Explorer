@@ -37,6 +37,20 @@ export function mergeRequestApi(origin: string, project: string | number, iid: n
 }
 
 /**
+ * The Changes tab shows part of the merge request: one commit (`commit_id`), a version (`diff_id`) or a comparison of
+ * versions (`start_sha`). Its files are those of the commits it compares, not the merge request's.
+ */
+export function isPartialView(search: string): boolean {
+  const q = new URLSearchParams(search);
+  return ['commit_id', 'diff_id', 'start_sha'].some(k => q.has(k));
+}
+
+/** The REST API's comparison of two commits, `base..head` (its `diffs` are the files, as the merge request's are). */
+export function compareApi(origin: string, project: string | number, base: string, head: string): string {
+  return `${origin}/api/v4/projects/${encodeURIComponent(String(project))}/repository/compare?from=${base}&to=${head}&straight=true`;
+}
+
+/**
  * The discussions of a merge request as its own page reads them (`discussions.json`, a page of them after `cursor`):
  * all of them (`notes_filter=0`) without saving that filter as the user's choice (`persist_filter=false`).
  */
@@ -133,6 +147,22 @@ export function commitsFromDiffRefs(refs: unknown, source: string): Commits | un
   const base = sha(r?.base_sha) ?? sha(r?.start_sha);
   const head = sha(r?.head_sha);
   return base && head ? { base, head, source } : undefined;
+}
+
+/**
+ * The order of the files of GitLab's diffs (its `FileCollectionSorter`): by their paths' parts, one by one, as bytes
+ * (`Z` before `a`), a folder before the files beside it.
+ */
+export function compareGitlabPaths(a: string, b: string): number {
+  const x = a.split('/');
+  const y = b.split('/');
+  for (let i = 0; i < x.length && i < y.length; i++) {
+    const xFile = i === x.length - 1;
+    const yFile = i === y.length - 1;
+    if (xFile !== yFile) return xFile ? 1 : -1;
+    if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  }
+  return x.length - y.length;
 }
 
 /** A file block of the Rapid Diffs page: its `data-file-data` (paths, raw path, the commits compared). */

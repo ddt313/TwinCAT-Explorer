@@ -2,7 +2,8 @@
 // the file, `diff-<sha256 of the path>` (links to files rely on it); the path is a text of the block's header (or
 // of the file's row in GitHub's tree) whose sha256 is that anchor; the header and the tree's panel are found by
 // class name and role. The commits come from the page (the URLs the classic page loads its diffs from, the JSON the
-// React page embeds), else from the REST API (public repositories); the review comments from the REST API without a
+// React page embeds), else from the REST API (public repositories); on a page of one commit or a range of them, the
+// tree's files are those of its diff, not the pull request's; the review comments from the REST API without a
 // token, so for public repositories only.
 
 import { ReviewThread, ThreadsResult } from './comments';
@@ -96,6 +97,7 @@ export class GitHubHost implements Host {
       [...new Set(shaKeys(sources).map(([k, v]) => `${k}=${v.slice(0, 7)}`))].join(' ') || 'none');
     try {
       const api = `https://api.github.com/repos/${this.pr.owner}/${this.pr.repo}`;
+      if (this.pr.commits) return await this.commitsOfUrl(api, this.pr.commits);
       const pull = await fetch(`${api}/pulls/${this.pr.number}`);
       if (!pull.ok) throw new Error(`pull request: ${pull.status}`);
       const { head, base } = await pull.json() as { head: { sha: string }; base: { sha: string } };
@@ -107,6 +109,20 @@ export class GitHubHost implements Host {
       log('The REST API without a token does not tell either (a private repository needs a token):', String(e));
       return undefined;
     }
+  }
+
+  /** The commits of a page of one commit (its parent and it) or of a range (`from..to`), in full, from the REST API. */
+  private async commitsOfUrl(api: string, commits: string): Promise<Commits> {
+    const commit = async (ref: string) => {
+      const r = await fetch(`${api}/commits/${ref}`);
+      if (!r.ok) throw new Error(`commit ${ref}: ${r.status}`);
+      return await r.json() as { sha: string; parents: { sha: string }[] };
+    };
+    const [from, to] = commits.split('..');
+    if (to) return { base: (await commit(from)).sha, head: (await commit(to)).sha, source: 'REST API, no token' };
+    const c = await commit(from);
+    if (!c.parents[0]) throw new Error(`commit ${from}: no parent`);
+    return { base: c.parents[0].sha, head: c.sha, source: 'REST API, no token' };
   }
 
   /** `GET …/pulls/{n}/comments`, page by page, without a token: a private repository answers 404. */

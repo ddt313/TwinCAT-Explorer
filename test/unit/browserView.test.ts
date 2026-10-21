@@ -6,10 +6,10 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
+import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
-  commitsFromDiffRefs, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, mergeRequestApi, mergeRequestPage, noteUrl, rapidFileData,
-  rapidLineAnchor, threadsFromGitlab,
+  commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
+  mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
@@ -410,7 +410,12 @@ const C = 'c'.repeat(40);
 test('github: the pull request of a "Files changed" page, in the classic and the React page and for a commit range', () => {
   assert.deepEqual(filesPage('/acme/plc/pull/12/files'), { owner: 'acme', repo: 'plc', number: 12 });
   assert.deepEqual(filesPage('/acme/plc/pull/12/changes'), { owner: 'acme', repo: 'plc', number: 12 });
-  assert.deepEqual(filesPage(`/acme/plc/pull/12/files/${A.slice(0, 7)}..${B.slice(0, 7)}`), { owner: 'acme', repo: 'plc', number: 12 });
+  assert.deepEqual(filesPage(`/acme/plc/pull/12/files/${A.slice(0, 7)}..${B.slice(0, 7)}`),
+    { owner: 'acme', repo: 'plc', number: 12, commits: `${A.slice(0, 7)}..${B.slice(0, 7)}` });
+  assert.deepEqual(filesPage(`/acme/plc/pull/12/changes/${A}`), { owner: 'acme', repo: 'plc', number: 12, commits: A });
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12 }), 'https://github.com/acme/plc/pull/12.diff');
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12, commits: A }), `https://github.com/acme/plc/commit/${A}.diff`);
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12, commits: `${A}..${B}` }), `https://github.com/acme/plc/compare/${A}...${B}.diff`);
   assert.equal(filesPage('/acme/plc/pull/12'), undefined);
   assert.equal(filesPage('/acme/plc/pull/12/commits'), undefined);
   assert.ok(isTwinCatFile('PLC/POUs/FB_Valve.TcPOU') && isTwinCatFile('a/E_State.tcdut') && isTwinCatFile('Machine.tsproj'));
@@ -500,7 +505,7 @@ test('frames: the parameters of a viewer and of the tree go through their URL, f
   assert.equal(decodeViewerParams('#origin=https%3A%2F%2Fgithub.com&p=a.TcPOU'), undefined);
   const t: TreeParams = {
     origin: 'https://github.com', raw: 'https://github.com/acme/plc/raw/{sha}/{path}', order: ['frame', 'worker', 'page'], base: A, head: B,
-    theme: 'auto', diff: 'https://github.com/acme/plc/pull/12.diff', source: undefined,
+    theme: 'auto', diff: 'https://github.com/acme/plc/pull/12.diff', source: undefined, host: 'github',
   };
   assert.deepEqual(decodeTreeParams(`#${encodeTreeParams(t)}`), t);
   assert.equal(decodeTreeParams(`#${encodeTreeParams({ ...t, diff: 'https://elsewhere.example.com/12.diff' })}`), undefined);
@@ -522,6 +527,13 @@ test('gitlab: the merge request of a page, its raw files and its REST API', () =
     `https://gitlab.example.com/group/sub/machine/-/raw/${A}/PLC/POUs/FB_Valve.TcPOU`);
   assert.equal(mergeRequestApi('https://gitlab.com', 'group/sub/machine', 7), 'https://gitlab.com/api/v4/projects/group%2Fsub%2Fmachine/merge_requests/7');
   assert.equal(mergeRequestApi('https://gitlab.com', 58170678, 7), 'https://gitlab.com/api/v4/projects/58170678/merge_requests/7');
+});
+
+test('gitlab: a Changes tab of one commit, version or comparison, and the comparison of its commits', () => {
+  assert.ok(isPartialView(`?commit_id=${A}`) && isPartialView('?diff_id=12') && isPartialView(`?diff_id=12&start_sha=${A}`));
+  assert.ok(!isPartialView('') && !isPartialView('?diff_head=true') && !isPartialView('?view=parallel'));
+  assert.equal(compareApi('https://gitlab.com', 'group/sub/machine', A, B),
+    `https://gitlab.com/api/v4/projects/group%2Fsub%2Fmachine/repository/compare?from=${A}&to=${B}&straight=true`);
 });
 
 test('gitlab: the files and commits of the REST API and of the Rapid Diffs page', () => {
@@ -632,6 +644,21 @@ test('tree: folders, each file as its object with the members that changed, in t
   // While a file is read it shows by its name.
   assert.deepEqual(treeText(buildTree([{ path: 'PLC/POUs/FB_Valve.TcPOU' }])), ['PLC/POUs', '  FB_Valve · reading…']);
   assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU' }]), { files: 6, objects: 5, reading: 1 });
+});
+
+test('tree: the folders and files in the order of the host\'s page', () => {
+  const files = [
+    'PLC/Modules/POUs/FB_Valve.TcPOU', 'PLC/ModuleTests/POUs/FB_ValveTest.TcPOU', 'PLC/Modules/a.TcPOU', 'PLC/Modules/Z.TcPOU',
+  ].map(path => ({ path }));
+  const names = (paths?: (a: string, b: string) => number) => treeText(buildTree(files, paths)).map(l => l.replace(' · reading…', ''));
+  // XAE: folders first, then by name, whatever the case.
+  assert.deepEqual(names(), ['PLC', '  Modules', '    POUs', '      FB_Valve', '    a', '    Z', '  ModuleTests/POUs', '    FB_ValveTest']);
+  // GitLab: by each part of the path as bytes, a folder before the files beside it.
+  assert.deepEqual(names(compareGitlabPaths), ['PLC', '  ModuleTests/POUs', '    FB_ValveTest', '  Modules', '    POUs', '      FB_Valve', '    Z', '    a']);
+  // GitHub (git): by the whole path as bytes.
+  assert.deepEqual(names(compareGithubPaths), ['PLC', '  ModuleTests/POUs', '    FB_ValveTest', '  Modules', '    POUs', '      FB_Valve', '    Z', '    a']);
+  assert.deepEqual(['b/x', 'a.TcPOU', 'a/b', 'B'].sort(compareGitlabPaths), ['a/b', 'b/x', 'B', 'a.TcPOU']);
+  assert.deepEqual(['b/x', 'a.TcPOU', 'a/b', 'B'].sort(compareGithubPaths), ['B', 'a.TcPOU', 'a/b', 'b/x']);
 });
 
 test('github: the files of a pull request\'s diff, renamed, added, deleted and quoted ones included', () => {

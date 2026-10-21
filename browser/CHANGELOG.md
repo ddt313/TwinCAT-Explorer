@@ -4,6 +4,24 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- On a GitLab merge request's *Changes* tab showing one commit (or one version, or a comparison of versions), the
+  TwinCAT tab lists the files of that commit only, not all the merge request's, and their changes are those of the
+  commit: a file the merge request changed in another commit is no longer there, shown as deleted, doing nothing
+  when clicked.
+- The same on a GitHub pull request's *Files changed* of one commit or a range of commits (`/files/<sha>`,
+  `/changes/<from>..<to>`): the TwinCAT tab reads that commit's or range's diff, not the pull request's. When the page
+  does not name the commits it compares, those of its URL are taken (public repositories), not the pull request's.
+- A click on an object in the TwinCAT tab, when its file's view is on already, scrolls straight to the object, no
+  longer to the top of the file first.
+
+### Changed
+- The TwinCAT tab puts the folders and files in the order of the page's diffs: on GitLab a folder before the files
+  beside it, names compared case by case (`ModuleTests` before `Modules`); on GitHub git's order of the whole paths.
+  The objects in a file keep XAE's order.
+
 ## 0.1.1 - 2026-10-21
 
 ### Fixed

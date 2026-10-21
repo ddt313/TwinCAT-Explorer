@@ -352,7 +352,7 @@ async function ensureTreePanel(): Promise<void> {
       frame.className = 'tcx-tree-frame';
       frame.title = 'TwinCAT changes';
       frame.src = `${TREE}#${encodeTreeParams({
-        origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source, diff: host.diff,
+        origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source, diff: host.diff, host: host.kind,
       })}`;
       box.append(frame);
       treeFrame = frame;
@@ -395,7 +395,9 @@ async function reveal(path: string, objectId?: string, accessor?: Accessor): Pro
   }
   if (!container) return;
   const block = await blockOf(container);
-  container.scrollIntoView({ block: 'start' });
+  // An object of a view shown already: the viewer scrolls to it from where the page is, not from the file's top.
+  const shown = !!objectId && !!block?.on && !!block.ready;
+  if (!shown) container.scrollIntoView({ block: 'start' });
   if (!block) return;
   block.reveal = objectId ? { objectId, accessor } : undefined;
   if (!block.on) setOn(block, true);

@@ -5,7 +5,8 @@
 // each object and file (the page sends the threads). A click shows the object in its file's TwinCAT view.
 
 import { ThreadsResult, placeThreads, threadsOfFile } from './comments';
-import { DiffFile, filesInDiff } from './github';
+import { DiffFile, compareGithubPaths, filesInDiff } from './github';
+import { compareGitlabPaths } from './gitlab';
 import { buildFileView, isTwinCatFile } from './model';
 import { decodeTreeParams, fileUrl } from './params';
 import { ChangedFile, FrameMessage, PageMessage } from './protocol';
@@ -22,6 +23,8 @@ const post = (m: FrameMessage) => {
   if (params) window.parent.postMessage(m, params.origin);
 };
 const reader = new Reader(post, params?.origin ?? '', params?.order ?? []);
+/** The folders and files in the order of the host's page. */
+const pathOrder = params?.host === 'gitlab' ? compareGitlabPaths : params?.host === 'github' ? compareGithubPaths : undefined;
 
 interface Entry extends TreeFile {
   status?: DiffFile['status'];
@@ -192,7 +195,7 @@ function render(): void {
   const counts = source ? `${s.files} file${s.files === 1 ? '' : 's'} · ${s.objects} object${s.objects === 1 ? '' : 's'}${
     threads ? ` · ${threads} thread${threads === 1 ? '' : 's'}` : ''}${s.reading ? ` · reading ${s.reading}…` : ''}` : 'reading the list of files…';
   const rows: string[] = [];
-  rowsHtml(buildTree(entries), 0, rows);
+  rowsHtml(buildTree(entries, pathOrder), 0, rows);
   const empty = source && entries.length === 0 ? '<p class="note">No TwinCAT file in this change.</p>' : '';
   const notes = [problem, threadInfo?.problem && `Comments: ${threadInfo.problem}`].filter(Boolean).map(n => `<p class="note">${esc(n!)}</p>`).join('');
   root.innerHTML = `<div class="head"><span class="title">TwinCAT</span><span class="counts">${counts}</span></div>

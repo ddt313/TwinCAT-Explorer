@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   TwinCAT tab lists the files of that commit only, not all the merge request's, and their changes are those of the
   commit: a file the merge request changed in another commit is no longer there, shown as deleted, doing nothing
   when clicked.
+- The same on a GitHub pull request's *Files changed* of one commit or a range of commits (`/files/<sha>`,
+  `/changes/<from>..<to>`): the TwinCAT tab reads that commit's or range's diff, not the pull request's. When the page
+  does not name the commits it compares, those of its URL are taken (public repositories), not the pull request's.
 
 ## 0.1.1 - 2026-10-21
 

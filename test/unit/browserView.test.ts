@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
+import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
   commitsFromDiffRefs, compareApi, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
   mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
@@ -410,7 +410,12 @@ const C = 'c'.repeat(40);
 test('github: the pull request of a "Files changed" page, in the classic and the React page and for a commit range', () => {
   assert.deepEqual(filesPage('/acme/plc/pull/12/files'), { owner: 'acme', repo: 'plc', number: 12 });
   assert.deepEqual(filesPage('/acme/plc/pull/12/changes'), { owner: 'acme', repo: 'plc', number: 12 });
-  assert.deepEqual(filesPage(`/acme/plc/pull/12/files/${A.slice(0, 7)}..${B.slice(0, 7)}`), { owner: 'acme', repo: 'plc', number: 12 });
+  assert.deepEqual(filesPage(`/acme/plc/pull/12/files/${A.slice(0, 7)}..${B.slice(0, 7)}`),
+    { owner: 'acme', repo: 'plc', number: 12, commits: `${A.slice(0, 7)}..${B.slice(0, 7)}` });
+  assert.deepEqual(filesPage(`/acme/plc/pull/12/changes/${A}`), { owner: 'acme', repo: 'plc', number: 12, commits: A });
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12 }), 'https://github.com/acme/plc/pull/12.diff');
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12, commits: A }), `https://github.com/acme/plc/commit/${A}.diff`);
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12, commits: `${A}..${B}` }), `https://github.com/acme/plc/compare/${A}...${B}.diff`);
   assert.equal(filesPage('/acme/plc/pull/12'), undefined);
   assert.equal(filesPage('/acme/plc/pull/12/commits'), undefined);
   assert.ok(isTwinCatFile('PLC/POUs/FB_Valve.TcPOU') && isTwinCatFile('a/E_State.tcdut') && isTwinCatFile('Machine.tsproj'));

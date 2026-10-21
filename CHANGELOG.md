@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.14.0 - 2026-10-21
 
 ### Added
 - `Add Library...` on `References` of a PLC project, like XAE's Library Manager > Add library: it lists

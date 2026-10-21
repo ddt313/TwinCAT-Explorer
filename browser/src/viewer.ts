@@ -1,20 +1,24 @@
 // The TwinCAT view of one file of a pull or merge request, in a frame of the extension inside the host's page
 // (GitHub's "Files changed", GitLab's "Changes"), where the page's CSP and CSS do not reach it. It reads the file at the merge base and at the head and
 // shows its objects in the layout of the VS Code extension's commit diff: each changed object with its
-// Declaration diff above its Implementation diff, unchanged objects collapsed, and the review threads on the file
-// under the lines they are on (comments.ts), which the page sends. Read-only.
+// Declaration diff above its Implementation diff (unified or split, as the user chose), unchanged objects collapsed,
+// and the review threads on the file under the lines they are on (comments.ts), which the page sends. Read-only.
 
 import { KIND_WORD } from '../../src/core/treeLabels';
 import { LineRef, PlacedThread, Placement, ReviewNote, Side, ThreadsResult, placeThreads, unresolvedCount, xmlLineIndex } from './comments';
 import { Span, highlightLines } from './highlight';
 import { lineChange } from './lineDiff';
-import { DiffLine, FileView, ObjectView, buildFileView } from './model';
+import { DiffLine, FileView, ObjectView, SplitRow, buildFileView, splitRows } from './model';
 import { decodeViewerParams, fileUrl } from './params';
 import { FrameMessage, PageMessage, Reveal } from './protocol';
 import { ALL_WAYS, Attempt, Reader } from './reader';
 import { isKnownSite } from './sites';
 /** Unchanged lines shown around a change; longer runs are folded. */
 const CONTEXT = 3;
+/** The diffs one under the other's lines (unified) or the base beside the head (split); the user's choice, kept. */
+type DiffStyle = 'unified' | 'split';
+const STYLE_KEY = 'tcxDiffStyle';
+let diffStyle: DiffStyle = 'unified';
 
 const root = document.getElementById('root')!;
 const params = decodeViewerParams(location.hash);
@@ -46,6 +50,7 @@ async function main(): Promise<void> {
     return;
   }
   view = buildFileView({ path: params.path, oldPath: params.oldPath, before, after });
+  diffStyle = await chrome.storage.local.get(STYLE_KEY).then(v => (v[STYLE_KEY] === 'split' ? 'split' : 'unified'), () => 'unified');
   place();
   render();
   if (pendingReveal) void reveal(pendingReveal);
@@ -131,12 +136,24 @@ function summaryHtml(v: FileView): string {
   const open = unresolvedCount(threads);
   const comments = threads.length ? ` · <span class="cmt">${BUBBLE}${threads.length} thread${threads.length === 1 ? '' : 's'}${open ? `, ${open} unresolved` : ''}</span>` : '';
   let out = `<div class="summary"><span class="title">TwinCAT objects</span>${counts.length ? ` · ${counts.join(' · ')}` : ''}${file ? ` · ${file}` : ''}${comments}
-    <span class="muted right">read-only · ${commits}</span></div>`;
+    <span class="muted right">read-only · ${commits}</span>${styleSwitchHtml()}</div>`;
   if (v.metadataOnly) out += `<p class="notice">No code changed: ${esc(v.metadataOnly)}</p>`;
   if (v.note) out += `<p class="notice">${esc(v.note)}</p>`;
   if (v.error) out += `<p class="notice error">${esc(v.error)}</p>`;
   if (threadInfo?.problem) out += `<p class="notice">Comments: ${esc(threadInfo.problem)}</p>`;
   return out;
+}
+
+/** Unified | Split, for all the views of the page. */
+function styleSwitchHtml(): string {
+  const button = (style: DiffStyle, label: string) => `<button type="button" data-style="${style}" aria-pressed="${diffStyle === style}">${label}</button>`;
+  return `<span class="style" role="group" aria-label="Diff layout">${button('unified', 'Unified')}${button('split', 'Split')}</span>`;
+}
+
+function setStyle(style: DiffStyle): void {
+  if (style === diffStyle) return;
+  diffStyle = style;
+  if (view) rerender();
 }
 
 function shortName(o: ObjectView): string {
@@ -206,23 +223,32 @@ function tableHtml(i: number, s: number): string {
   }
   const rows: string[] = [];
   for (let k = 0; k < lines.length;) {
-    if (show[k]) {
-      rows.push(rowHtml(i, s, k));
-      k++;
-      continue;
-    }
     let end = k;
-    while (end < lines.length && !show[end]) end++;
-    // A fold of one line would take as much room as the line.
-    if (end - k === 1) rows.push(rowHtml(i, s, k));
-    else rows.push(foldHtml(i, s, k, end));
+    while (end < lines.length && show[end] === show[k]) end++;
+    // A fold of one line would take as much room as the line. A run of changes is never folded: never cut in two.
+    rows.push(show[k] || end - k === 1 ? rowsHtml(i, s, k, end) : foldHtml(i, s, k, end));
     k = end;
   }
-  return `<table class="diff"><tbody>${rows.join('')}</tbody></table>`;
+  const split = diffStyle === 'split';
+  // Split: the number, mark, code and XML link of each side, both halves as wide.
+  const cols = split ? '<colgroup><col class="cn"><col class="cm"><col><col class="cx"><col class="cn"><col class="cm"><col><col class="cx"></colgroup>' : '';
+  return `<table class="diff${split ? ' split' : ''}">${cols}<tbody>${rows.join('')}</tbody></table>`;
 }
 
+const columns = () => (diffStyle === 'split' ? 8 : 5);
+
 function foldHtml(i: number, s: number, from: number, to: number): string {
-  return `<tr class="fold" data-o="${i}" data-s="${s}" data-from="${from}" data-to="${to}"><td colspan="5">⋯ ${to - from} unchanged lines</td></tr>`;
+  return `<tr class="fold" data-o="${i}" data-s="${s}" data-from="${from}" data-to="${to}"><td colspan="${columns()}">⋯ ${to - from} unchanged lines</td></tr>`;
+}
+
+/** The rows of the section lines `[from, to)`: one a line, or in a split diff, a deleted line beside an added one. */
+function rowsHtml(i: number, s: number, from: number, to: number): string {
+  if (diffStyle === 'unified') {
+    let out = '';
+    for (let k = from; k < to; k++) out += rowHtml(i, s, k);
+    return out;
+  }
+  return splitRows(view!.objects[i].sections[s].lines, from, to).map(r => splitRowHtml(i, s, r)).join('');
 }
 
 /**
@@ -332,6 +358,28 @@ function rowHtml(i: number, s: number, k: number): string {
     threads ? `<tr class="threads"><td colspan="5">${threads.map(p => threadHtml(p)).join('')}</td></tr>` : ''}`;
 }
 
+/**
+ * A row of a split diff: the base's line on the left, the head's on the right. An unchanged line links to its line at
+ * the head only, on the right, as in the unified diff. The threads of both lines go under the row.
+ */
+function splitRowHtml(i: number, s: number, r: SplitRow): string {
+  const lines = view!.objects[i].sections[s].lines;
+  const h = sectionHighlights(i, s);
+  const side = (k: number | undefined, left: boolean) => {
+    if (k === undefined) return '<td class="n e"></td><td class="m e"></td><td class="c e"></td><td class="x e"></td>';
+    const l: DiffLine = lines[k];
+    const cls = l.kind === 'same' ? '' : ` ${l.kind}`;
+    const spans = left ? h.old[l.oldLine! - 1] : h.now[l.newLine! - 1];
+    const link = left ? (l.kind === 'del' ? xmlLink('L', l.oldXml) : '') : xmlLink('R', l.newXml, l.kind === 'same' ? l.oldXml : undefined);
+    const mark = l.kind === 'del' ? '−' : l.kind === 'add' ? '+' : '';
+    return `<td class="n${cls}">${(left ? l.oldLine : l.newLine) ?? ''}</td><td class="m${cls}">${mark}</td><td class="c${cls}">${codeHtml(l.text, spans ?? [], h.pairs.get(k))}</td><td class="x${cls}">${link}</td>`;
+  };
+  const keys = r.left === r.right ? [r.left!] : [r.left, r.right].filter((k): k is number => k !== undefined);
+  const threads = keys.flatMap(k => threadsAt(i, s, k) ?? []);
+  return `<tr class="l-${r.left === r.right ? 'same' : 'pair'}" data-k="${keys.join(' ')}">${side(r.left, true)}${side(r.right, false)}</tr>${
+    threads.length ? `<tr class="threads"><td colspan="8">${threads.map(p => threadHtml(p)).join('')}</td></tr>` : ''}`;
+}
+
 /** A line of code with its token classes and, for a paired line, its changed middle marked. */
 function codeHtml(text: string, spans: Span[], change: [number, number] | undefined): string {
   if (text === '') return ' ';
@@ -424,9 +472,7 @@ function setOpen(box: HTMLElement, open: boolean): void {
 /** Shows the folded lines of a fold. */
 function unfold(fold: HTMLTableRowElement): void {
   const [i, s, from, to] = ['o', 's', 'from', 'to'].map(k => Number(fold.dataset[k]));
-  const rows: string[] = [];
-  for (let k = from; k < to; k++) rows.push(rowHtml(i, s, k));
-  fold.insertAdjacentHTML('afterend', rows.join(''));
+  fold.insertAdjacentHTML('afterend', rowsHtml(i, s, from, to));
   fold.remove();
 }
 
@@ -449,7 +495,8 @@ function openRow(box: HTMLElement, ref: LineRef): HTMLElement | null {
   if (!sec.classList.contains('open')) setOpen(sec, true);
   const fold = [...sec.querySelectorAll<HTMLTableRowElement>('tr.fold')].find(f => Number(f.dataset.from) <= ref.k && ref.k < Number(f.dataset.to));
   if (fold) unfold(fold);
-  return sec.querySelector<HTMLElement>(`tr[data-k="${ref.k}"]`);
+  // A row of a split diff has the lines of both its sides.
+  return sec.querySelector<HTMLElement>(`tr[data-k~="${ref.k}"]`);
 }
 
 /** A place the page asked for before the view was rendered. */
@@ -515,6 +562,14 @@ root.addEventListener('click', e => {
     post({ tcx: 'thread', id: go.dataset.thread!, side, line: side ? Number(go.dataset.line) : undefined, oldLine: oldLine(go) });
     return;
   }
+  const style = target.closest<HTMLButtonElement>('button[data-style]');
+  if (style) {
+    const chosen: DiffStyle = style.dataset.style === 'split' ? 'split' : 'unified';
+    setStyle(chosen);
+    // The other views of the page follow (storage.onChanged), and the next pages open with it.
+    void chrome.storage.local.set({ [STYLE_KEY]: chosen }).catch(() => undefined);
+    return;
+  }
   const probe = target.closest<HTMLButtonElement>('button.probe');
   if (probe) {
     void probeAll(probe);
@@ -537,6 +592,11 @@ root.addEventListener('keydown', e => {
     e.preventDefault();
     target.click();
   }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  const change = changes[STYLE_KEY];
+  if (area === 'local' && change) setStyle(change.newValue === 'split' ? 'split' : 'unified');
 });
 
 // The page sizes the frame to its content: the frame has no scroll bar of its own.

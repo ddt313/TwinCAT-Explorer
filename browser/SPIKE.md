@@ -29,8 +29,9 @@ The view of a file:
   the two commits compared;
 - each changed object (POU, DUT, GVL, method, property, property Get/Set, action, transition), in the order of
   the file, deleted ones last, with an **M**, **A** or **D** badge and, when renamed, its old name;
-- below it, its Declaration diff, then its Implementation diff: inline, with 3 lines of context and the longer
-  runs of unchanged lines folded (click to unfold), word-level highlights, Structured Text highlighting;
+- below it, its Declaration diff, then its Implementation diff: unified, or split (the base beside the head) with
+  the **Unified | Split** switch of the summary line (remembered, for all the views), with 3 lines of context and
+  the longer runs of unchanged lines folded (click to unfold), word-level highlights, Structured Text highlighting;
 - runs of unchanged objects folded into one row (click to list them, click one to see its code);
 - a file without code changes says what changed instead: `ProductVersion 3.1.4024.12 → 3.1.4026.13`,
   `XML only, no code`, `Renamed, content unchanged`;

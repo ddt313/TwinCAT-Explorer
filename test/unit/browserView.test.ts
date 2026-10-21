@@ -13,7 +13,7 @@ import {
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
-import { FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile } from '../../browser/src/model';
+import { DiffLine, FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile, splitRows } from '../../browser/src/model';
 import { ViewState, anchorId, leaveFor, noteOfAnchor } from '../../browser/src/navigation';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
@@ -406,6 +406,27 @@ test('line diff: the changed middle of a line', () => {
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
+
+test('split diff: unchanged lines on both sides, each run\'s deletions beside its additions', () => {
+  const kinds = (s: string): DiffLine[] => [...s].map(c => ({ kind: c === '=' ? 'same' : c === '-' ? 'del' : 'add', text: '' }));
+  // = - - + = + = - -
+  const lines = kinds('=--+=+=--');
+  assert.deepEqual(splitRows(lines), [
+    { left: 0, right: 0 },
+    { left: 1, right: 3 }, { left: 2, right: undefined },
+    { left: 4, right: 4 },
+    { left: undefined, right: 5 },
+    { left: 6, right: 6 },
+    { left: 7, right: undefined }, { left: 8, right: undefined },
+  ]);
+  // A part of the lines: an unfolded run of unchanged lines.
+  assert.deepEqual(splitRows(lines, 4, 5), [{ left: 4, right: 4 }]);
+  // Every line on one row, on its side.
+  const rows = splitRows(lines);
+  assert.deepEqual(rows.flatMap(r => (r.left === r.right ? [r.left] : [r.left, r.right])).filter(k => k !== undefined).sort((a, b) => a! - b!), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.ok(rows.every(r => r.left === undefined || lines[r.left].kind !== 'add'));
+  assert.ok(rows.every(r => r.right === undefined || lines[r.right].kind !== 'del'));
+});
 
 test('github: the pull request of a "Files changed" page, in the classic and the React page and for a commit range', () => {
   assert.deepEqual(filesPage('/acme/plc/pull/12/files'), { owner: 'acme', repo: 'plc', number: 12 });

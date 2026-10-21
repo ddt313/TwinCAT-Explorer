@@ -4,6 +4,14 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- A **Unified | Split** switch at the top of each TwinCAT view: *Split* shows the Declaration and Implementation diffs
+  side by side, the base on the left and the head on the right, as GitHub's split view and GitLab's side-by-side view
+  do; a deleted line beside the line added in its place, with the changed words marked. The choice goes for all the
+  views of the page and is remembered.
+
 ## 0.1.2 - 2026-10-21
 
 ### Fixed

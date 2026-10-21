@@ -9,8 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - A **Unified | Split** switch at the top of each TwinCAT view: *Split* shows the Declaration and Implementation diffs
   side by side, the base on the left and the head on the right, as GitHub's split view and GitLab's side-by-side view
-  do; a deleted line beside the line added in its place, with the changed words marked. The choice goes for all the
-  views of the page and is remembered.
+  do; a deleted line beside the line added in its place, with the changed words marked.
+- The views follow the layout of the host's own diffs: GitHub's *Layout* setting (Unified, Split), GitLab's *Compare
+  changes* (Inline, Side-by-side), when the page opens and when it is changed there. The switch changes the views of
+  the page until then; on a page that does not show its layout, the last choice of the switch is kept.
 
 ## 0.1.2 - 2026-10-21
 

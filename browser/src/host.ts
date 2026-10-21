@@ -3,7 +3,7 @@
 
 import { ReviewThread, Side, ThreadsResult } from './comments';
 import { Commits, Strategy, Theme } from './params';
-import { ChangedFile } from './protocol';
+import { ChangedFile, DiffStyle } from './protocol';
 
 export interface Host {
   readonly kind: 'github' | 'gitlab';
@@ -58,6 +58,8 @@ export interface Host {
   /** The host's panel with its file tree (and filter field), where the TwinCAT tab goes. */
   treePanel(): HTMLElement | null;
   theme(): Theme;
+  /** The layout of the host's own diffs, as the user set it there; undefined when the page does not show it. */
+  diffStyle(): DiffStyle | undefined;
 }
 
 export async function digest(algorithm: 'SHA-1' | 'SHA-256', text: string): Promise<string> {

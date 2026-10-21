@@ -5,7 +5,7 @@
 
 import { ReviewNote, ReviewThread, ThreadPosition } from './comments';
 import { Commits, Theme } from './params';
-import { ChangedFile } from './protocol';
+import { ChangedFile, DiffStyle } from './protocol';
 
 export interface MergeRequest {
   /** `group/subgroup/project`. */
@@ -187,6 +187,15 @@ export function rapidLineAnchor(fileHash: string, side: 'L' | 'R', line: number)
 }
 
 /** GitLab's color mode, from the classes of `<html>` (`gl-dark` when dark, also when it follows the system). */
+/**
+ * The layout of GitLab's diffs, as its *Compare changes* menu sets it: the `diff_view` cookie GitLab keeps the choice
+ * in (`parallel`: side by side, `inline`), else the URL's `view` (`?view=parallel`), which the menu does not change.
+ */
+export function gitlabDiffStyle(search: string, cookie: string): DiffStyle | undefined {
+  const view = /(?:^|;\s*)diff_view=([^;]*)/.exec(cookie)?.[1] ?? new URLSearchParams(search).get('view');
+  return view === 'parallel' ? 'split' : view === 'inline' ? 'unified' : undefined;
+}
+
 export function gitlabTheme(htmlClass: string): Theme {
   return /(?:^|\s)gl-dark(?:\s|$)/.test(htmlClass) ? 'dark' : 'light';
 }

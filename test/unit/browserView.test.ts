@@ -6,9 +6,9 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
+import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
-  commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
+  commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
   mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
@@ -426,6 +426,21 @@ test('split diff: unchanged lines on both sides, each run\'s deletions beside it
   assert.deepEqual(rows.flatMap(r => (r.left === r.right ? [r.left] : [r.left, r.right])).filter(k => k !== undefined).sort((a, b) => a! - b!), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
   assert.ok(rows.every(r => r.left === undefined || lines[r.left].kind !== 'add'));
   assert.ok(rows.every(r => r.right === undefined || lines[r.right].kind !== 'del'));
+});
+
+test('the host\'s layout: GitHub\'s from a row of its diff, else its URL; GitLab\'s from its cookie, else its URL', () => {
+  // A context line: both line numbers, then the code (unified); each number before its side's code (split).
+  assert.equal(githubDiffStyle('', ['L', 'R', '-']), 'unified');
+  assert.equal(githubDiffStyle('', ['L', '-', 'R', '-']), 'split');
+  assert.equal(githubDiffStyle('?diff=unified', ['L', '-', 'R', '-']), 'split');
+  assert.equal(githubDiffStyle('?diff=split'), 'split');
+  assert.equal(githubDiffStyle('?w=1&diff=unified', ['L', '-']), 'unified');
+  assert.equal(githubDiffStyle(''), undefined);
+  assert.equal(gitlabDiffStyle('', 'a=1; diff_view=parallel; b=2'), 'split');
+  assert.equal(gitlabDiffStyle('?view=parallel', 'diff_view=inline'), 'unified');
+  assert.equal(gitlabDiffStyle('?view=parallel', 'a=1'), 'split');
+  assert.equal(gitlabDiffStyle('', 'my_diff_view=parallel'), undefined);
+  assert.equal(gitlabDiffStyle('', ''), undefined);
 });
 
 test('github: the pull request of a "Files changed" page, in the classic and the React page and for a commit range', () => {

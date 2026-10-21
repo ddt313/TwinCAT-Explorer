@@ -19,7 +19,7 @@ import { Lookup } from './lookup';
 import { hasObjectView } from './model';
 import { Back, Found, anchorId, leaveFor } from './navigation';
 import { Commits, ViewerParams, encodeTreeParams, encodeViewerParams } from './params';
-import { ChangedFile, FrameMessage, PageMessage, Reveal, fetchAllowed } from './protocol';
+import { ChangedFile, DiffStyle, FrameMessage, PageMessage, Reveal, fetchAllowed } from './protocol';
 
 const EXTENSION = new URL(chrome.runtime.getURL('')).origin;
 const VIEWER = chrome.runtime.getURL('viewer.html');
@@ -127,6 +127,26 @@ function threadLine(thread: ReviewThread): { side: Side; line: number; oldLine?:
   if (p?.newLine) return { side: 'R', line: p.newLine, oldLine: p.oldLine };
   if (p?.oldLine) return { side: 'L', line: p.oldLine };
   return undefined;
+}
+
+// ------------------------------------------------------------------ the layout of the host's diffs
+
+/** The layout of the host's own diffs as the views were told: they follow the user's setting there. */
+let lastStyle: DiffStyle | undefined;
+
+function postStyle(block: Block): void {
+  if (!lastStyle || !block.ready) return;
+  const message: PageMessage = { tcx: 'style', style: lastStyle };
+  block.frame?.contentWindow?.postMessage(message, EXTENSION);
+}
+
+/** Looks at the host's layout again (the page changed: the user may have set the other one); the views follow a change. */
+function checkStyle(): void {
+  const style = host?.diffStyle();
+  if (!style || style === lastStyle) return;
+  log('The page\'s diffs are', style);
+  lastStyle = style;
+  for (const b of blocks.values()) postStyle(b);
 }
 
 // ------------------------------------------------------------------ the blocks of the files
@@ -437,6 +457,7 @@ async function scan(): Promise<void> {
       threads = undefined;
       lastThreads = undefined;
       commits = undefined;
+      lastStyle = undefined;
       if (found) {
         const lookup = new Lookup(() => found.commits().catch((e: unknown) => {
           log('The commits could not be looked for:', String(e));
@@ -453,6 +474,7 @@ async function scan(): Promise<void> {
       // The host may have rendered the block or its diff again: the viewer comes back, the diff goes.
       if (block?.on) void apply(block);
     }
+    checkStyle();
     if (blocks.size > known) log(`${blocks.size - known} more TwinCAT file(s); ${blocks.size} in all, ${skipped.size} other file(s)`);
     await ensureTreePanel();
     await postFiles();
@@ -585,6 +607,7 @@ function onFrameMessage(e: MessageEvent): void {
   switch (m?.tcx) {
     case 'ready':
       block.ready = true;
+      postStyle(block);
       postReveal(block);
       postThreads(frame, block);
       void loadThreads();

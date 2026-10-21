@@ -1,7 +1,7 @@
 // The TwinCAT view of one file of a pull or merge request, in a frame of the extension inside the host's page
 // (GitHub's "Files changed", GitLab's "Changes"), where the page's CSP and CSS do not reach it. It reads the file at the merge base and at the head and
 // shows its objects in the layout of the VS Code extension's commit diff: each changed object with its
-// Declaration diff above its Implementation diff (unified or split, as the user chose), unchanged objects collapsed,
+// Declaration diff above its Implementation diff (unified or split, as the host's own diffs), unchanged objects collapsed,
 // and the review threads on the file under the lines they are on (comments.ts), which the page sends. Read-only.
 
 import { KIND_WORD } from '../../src/core/treeLabels';
@@ -10,15 +10,19 @@ import { Span, highlightLines } from './highlight';
 import { lineChange } from './lineDiff';
 import { DiffLine, FileView, ObjectView, SplitRow, buildFileView, splitRows } from './model';
 import { decodeViewerParams, fileUrl } from './params';
-import { FrameMessage, PageMessage, Reveal } from './protocol';
+import { DiffStyle, FrameMessage, PageMessage, Reveal } from './protocol';
 import { ALL_WAYS, Attempt, Reader } from './reader';
 import { isKnownSite } from './sites';
 /** Unchanged lines shown around a change; longer runs are folded. */
 const CONTEXT = 3;
-/** The diffs one under the other's lines (unified) or the base beside the head (split); the user's choice, kept. */
-type DiffStyle = 'unified' | 'split';
+/**
+ * The layout of the diffs: the host's own, as the page tells it, and when it changes there; else (the page does not
+ * show it) the last one chosen with the view's switch, kept. The switch changes the views of the page until the host's
+ * layout changes.
+ */
 const STYLE_KEY = 'tcxDiffStyle';
 let diffStyle: DiffStyle = 'unified';
+let hostStyle: DiffStyle | undefined;
 
 const root = document.getElementById('root')!;
 const params = decodeViewerParams(location.hash);
@@ -50,7 +54,8 @@ async function main(): Promise<void> {
     return;
   }
   view = buildFileView({ path: params.path, oldPath: params.oldPath, before, after });
-  diffStyle = await chrome.storage.local.get(STYLE_KEY).then(v => (v[STYLE_KEY] === 'split' ? 'split' : 'unified'), () => 'unified');
+  const kept = await chrome.storage.local.get(STYLE_KEY).then(v => (v[STYLE_KEY] === 'split' ? 'split' : 'unified'), () => 'unified' as const);
+  diffStyle = hostStyle ?? kept;
   place();
   render();
   if (pendingReveal) void reveal(pendingReveal);
@@ -538,6 +543,9 @@ window.addEventListener('message', e => {
     const r: Reveal = { objectId: m.objectId, accessor: m.accessor, xml: m.xml, thread: m.thread };
     if (view) void reveal(r);
     else pendingReveal = r;
+  } else if (m?.tcx === 'style' && (m.style === 'unified' || m.style === 'split')) {
+    hostStyle = m.style;
+    setStyle(m.style);
   } else if (m?.tcx === 'threads' && Array.isArray(m.threads)) {
     threadInfo = { threads: m.threads, source: m.source, problem: m.problem };
     if (!view) return;

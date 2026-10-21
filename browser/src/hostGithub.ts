@@ -7,13 +7,17 @@
 // token, so for public repositories only.
 
 import { ReviewThread, ThreadsResult } from './comments';
-import { PullRequest, commitsInPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from './github';
+import { PullRequest, commitsInPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from './github';
 import { Host, digest, showTarget } from './host';
 import { isTwinCatFile } from './model';
 import { Commits, Strategy, Theme } from './params';
-import { ChangedFile } from './protocol';
+import { ChangedFile, DiffStyle } from './protocol';
 
 const FILE_ANCHOR = /^diff-([0-9a-f]{64})$/;
+/** A line's anchor in GitHub's diff: `diff-<file>L12` on the base side, `R13` on the head side. */
+const LINE_ANCHOR = /^diff-[0-9a-f]{64}([LR])\d+$/;
+/** The rows of the page's diffs looked at for their layout, at most: the first with a line on both sides tells it. */
+const STYLE_ROWS = 200;
 /** Headers of the classic page and of the React page (its CSS module classes keep their readable part). */
 const HEADER = '.file-header, [class*="diff-file-header"], [class*="DiffFileHeader"]';
 const PATH_ATTRIBUTES = ['data-path', 'data-tagsearch-path', 'data-file-path', 'title', 'value', 'aria-label'];
@@ -233,5 +237,22 @@ export class GitHubHost implements Host {
   theme(): Theme {
     const mode = document.documentElement.dataset.colorMode;
     return mode === 'light' || mode === 'dark' ? mode : 'auto';
+  }
+
+  /** From the page's own diffs (those of the files a view hides too): the classic page's split table, else a row's cells. */
+  diffStyle(): DiffStyle | undefined {
+    if (document.querySelector('table.file-diff-split')) return 'split';
+    let rows = 0;
+    for (const container of this.containers()) {
+      for (const row of container.querySelectorAll('tr')) {
+        if (++rows > STYLE_ROWS) return githubDiffStyle(location.search);
+        const cells = [...row.children].map(cell => {
+          const id = [cell, ...cell.querySelectorAll('[id]')].map(el => LINE_ANCHOR.exec(el.id)?.[1]).find(side => side);
+          return id ?? '-';
+        });
+        if (cells.includes('L') && cells.includes('R')) return githubDiffStyle(location.search, cells);
+      }
+    }
+    return githubDiffStyle(location.search);
   }
 }

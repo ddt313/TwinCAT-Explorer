@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The same on a GitHub pull request's *Files changed* of one commit or a range of commits (`/files/<sha>`,
   `/changes/<from>..<to>`): the TwinCAT tab reads that commit's or range's diff, not the pull request's. When the page
   does not name the commits it compares, those of its URL are taken (public repositories), not the pull request's.
+- A click on an object in the TwinCAT tab, when its file's view is on already, scrolls straight to the object, no
+  longer to the top of the file first.
 
 ### Changed
 - The TwinCAT tab puts the folders and files in the order of the page's diffs: on GitLab a folder before the files

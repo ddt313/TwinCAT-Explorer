@@ -46,7 +46,7 @@ export type FrameMessage =
 /** The content script to a frame. */
 export type PageMessage =
   | { tcx: 'fetched'; id: number; result: FetchResult }
-  /** To the tree: the change's TwinCAT files, `complete` when the host's API gave them (else the page's list). */
+  /** To the tree: the change's files, `complete` when the host's API gave them (else the page's list). */
   | { tcx: 'files'; files: ChangedFile[]; complete: boolean }
   /** To a viewer: open this place and say where it is. */
   | ({ tcx: 'reveal' } & Reveal)

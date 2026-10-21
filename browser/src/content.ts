@@ -388,7 +388,7 @@ async function ensureTreePanel(): Promise<void> {
   sizeTree();
 }
 
-/** The change's TwinCAT files to the tree: the host's API when it has one, else the page's list, when they changed. */
+/** The change's files to the tree: the host's API when it has one, else the page's list, when they changed. */
 async function postFiles(): Promise<void> {
   if (!host || !treeFrame || !treeReady) return;
   const api = await host.files();

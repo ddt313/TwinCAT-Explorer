@@ -1,14 +1,43 @@
 // The extension's popup: on a self-managed GitLab instance, turns the extension on or off for that site. On asks
 // the browser for the permission to read the site; the service worker does the rest (the browser may close the popup
 // while it asks), and the popup does it again whenever it opens on a site turned on: the content script registered
-// there, and running in the tab. github.com and gitlab.com need nothing.
+// there, and running in the tab. github.com and gitlab.com need nothing. On any site it works on, it sets whether
+// the extension adds its toggles and tab to the review pages on its own, or only once started in a tab from here
+// (without a reload).
 
-import { BUILT_IN_SITES, grantedPatterns, isKnownSite, startInTab, syncContentScripts } from './sites';
+import { BUILT_IN_SITES, grantedPatterns, isKnownSite, runsInTab, setStartsOnItsOwn, startInTab, startsOnItsOwn, syncContentScripts } from './sites';
 
 const root = document.getElementById('root')!;
 document.getElementById('version')!.textContent = chrome.runtime.getManifest().version;
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const problem = (e: unknown) => esc(e instanceof Error ? e.message : String(e));
+
+/** On its own or by hand, on a site the extension works on; by hand, how to start it in this tab. */
+async function startHtml(origin: string, tabId: number | undefined): Promise<string> {
+  const auto = await startsOnItsOwn(origin);
+  const running = tabId !== undefined && await runsInTab(tabId).catch(() => false);
+  const here = auto ? '' : running
+    ? '<p class="muted">Started in this tab: it goes with a reload of the page.</p>'
+    : '<button type="button" class="start">Start in this tab</button><p class="muted">The toggles and the TwinCAT tab come without a reload.</p>';
+  return `<label class="auto"><input type="checkbox"${auto ? ' checked' : ''}> Add the toggles and the TwinCAT tab to its review pages on its own</label>${here}`;
+}
+
+function bindStart(origin: string, tabId: number | undefined): void {
+  const start = async (): Promise<string> => {
+    if (tabId === undefined) return '';
+    await startInTab(tabId, true);
+    return '';
+  };
+  root.querySelector<HTMLInputElement>('.auto input')?.addEventListener('change', e => {
+    const on = (e.target as HTMLInputElement).checked;
+    // On: in this tab too, at once. Off: the page keeps what it shows until it is reloaded.
+    void setStartsOnItsOwn(origin, on).then(() => (on ? start() : 'The toggles stay in the pages open now, until they are reloaded.'))
+      .then(render, err => render(`It did not work: ${problem(err)}`));
+  });
+  root.querySelector('button.start')?.addEventListener('click', () => {
+    void start().then(render, err => render(`It did not work: ${problem(err)}`));
+  });
+}
 
 async function render(note = ''): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -32,12 +61,13 @@ async function render(note = ''): Promise<void> {
   }
   if (BUILT_IN_SITES.includes(origin)) {
     root.innerHTML = `<p>On for <code>${esc(origin)}</code>: open a pull or merge request's changes, and use the
-      <b>TwinCAT view</b> toggles and the <b>TwinCAT</b> tab.</p>${notes}${others}`;
+      <b>TwinCAT view</b> toggles and the <b>TwinCAT</b> tab.</p>${await startHtml(origin, tab?.id)}${notes}${others}`;
+    bindStart(origin, tab?.id);
     return;
   }
   const on = await isKnownSite(origin);
   let state = on ? 'TwinCAT files of its merge requests show as objects.' : 'For a self-managed GitLab: the browser asks to let the extension read this site.';
-  if (on && tab?.id !== undefined) {
+  if (on && tab?.id !== undefined && await startsOnItsOwn(origin)) {
     // A page opened before the site was turned on, or a turn-on the service worker did not finish.
     try {
       state = (await startInTab(tab.id)) ? 'Started in this tab.' : 'Running in this tab.';
@@ -47,8 +77,9 @@ async function render(note = ''): Promise<void> {
   }
   root.innerHTML = `<p>${on ? 'On' : 'Off'} for <code>${esc(origin)}</code>.</p>
     <p class="muted">${state}</p>
-    <button type="button">${on ? 'Turn off for this site' : 'Turn on for this site'}</button>${notes}${others}`;
-  root.querySelector('button')!.addEventListener('click', () => {
+    <button type="button" class="site">${on ? 'Turn off for this site' : 'Turn on for this site'}</button>${on ? await startHtml(origin, tab?.id) : ''}${notes}${others}`;
+  if (on) bindStart(origin, tab?.id);
+  root.querySelector('button.site')!.addEventListener('click', () => {
     const origins = [`${origin}/*`];
     // In the click itself, which lets the browser ask the user.
     const change: Promise<string> = on

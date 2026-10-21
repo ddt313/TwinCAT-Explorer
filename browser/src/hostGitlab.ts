@@ -9,12 +9,12 @@
 
 import { ReviewThread, ThreadsResult } from './comments';
 import {
-  commitsFromDiffRefs, compareApi, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isPartialView, mergeRequestApi, MergeRequest,
+  commitsFromDiffRefs, compareApi, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isPartialView, mergeRequestApi, MergeRequest,
   noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from './gitlab';
 import { Host, digest, showTarget } from './host';
 import { Commits, Strategy, Theme } from './params';
-import { ChangedFile } from './protocol';
+import { ChangedFile, DiffStyle } from './protocol';
 
 const RAPID = 'diff-file[data-file-data]';
 const CLASSIC = 'div.diff-file.file-holder[data-path]';
@@ -255,5 +255,9 @@ export class GitLabHost implements Host {
 
   theme(): Theme {
     return gitlabTheme(document.documentElement.className);
+  }
+
+  diffStyle(): DiffStyle | undefined {
+    return gitlabDiffStyle(location.search, document.cookie);
   }
 }

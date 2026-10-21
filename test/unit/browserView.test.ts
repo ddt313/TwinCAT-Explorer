@@ -6,14 +6,14 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
+import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
-  commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
+  commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
   mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
-import { FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile } from '../../browser/src/model';
+import { DiffLine, FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile, splitRows } from '../../browser/src/model';
 import { ViewState, anchorId, leaveFor, noteOfAnchor } from '../../browser/src/navigation';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
@@ -406,6 +406,42 @@ test('line diff: the changed middle of a line', () => {
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
+
+test('split diff: unchanged lines on both sides, each run\'s deletions beside its additions', () => {
+  const kinds = (s: string): DiffLine[] => [...s].map(c => ({ kind: c === '=' ? 'same' : c === '-' ? 'del' : 'add', text: '' }));
+  // = - - + = + = - -
+  const lines = kinds('=--+=+=--');
+  assert.deepEqual(splitRows(lines), [
+    { left: 0, right: 0 },
+    { left: 1, right: 3 }, { left: 2, right: undefined },
+    { left: 4, right: 4 },
+    { left: undefined, right: 5 },
+    { left: 6, right: 6 },
+    { left: 7, right: undefined }, { left: 8, right: undefined },
+  ]);
+  // A part of the lines: an unfolded run of unchanged lines.
+  assert.deepEqual(splitRows(lines, 4, 5), [{ left: 4, right: 4 }]);
+  // Every line on one row, on its side.
+  const rows = splitRows(lines);
+  assert.deepEqual(rows.flatMap(r => (r.left === r.right ? [r.left] : [r.left, r.right])).filter(k => k !== undefined).sort((a, b) => a! - b!), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.ok(rows.every(r => r.left === undefined || lines[r.left].kind !== 'add'));
+  assert.ok(rows.every(r => r.right === undefined || lines[r.right].kind !== 'del'));
+});
+
+test('the host\'s layout: GitHub\'s from a row of its diff, else its URL; GitLab\'s from its cookie, else its URL', () => {
+  // A context line: both line numbers, then the code (unified); each number before its side's code (split).
+  assert.equal(githubDiffStyle('', ['L', 'R', '-']), 'unified');
+  assert.equal(githubDiffStyle('', ['L', '-', 'R', '-']), 'split');
+  assert.equal(githubDiffStyle('?diff=unified', ['L', '-', 'R', '-']), 'split');
+  assert.equal(githubDiffStyle('?diff=split'), 'split');
+  assert.equal(githubDiffStyle('?w=1&diff=unified', ['L', '-']), 'unified');
+  assert.equal(githubDiffStyle(''), undefined);
+  assert.equal(gitlabDiffStyle('', 'a=1; diff_view=parallel; b=2'), 'split');
+  assert.equal(gitlabDiffStyle('?view=parallel', 'diff_view=inline'), 'unified');
+  assert.equal(gitlabDiffStyle('?view=parallel', 'a=1'), 'split');
+  assert.equal(gitlabDiffStyle('', 'my_diff_view=parallel'), undefined);
+  assert.equal(gitlabDiffStyle('', ''), undefined);
+});
 
 test('github: the pull request of a "Files changed" page, in the classic and the React page and for a commit range', () => {
   assert.deepEqual(filesPage('/acme/plc/pull/12/files'), { owner: 'acme', repo: 'plc', number: 12 });

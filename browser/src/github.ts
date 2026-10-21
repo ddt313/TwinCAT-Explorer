@@ -4,6 +4,7 @@
 
 import { ReviewThread, Side, ThreadPosition } from './comments';
 import { Commits } from './params';
+import { DiffStyle } from './protocol';
 
 export interface PullRequest {
   owner: string;
@@ -226,4 +227,17 @@ export function shaKeys(text: string): [string, string][] {
     from = re.lastIndex;
   }
   return out;
+}
+
+/**
+ * The layout of GitHub's diffs, as its *Layout* setting shows them: from a row of the page's diff with a line on both
+ * sides, given what each of its cells holds (`L`: the base's line number, `R`: the head's, `-`: other), the two numbers
+ * side by side before the code (unified) or each before its side's code (split); else the URL's `diff` (`?diff=split`).
+ */
+export function githubDiffStyle(search: string, cells?: readonly string[]): DiffStyle | undefined {
+  const left = cells?.indexOf('L') ?? -1;
+  const right = cells?.indexOf('R') ?? -1;
+  if (left >= 0 && right > left) return right === left + 1 ? 'unified' : 'split';
+  const diff = new URLSearchParams(search).get('diff');
+  return diff === 'split' || diff === 'unified' ? diff : undefined;
 }

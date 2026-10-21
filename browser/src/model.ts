@@ -263,3 +263,30 @@ function sectionView(before: TcSourceFile | undefined, after: TcSourceFile | und
 function lines(text: string): string[] {
   return text === '' ? [] : text.split('\n');
 }
+
+/** A row of a split diff: the section line on its left (the base) and on its right (the head), by index in the section. */
+export interface SplitRow {
+  left?: number;
+  right?: number;
+}
+
+/**
+ * The rows of a split diff of the section lines `[from, to)`, as GitHub's and GitLab's split views lay them out: an
+ * unchanged line on both sides, and in each run of changes its deleted lines beside its added ones, in order, the
+ * longer side's extra lines beside nothing.
+ */
+export function splitRows(lines: readonly DiffLine[], from = 0, to = lines.length): SplitRow[] {
+  const rows: SplitRow[] = [];
+  for (let k = from; k < to;) {
+    if (lines[k].kind === 'same') {
+      rows.push({ left: k, right: k });
+      k++;
+      continue;
+    }
+    const dels: number[] = [];
+    const adds: number[] = [];
+    while (k < to && lines[k].kind !== 'same') (lines[k].kind === 'del' ? dels : adds).push(k++);
+    for (let p = 0; p < Math.max(dels.length, adds.length); p++) rows.push({ left: dels[p], right: adds[p] });
+  }
+  return rows;
+}

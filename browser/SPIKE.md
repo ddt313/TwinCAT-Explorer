@@ -29,8 +29,11 @@ The view of a file:
   the two commits compared;
 - each changed object (POU, DUT, GVL, method, property, property Get/Set, action, transition), in the order of
   the file, deleted ones last, with an **M**, **A** or **D** badge and, when renamed, its old name;
-- below it, its Declaration diff, then its Implementation diff: inline, with 3 lines of context and the longer
-  runs of unchanged lines folded (click to unfold), word-level highlights, Structured Text highlighting;
+- below it, its Declaration diff, then its Implementation diff: unified, or split (the base beside the head) with
+  the layout of the host's own diffs (GitHub's *Layout* setting, GitLab's *Compare changes*: read from the rows of
+  GitHub's diff, else its URL's `diff`; from GitLab's `diff_view` cookie, else its URL's `view`), followed when it is
+  changed there; the **Unified | Split** switch of the summary line changes all the views until then, with 3 lines of context and
+  the longer runs of unchanged lines folded (click to unfold), word-level highlights, Structured Text highlighting;
 - runs of unchanged objects folded into one row (click to list them, click one to see its code);
 - a file without code changes says what changed instead: `ProductVersion 3.1.4024.12 → 3.1.4026.13`,
   `XML only, no code`, `Renamed, content unchanged`;
@@ -48,6 +51,11 @@ A click on an object opens its file's TwinCAT view at that object.
 
 The same on a GitLab merge request's *Changes* tab: on gitlab.com right away; on a self-managed instance once the
 extension's popup (its toolbar button, on a page of the instance) has turned it on for that site.
+
+On any of these sites the popup's *Add the toggles and the TwinCAT tab to its review pages on its own* (on by
+default) can be unchecked: the pages then show nothing of the extension (its content script stays idle) until its
+*Start in this tab* adds the toggles and the tab to the page open, without a reload. Either way the extension asks the
+host nothing until a view or the TwinCAT tab is on: the commits a page compares are looked for then.
 
 Read-only: the review threads show in the view; they are written, answered and resolved in the host's own diff.
 

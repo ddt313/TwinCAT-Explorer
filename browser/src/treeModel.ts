@@ -14,8 +14,6 @@ export interface TreeFile {
   /** Path at the head (for a deleted file: at the base), and at the base when renamed. */
   path: string;
   oldPath?: string;
-  /** GitHub's anchor of the file's block. */
-  anchor: string;
   /** Undefined while the file is being read. */
   view?: FileView;
   error?: string;
@@ -31,8 +29,8 @@ export interface TreeNode {
   change?: NodeChange;
   description?: string;
   tooltip?: string;
-  /** Where a click goes: the file's block, and an object view in its TwinCAT view. */
-  anchor?: string;
+  /** Where a click goes: the file (its path), and an object view in its TwinCAT view. */
+  file?: string;
   objectId?: string;
   accessor?: Accessor;
   /** It did not change, what is under it did (a property whose Get changed). */
@@ -65,28 +63,28 @@ function getOrAdd(parent: TreeNode, id: string, make: () => Omit<TreeNode, 'id' 
   return node;
 }
 
-function addMember(file: TreeNode, anchor: string, o: ObjectView): void {
+function addMember(file: TreeNode, path: string, o: ObjectView): void {
   let parent = file;
   o.folderPath.forEach((name, i) => {
-    parent = getOrAdd(parent, `ifolder:${anchor}|${o.folderPath.slice(0, i + 1).join('\\')}`, () => ({
+    parent = getOrAdd(parent, `ifolder:${path}|${o.folderPath.slice(0, i + 1).join('\\')}`, () => ({
       kind: 'innerFolder', label: name, icon: 'folder',
     }));
   });
   const words = o.renamedFrom ? `renamed from ${o.renamedFrom}` : undefined;
   if (o.accessor) {
     // Under its property, which is in the tree for it when the property itself did not change.
-    const property = getOrAdd(parent, `obj:${anchor}|${o.objectId}`, () => ({
-      kind: 'object', label: o.name, icon: 'property', anchor, objectId: o.objectId, muted: true, tooltip: o.label.slice(0, -4),
+    const property = getOrAdd(parent, `obj:${path}|${o.objectId}`, () => ({
+      kind: 'object', label: o.name, icon: 'property', file: path, objectId: o.objectId, muted: true, tooltip: o.label.slice(0, -4),
     }));
     property.children.push({
-      id: `acc:${anchor}|${o.objectId}|${o.accessor}`, kind: 'accessor', label: o.accessor, icon: accessorIconName(o.accessor),
-      change: o.change === 'unchanged' ? undefined : o.change, anchor, objectId: o.objectId, accessor: o.accessor,
+      id: `acc:${path}|${o.objectId}|${o.accessor}`, kind: 'accessor', label: o.accessor, icon: accessorIconName(o.accessor),
+      change: o.change === 'unchanged' ? undefined : o.change, file: path, objectId: o.objectId, accessor: o.accessor,
       tooltip: `${o.label} (${o.change})`, children: [],
     });
     return;
   }
-  const node = getOrAdd(parent, `obj:${anchor}|${o.objectId}`, () => ({
-    kind: 'object', label: o.name, icon: objectIconName(o), anchor, objectId: o.objectId,
+  const node = getOrAdd(parent, `obj:${path}|${o.objectId}`, () => ({
+    kind: 'object', label: o.name, icon: objectIconName(o), file: path, objectId: o.objectId,
   }));
   Object.assign(node, { muted: false, change: o.change === 'unchanged' ? undefined : o.change, description: words, tooltip: `${o.label} (${o.change})` });
 }
@@ -95,8 +93,8 @@ function fileNode(f: TreeFile): TreeNode {
   const v = f.view;
   const root = v?.root;
   const node: TreeNode = {
-    id: `file:${f.anchor}`, kind: 'file', label: root ? objectTreeLabel(root) : baseName(f.path).replace(/\.[^.]+$/, ''),
-    icon: root ? objectIconName(root) : 'file', anchor: f.anchor, objectId: root?.id,
+    id: `file:${f.path}`, kind: 'file', label: root ? objectTreeLabel(root) : baseName(f.path).replace(/\.[^.]+$/, ''),
+    icon: root ? objectIconName(root) : 'file', file: f.path, objectId: root?.id,
     tooltip: f.oldPath ? `${f.path}\nRenamed from ${f.oldPath}` : f.path, children: [],
   };
   if (!v) {
@@ -114,7 +112,7 @@ function fileNode(f: TreeFile): TreeNode {
   if (f.oldPath && (!own?.renamedFrom || dirName(f.path) !== dirName(f.oldPath))) words.push(moved(f.path, f.oldPath));
   node.description = words.join(' · ') || undefined;
   node.change = v.change !== 'modified' ? v.change : own && own.change !== 'unchanged' ? 'modified' : f.oldPath ? 'renamed' : undefined;
-  for (const o of v.objects) if (o.depth > 0 && o.change !== 'unchanged') addMember(node, f.anchor, o);
+  for (const o of v.objects) if (o.depth > 0 && o.change !== 'unchanged') addMember(node, f.path, o);
   return node;
 }
 
@@ -146,7 +144,7 @@ export function buildTree(files: TreeFile[]): TreeNode[] {
     if (v && PROJECT_FILE.test(f.path)) {
       const icon = /\.tsproj$/i.test(f.path) ? 'twincat-project' : 'plc-project';
       const node: TreeNode = {
-        id: `file:${f.anchor}`, kind: 'file', label: baseName(f.path), icon, anchor: f.anchor, tooltip: f.path, children: [],
+        id: `file:${f.path}`, kind: 'file', label: baseName(f.path), icon, file: f.path, tooltip: f.path, children: [],
         description: v.metadataOnly ?? (v.change === 'modified' ? 'changed' : v.change), change: v.change,
       };
       (v.metadataOnly ? build : projects).push(node);

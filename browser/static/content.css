@@ -80,3 +80,15 @@
   margin: 0;
 }
 .tcx-float .tcx-tree-frame { height: calc(100vh - 140px); background: var(--bgColor-default, #ffffff); }
+/* Over the host's tree (GitLab), which stays rendered underneath: the tabs on top, the tree's frame below them. */
+.tcx-overlay-parent { position: relative !important; }
+.tcx-tree.tcx-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  background: var(--gl-background-color-default, var(--bgColor-default, #ffffff));
+}
+.tcx-tree.tcx-overlay .tcx-tree-frame { flex: 1; height: auto; min-height: 0; }

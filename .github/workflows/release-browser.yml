@@ -1,0 +1,148 @@
+# Releases a version of the browser extension when its tag (browser-v0.1.0) is pushed: builds and tests it, and
+# attaches it as a zip to a GitHub release whose notes come from browser/CHANGELOG.md. The extension is in no store:
+# it is loaded unpacked from the zip's folder, as the release notes say.
+#
+# The VS Code extension has its own tags (v0.13.0), changelog and workflow (release.yml). A browser release is
+# never marked as the repository's latest release, which stays the VS Code extension's.
+#
+# The tag's version is the manifest's `version_name` when it has one, else its `version`
+# (browser/static/manifest.json). A version with a `-` is a pre-release: browser-v0.2.0-beta.1 with a
+# `version_name` of "0.2.0-beta.1" and a `version` such as "0.2.0.1" (browsers take one to four numbers only).
+#
+# Run it by hand (Actions > Release browser extension > Run workflow) to release a tag pushed before.
+name: Release browser extension
+
+on:
+  push:
+    tags: ['browser-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release, for example browser-v0.1.0
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency: release-browser
+
+jobs:
+  package:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    outputs:
+      zip: ${{ steps.package.outputs.zip }}
+      prerelease: ${{ steps.package.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The extension is built on the VS Code extension's core: all the tests run.
+      - run: npm run compile
+
+      - run: npm run test:unit
+
+      - run: npm run build:browser
+
+      - name: Check that the tag is the manifest's version
+        run: |
+          version="$(node -p "const m = require('./browser/static/manifest.json'); m.version_name || m.version")"
+          if [ "browser-v$version" != "$TAG" ]; then
+            echo "::error::The tag is $TAG but browser/static/manifest.json has $version."
+            exit 1
+          fi
+
+      - name: Package
+        id: package
+        run: |
+          version="${TAG#browser-v}"
+          zip="explorer-for-twincat-browser-$version.zip"
+          # One folder in the zip, the one to load unpacked, with the same name in every version: an update
+          # replaces it.
+          mkdir -p out/release
+          cp -r browser/dist out/release/explorer-for-twincat-browser
+          # Windows' own tar writes zip files; Git's does not.
+          /c/Windows/System32/tar.exe -a -c -f "$zip" -C out/release explorer-for-twincat-browser
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          {
+            echo "zip=$zip"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Release notes from the changelog
+        run: |
+          version="${TAG#browser-v}"
+          notes="$(awk -v head="## $version" '
+            index($0, head " ") == 1 || $0 == head { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' browser/CHANGELOG.md | sed '/./,$!d')"
+          if [ -z "$notes" ]; then
+            echo "::error::browser/CHANGELOG.md has no section for $version."
+            exit 1
+          fi
+          {
+            printf '%s\n\n' "$notes"
+            cat <<'EOF'
+          ### Install
+
+          The extension is in no store: Chrome or Edge loads it unpacked.
+
+          1. Unzip the attached file where it can stay: it holds one folder, `explorer-for-twincat-browser`.
+          2. Open `chrome://extensions` or `edge://extensions`, turn on *Developer mode*, click *Load unpacked* and pick
+             that folder.
+          3. On a self-managed GitLab, open a merge request and turn the extension on for the site from its toolbar
+             button (in Edge, under the *Extensions* button).
+
+          To update, replace that folder with the new zip's and click the extension's *Reload* on the same page. The
+          extension keeps its ID, so the sites turned on stay on.
+          EOF
+          } > release-notes.md
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-browser
+          path: |
+            ${{ steps.package.outputs.zip }}
+            release-notes.md
+
+  github-release:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      ZIP: ${{ needs.package.outputs.zip }}
+      PRERELEASE: ${{ needs.package.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-browser
+
+      - name: Create the GitHub release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" --verify-tag --title "Browser extension ${TAG#browser-v}" \
+              --notes-file release-notes.md --prerelease="$PRERELEASE" --latest=false
+          fi

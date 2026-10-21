@@ -1,9 +1,10 @@
-# Spike: TwinCAT objects in GitHub's pull request diff
+# Spike: TwinCAT objects in GitHub's and GitLab's diffs
 
 A read-only browser extension (Chromium, Manifest V3) that shows a changed `.TcPOU`, `.TcDUT`, `.TcGVL` or
-`.TcIO` file of a GitHub pull request as TwinCAT objects instead of XML, in the layout of the VS Code extension's
-commit diff (`src/vscode/commitDiff.ts`): each changed object with its Declaration diff above its Implementation
-diff. This document answers the spike's questions. Tested on 2026-10-20 with Edge 155 and Chrome 155.
+`.TcIO` file of a GitHub pull request or a GitLab merge request as TwinCAT objects instead of XML, in the layout of
+the VS Code extension's commit diff (`src/vscode/commitDiff.ts`): each changed object with its Declaration diff
+above its Implementation diff. This document answers the spike's questions (asked for GitHub), then tells how GitLab
+was added ([GitLab](#gitlab)). Tested on 2026-10-20 with Edge 155 and Chrome 155.
 
 **Live test on a signed-in browser (React "Files changed" page, private repository): pending.** The answers
 below marked *pending* are filled in from it.
@@ -16,8 +17,10 @@ npm run build:browser
 
 This type-checks `browser/` and bundles it into `browser/dist`. In Chrome or Edge, open `chrome://extensions`
 (or `edge://extensions`), turn on developer mode, *Load unpacked*, and pick `browser/dist`. On a pull request's
-*Files changed* tab each TwinCAT file gets a **TwinCAT view** toggle in its header (Alt+click toggles all of
-them). When it is on, the file's diff is replaced by the object view; off brings GitHub's diff back.
+*Files changed* tab each TwinCAT source file (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`) gets a **TwinCAT view**
+toggle in its header (Alt+click toggles all of them). When it is on, the file's diff is replaced by the object view;
+off brings GitHub's diff back. A project file (`.tsproj`, `.xti`) has no toggle: it keeps GitHub's diff, and the tree
+says when its only change is the TmcHash a build rewrites.
 
 The view of a file:
 
@@ -29,8 +32,7 @@ The view of a file:
   runs of unchanged lines folded (click to unfold), word-level highlights, Structured Text highlighting;
 - runs of unchanged objects folded into one row (click to list them, click one to see its code);
 - a file without code changes says what changed instead: `ProductVersion 3.1.4024.12 → 3.1.4026.13`,
-  `XML only, no code`, `Renamed, content unchanged`; a `.tsproj`/`.xti` whose only change is the TmcHash a
-  build rewrites says so;
+  `XML only, no code`, `Renamed, content unchanged`;
 - on every changed line, the XML line it is on (`L123` on the base side, `R124` on the head side), a link
   to that line in GitHub's own diff;
 - a *Diagnostics* block: the commits and where they came from, how each file was read, whether WebAssembly
@@ -40,23 +42,55 @@ Above GitHub's file tree, **Files | TwinCAT** tabs (the choice is remembered): *
 request's changes as XAE's Solution Explorer shows a project (see [The tree of the changes](#the-tree-of-the-changes)).
 A click on an object opens its file's TwinCAT view at that object.
 
+The same on a GitLab merge request's *Changes* tab: on gitlab.com right away; on a self-managed instance once the
+extension's popup (its toolbar button, on a page of the instance) has turned it on for that site.
+
 Read-only: no commenting.
+
+## Releases
+
+The browser extension is released on its own, from the same repository as the VS Code extension:
+
+| | VS Code extension | Browser extension |
+| --- | --- | --- |
+| Version | `package.json` | `browser/static/manifest.json` |
+| Changes | `CHANGELOG.md` | `browser/CHANGELOG.md` |
+| Tags | `v0.13.0` | `browser-v0.1.0` |
+| Workflow | `.github/workflows/release.yml` | `.github/workflows/release-browser.yml` |
+| Release | a `.vsix` on GitHub, and the Marketplace | a zip on GitHub, never marked as the latest release |
+
+- **To release**: set the manifest's `version` (and `version_name` for a pre-release such as `0.2.0-beta.1`), turn
+  the changelog's *Unreleased* into `## 0.1.0 - <date>`, merge, then tag that commit `browser-v0.1.0` and push the
+  tag. The workflow tests, builds, checks the tag against the manifest, and attaches
+  `explorer-for-twincat-browser-0.1.0.zip` with the changelog's section and how to install as its notes.
+- **To install**: the zip holds one folder, loaded unpacked (*Developer mode*, *Load unpacked*); an update replaces
+  that folder, then the extension is reloaded. The manifest's `key` gives the extension one ID wherever its folder
+  is (`lhebeklloefnhcpmnolimpcnljneeijp`), so the sites turned on stay on. There is no private key: nothing is signed
+  outside a store, and a store listing would get the store's ID (the sites would be turned on again). A build of
+  `browser/dist` has the same ID: a browser holds either it or a release.
+- **Checks** (`.github/workflows/ci.yml`), on a pull request and on develop and master: the VS Code extension
+  (tests, a `.vsix` without `browser/`) when a file outside the browser extension's changed; the browser extension
+  (tests, build) when `browser/`, the core it is built on (`src/core`, `src/lang`), its tests or the build's setup
+  changed. Both packages are artifacts of the run, for trying a pull request out.
 
 ## How it is built
 
 | File | Role |
 | --- | --- |
-| `src/content.ts` | Content script, the only code that knows GitHub's DOM: finds the TwinCAT files' blocks, adds the toggle, puts the viewer frame in place of the diff, passes the pull request's coordinates, scrolls to a line; adds the tabs and the tree's frame above GitHub's file tree, takes the tree's clicks to the files. |
+| `src/content.ts` | Content script, for any host: finds the TwinCAT files' blocks, adds the toggle, puts the viewer frame in place of the diff, passes the change's coordinates, scrolls to a line; adds the tabs and the tree's frame above the host's file tree, takes the tree's clicks to the files. |
+| `src/host.ts`, `hostGithub.ts`, `hostGitlab.ts` | The host adapters, the only code that knows a host's DOM: the blocks and their paths, the header, where the viewer goes, the commits, the file list, the line anchors, the file tree's panel, the theme. |
 | `src/viewer.ts` + `static/viewer.html`, `viewer.css` | The viewer, an extension page in an iframe (`web_accessible_resources`): reads the two versions, builds the model, renders it, opens an object the tree asks for. |
 | `src/tree.ts` + `static/tree.html`, `tree.css` | The tree panel, another extension page in an iframe: lists the pull request's TwinCAT files, reads them all, renders the tree. |
 | `src/model.ts` | Platform-free model of one file: object views, section line diffs, XML line of each section line. |
 | `src/treeModel.ts` | Platform-free tree of the changes: folders, files as their objects, changed members, groups for build output and project files. |
-| `src/github.ts` | Platform-free GitHub knowledge: URLs, the commits in a page's markup, the files of a pull request's diff, the frames' parameters. |
-| `src/reader.ts` | Reading a file in a frame, the three ways of question 1 in turn. |
+| `src/github.ts`, `src/gitlab.ts` | Platform-free host knowledge: URLs, the commits in GitHub's markup, the files of a git diff; GitLab's merge request URLs, REST API, `data-file-data`, line anchors. |
+| `src/params.ts` | The frames' parameters, for any host: the page's origin, a raw-file URL template, the ways to read in order, the commits, the file. |
+| `src/reader.ts` | Reading a file in a frame, the three ways of question 1, in the order the host's adapter gives. |
+| `src/sites.ts`, `src/popup.ts` + `static/popup.html` | The sites the extension works on: github.com, gitlab.com, and the self-managed GitLab instances turned on from the popup. |
 | `src/lineDiff.ts` | Myers line diff (as git's default) with deletions before additions in each block, and the changed middle of a line. |
 | `src/highlight.ts` | Structured Text highlighting from `src/lang/lexer.ts`. |
-| `src/background.ts` | Service worker: one of the ways to read a file (see question 1). |
-| `build.js`, `tsconfig.json` | esbuild bundles (content 11 KB, viewer 29 KB, tree 24 KB, worker 1 KB, minified) and the tree's icons (`media/icons`); `tsc` checks with the DOM library and without Node's types. |
+| `src/background.ts` | Service worker: one of the ways to read a file (see question 1); registers the content script on the sites turned on. |
+| `build.js`, `tsconfig.json` | esbuild bundles (content 18 KB, viewer 30 KB, tree 25 KB, popup 2 KB, worker 2 KB, minified) and the tree's icons (`media/icons`); `tsc` checks with the DOM library and without Node's types. |
 
 The core is used as it is, without a fork: `parseTcText` (`src/core/tcfile.ts`) parses both versions,
 `viewChanges` (`objectChanges.ts`) says which object views changed (and their old names), `viewSections` and
@@ -71,11 +105,12 @@ The model adds two things on top of `viewChanges`: unchanged objects are listed 
 object whose graphical implementation (CFC, SFC, FBD/LD) changed is *modified* even though its Structured Text
 did not (`viewChanges` compares ST only; its XML is compared here). Graphical code itself is not drawn.
 
-Unit tests: `test/unit/browserView.test.ts` (18 tests, part of `npm test`) on made-up files: a modified method,
+Unit tests: `test/unit/browserView.test.ts` (21 tests, part of `npm test`) on made-up files: a modified method,
 an added and a deleted method, a changed property Get, a deleted accessor and property, a renamed method, a
 metadata-only change, project files, a new, deleted and renamed file, CRLF files, a changed CFC action, a broken
-file, the line diff (checked against an LCS on random inputs), the GitHub helpers, the tree of a pull request's
-changes, and the files of a pull request's diff.
+file, the line diff (checked against an LCS on random inputs), the GitHub helpers, the frames' parameters, the tree
+of a change, the files of a git diff, and the GitLab helpers (URLs, REST API answers, `data-file-data`, line
+anchors, color mode).
 
 ## The tree of the changes
 
@@ -109,6 +144,66 @@ project, in a panel that takes the place of GitHub's file tree when its *TwinCAT
   `[role="tree"][aria-label*="file"]` and its filter field, *pending*), medium brittleness; without it the tabs
   and the tree float at the bottom left of the window. The tree rows, only when the diff cannot be read. GitHub's
   link to a file, which is its public anchor format.
+
+## GitLab
+
+Added after GitHub, with the same viewer, tree and model. What knows GitHub moved behind a host adapter
+(`src/host.ts`), one per host (`hostGithub.ts`, `hostGitlab.ts`); the frames get the page's origin, a raw-file URL
+template and the order of the ways to read, and know no host.
+
+- **Pages.** A merge request's *Changes* tab (`/<project>/-/merge_requests/<iid>/diffs`), known by its URL and
+  `<body data-page="projects:merge_requests:…">`, on gitlab.com and on the self-managed instances turned on. GitLab
+  has two diff pages, both handled:
+  - *Rapid Diffs*, gitlab.com's default in October 2026: one `<diff-file id="<sha1 of the path>">` per file, all
+    in the page (streamed in), whose `data-file-data` JSON has `old_path`, `new_path` and the `diff_refs` compared;
+  - the classic Vue app (`?rapid_diffs_disabled=true` on gitlab.com, and likely what an older instance serves):
+    `div.diff-file.file-holder` with the sha1 as id and `data-path`, rendered as the page scrolls (about 6 of 31
+    blocks at a time). This page scrolls in a panel, not in the window.
+- **Commits.** Rapid Diffs: a block's `data-file-data`. Classic: the page's own `diffs_batch.json`, with the version,
+  commit and comparison parameters of its URL (`diff_head=true` by default), whose files carry `diff_refs`; the URL
+  is built, since the app's mount point loses the endpoint's attribute when it starts. Else the REST API's
+  `diff_refs`. GitLab's REST API takes the session cookie on its own origin: a private project needs no token. On
+  MR !4 of the project below all three give `0717d44 → d0d506d`.
+- **Files.** The REST API: `…/merge_requests/:iid/diffs`, page by page (GitLab 15.7+; `…/changes` before). Paths,
+  old paths, added and deleted files: the tree's list, and what a block lacks (a classic block has its new path only).
+- **Reading.** `/<project>/-/raw/<sha>/<path>` answers `200` directly, with no CORS header: from the page first (same
+  origin, the session goes with it), then the frame, then the service worker. On gitlab.com the session cookie is
+  `SameSite=None`, so the frame's requests carry it too, as long as the browser lets third-party cookies through.
+- **Line links.** Rapid Diffs: computed, `#line_<first 9 characters of the file's hash>_<old line>` for a removed
+  line and `…_A<new line>` for an added one. Classic: the row whose `data-interop-old-line` or `data-interop-new-line`
+  is that line; its id (`<hash>_<old>_<new>`) becomes the location's hash.
+- **Tree.** Above GitLab's file browser (`[data-testid="file-browser-tree"]`), covering it rather than hiding it:
+  GitLab's list renders only the rows it shows (none when hidden), and a click in the TwinCAT tree clicks GitLab's row
+  of the file, which makes the classic page render its block.
+- **Self-managed instances.** The popup's *Turn on for this site* asks the browser for that origin
+  (`optional_host_permissions`). The browser's permissions are the list of sites: the service worker keeps the
+  content script registered on the granted ones (`chrome.scripting.registerContentScripts`, on
+  `permissions.onAdded` and `onRemoved`, after an update or a restart), and starts it at once in the tab the site
+  was turned on in, since the browser may close the popup while it asks. The frames work only in a page of
+  github.com, gitlab.com or a site turned on, and only in the page that made them (`location.ancestorOrigins`). An
+  instance served under a path (`https://example.com/gitlab`) works: the page names its project
+  (`data-project-full-path`), and what comes before it in the URL is the instance's path.
+- **Hooks**, and how brittle: `body[data-page]`, `data-project-full-path`, `data-project-id` (low: GitLab's own page
+  bundles rely on them); Rapid Diffs' `<diff-file>`, `data-file-data`, `rd-diff-file-*` classes and `line_…` anchors
+  (medium: a new page that may still change); the classic `.diff-file.file-holder[data-path]`, `.js-file-title`,
+  `.diff-content`, `data-interop-*-line` and `diffs_batch.json` (medium); `[data-testid="file-browser-tree"]` and
+  `[data-file-row]` (medium, test ids change seldom). What scrolls is found by its style, not by a class.
+- **Checked**, headless Edge signed out, on gitlab.com's public `mobile-crane/mobile-crane-twincat3` merge requests !4
+  (24 TwinCAT files: added, deleted, renamed and moved, modified POUs, DUTs, interfaces) and !8, in both pages, in
+  light and dark mode: toggles, views, files read from the page, line links (Rapid `#line_da56bf7eb_A4`, classic
+  `#2f0d2bc…_10_10`), the tree in GitLab's sidebar (24 files, 44 objects), a click on `CheckEndStop` that shows it
+  just below GitLab's sticky file header. The popup, and the frames refusing to work outside a known page, too.
+- **GitLab 19.4** (September 2026), from its source (`v19.4.2-ee`): Rapid Diffs is the default *Changes* page there
+  too (`rapid_diffs_on_mr_show` and `rapid_diffs_default_on_mr_show` are on by default; `?rapid_diffs_disabled=true`
+  or a `rapid_diffs_enabled=false` cookie bring the classic page back). Its Rapid Diffs templates are gitlab.com's
+  of October 2026 but for one CSS class; `data-file-data` has `old_path`, `new_path` and `diff_refs`; a line's id
+  is `line_<hash>_<old line>` or `line_<hash>_A<new line>`. The classic page has the same hooks as on gitlab.com.
+  A merge request is compared with its merge ref (on the target branch's head) only when it can be merged; one with
+  conflicts shows its latest version, from its merge base: the page's `diff_refs` say which, either way.
+- **Checked live** by the user on a self-managed GitLab 19.4, signed in, in Edge: off until the popup's *Turn on for
+  this site*, then the toggles, the views and the tree on its merge requests, without a reload.
+- **Not tried**: a merge request compared with its merge ref after its target branch moved on; the frame's reads on
+  a self-managed instance (its session cookie's `SameSite` matters there; the page reads first).
 
 ## 1. Can both versions be fetched with the session, private repositories and renames included?
 
@@ -216,17 +311,15 @@ toggle says so. The coupling is GitHub's public line-link format only. React pag
 - packaging for the Chrome Web Store and Edge Add-ons, a privacy note, a CI build, an end-to-end smoke test with
   a headless browser: 3 days.
 
-**GitLab, about 2 more weeks** once the model and viewer are shared (not tried in this spike): an adapter for
-the merge request diff page (file blocks with `data-path`, line anchors `<sha1 of the path>_<old>_<new>`), the
-commits from the merge request's `diff_refs` (`base_sha`, `start_sha`, `head_sha`; GitLab's API takes the
-session cookie on its own origin, so no token is needed), files from `/-/raw/{sha}/{path}`, and host permissions
-requested at run time for self-managed GitLab instances. Bitbucket would be another adapter of the same size.
+**GitLab, about 1 more week**: its adapter is here (see [GitLab](#gitlab)); left for an MVP are a test fixture of
+both diff pages' markup, the check on the self-managed versions in use (an older one may mark its lines
+differently) and on a private project, and the page's choice of versions and comparison checked against what the
+views show. The viewer, the tree and the packaging are GitHub's. Bitbucket would be another adapter, 1 to 2 weeks.
 
 **What I would do differently:**
 
 - Make the host adapter an interface from the start (find blocks, path, commits, line anchor), with the viewer
-  and model knowing nothing of GitHub; the spike has the GitHub parts in `content.ts` and `github.ts` only, which
-  is close.
+  and model knowing nothing of GitHub: adding GitLab began by moving GitHub's parts behind one (`src/host.ts`).
 - Take the commits from an API rather than the markup: the markup is the most brittle hook (see 3).
 - Read files in one place (service worker or page) instead of three, once the private test settles which.
 - Use Monaco's `linesDiffComputers` (as `src/webview/main.ts` does) if the Myers diff's alignments bother
@@ -236,7 +329,7 @@ requested at run time for self-managed GitLab instances. Bitbucket would be anot
 
 ## How it was tested
 
-- `npm test`: 110 tests, the 18 above included.
+- `npm test`: 139 tests, the 21 above included.
 - Headless Edge 155 with the unpacked extension (`--load-extension`, which Chrome 137+ ignores) in a throwaway
   profile, driven over the DevTools protocol, signed out (so GitHub serves the classic page), in light and dark
   mode: toggle on and off, viewer contents, frame size, diagnostics, a line link and where it lands, screenshots.
@@ -259,4 +352,8 @@ requested at run time for self-managed GitLab instances. Bitbucket would be anot
   file tree, the tree read from the pull request's diff and, with a copy of the extension that cannot read the
   diff, from the page's list (the same 31 files and 125 changed objects); a click on `StateMachine` opens
   `FB_MotionStageE727`'s view at that method, 150 px from the top of the window.
-- *Pending:* a signed-in Chrome or Edge on the React page, with a private repository.
+- GitLab, the same way on gitlab.com: see *Checked* under [GitLab](#gitlab). After the move to host adapters,
+  pcdshub/lcls-twincat-motion#249 again: the toggles, a line link (`L7`), the tree (31 files, 125 changed objects),
+  the click on `StateMachine` (150 px from the top).
+- A self-managed GitLab 19.4, by the user in a signed-in Edge: see *Checked live* under [GitLab](#gitlab).
+- *Pending:* a signed-in Chrome or Edge on GitHub's React page, with a private repository.

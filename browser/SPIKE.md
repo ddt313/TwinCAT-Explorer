@@ -185,6 +185,10 @@ template and the order of the ways to read, and know no host.
 - **Tree.** Above GitLab's file browser (`[data-testid="file-browser-tree"]`), covering it rather than hiding it:
   GitLab's list renders only the rows it shows (none when hidden), and a click in the TwinCAT tree clicks GitLab's row
   of the file, which makes the classic page render its block.
+- **Colors.** What the content script adds to the page (the *Files | TwinCAT* tabs, the toggles, the back button,
+  its notes) takes GitHub's Primer variables, else GitLab's design tokens (`--gl-background-color-subtle`,
+  `--gl-text-color-subtle`, `--gl-button-default-primary-*`, …, set on `<html>` and switched by its `gl-dark`), else
+  GitHub's light colors. Before, GitLab got those light colors in its dark mode too.
 - **Self-managed instances.** The popup's *Turn on for this site* asks the browser for that origin
   (`optional_host_permissions`). The browser's permissions are the list of sites: the service worker keeps the
   content script registered on the granted ones (`chrome.scripting.registerContentScripts`, on
@@ -292,7 +296,10 @@ view's links go to and come back from.
     outdated; *Show in the diff* (to the line: GitHub had folded that thread; in the big file, whose diff GitHub had
     not loaded, a note), back to the thread 150 px from the top; the tree with 44 threads on its TwinCAT files, on
     21 rows.
-  - *Pending*: a GitLab merge request with threads, and the user's self-managed GitLab 19.4.
+  - By the user, live on a self-managed GitLab 19.4, signed in, in dark mode: the threads of a merge request under
+    their lines, resolved and with replies, the outdated ones listed, the counts in the TwinCAT tree. The tabs above
+    the tree were still in light colors there; they now take GitLab's (see *Colors* under [GitLab](#gitlab)).
+  - *Not tried*: a merge request with threads on gitlab.com in the headless browser.
 
 ## 1. Can both versions be fetched with the session, private repositories and renames included?
 

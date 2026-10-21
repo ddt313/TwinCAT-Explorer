@@ -17,7 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   members under their POU; a click opens the object's view. Project files are there too, labelled when their only
   change is the TmcHash a build rewrites.
 - The same on a GitLab merge request's *Changes* tab, in both of GitLab's diff pages (Rapid Diffs and the classic
-  one): on gitlab.com, and on a self-managed instance once its toolbar button has turned it on for the site.
+  one): on gitlab.com, and on a self-managed instance once its toolbar button has turned it on for the site. The tabs,
+  toggles and buttons take GitLab's colors, light or dark.
 - A fixed extension ID (the manifest's `key`): the sites turned on stay on through updates, wherever the
   extension's folder is.
 - The review threads of a GitLab merge request (and of a public GitHub pull request) in the TwinCAT view, read-only:

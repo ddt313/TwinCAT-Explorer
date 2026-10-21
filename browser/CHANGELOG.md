@@ -4,6 +4,12 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- Large files no longer freeze the TwinCAT views and the tree: the view of a 1 MB `.TcPOU` took 2.5 seconds, with
+  all the extension's frames stopped meanwhile, and now takes a few tens of milliseconds.
+
 ## 0.1.0 - 2026-10-21
 
 ### Added

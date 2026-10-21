@@ -1,14 +1,18 @@
 // The object view of the browser extension (browser/src): which objects of a TwinCAT file a pull request
-// changed, the line diff of their sections and the XML line of each changed line, on made-up files.
+// changed, the line diff of their sections and the XML line of each changed line, where the review threads go in
+// it, and when a navigation turns a view off, on made-up files and made-up comments.
 
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { commitsInPage, filesInDiff, filesPage, githubRawTemplate } from '../../browser/src/github';
+import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
+import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, reviewCommentsUrl, threadsFromGithub } from '../../browser/src/github';
 import {
-  commitsFromDiffRefs, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, mergeRequestApi, mergeRequestPage, rapidFileData, rapidLineAnchor,
+  commitsFromDiffRefs, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, mergeRequestApi, mergeRequestPage, noteUrl, rapidFileData,
+  rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile } from '../../browser/src/model';
+import { ViewState, anchorId, leaveFor, noteOfAnchor } from '../../browser/src/navigation';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
 import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
@@ -587,4 +591,208 @@ new mode 100755
     { path: 'PLC/POUs/FB_Größe.TcPOU', status: 'modified' },
     { path: 'My POUs/FB_Mode.TcPOU', status: 'modified' },
   ]);
+});
+
+// ------------------------------------------------------------------ review comments
+
+const D = 'd'.repeat(40);
+const E = 'e'.repeat(40);
+const VALVE = 'POUs/FB_Valve.TcPOU';
+
+/** A position of a GitLab diff note on the valve, on the diff from `base` to `head`. */
+function at(lines: { old?: number; new?: number }, base = A, head = B): Record<string, unknown> {
+  return {
+    base_sha: base, start_sha: C, head_sha: head, old_path: VALVE, new_path: VALVE, position_type: 'text', old_line: lines.old ?? null, new_line: lines.new ?? null,
+  };
+}
+
+/** A discussion of GitLab's `discussions.json`: a diff note and its replies, at a position (and the ones GitLab carried). */
+function discussion(id: number, position: Record<string, unknown>, o: { replies?: number; resolved?: boolean; positions?: Record<string, unknown>[] } = {}) {
+  const notes = Array.from({ length: 1 + (o.replies ?? 0) }, (_, n) => ({
+    id: id * 10 + n, type: 'DiffNote', author: { name: `Reviewer ${n + 1}`, username: `reviewer${n + 1}` }, created_at: '2026-10-20T08:30:00.000Z',
+    system: false, note: n === 0 ? `Comment ${id}` : `Reply ${n}`, resolvable: true, resolved: o.resolved ?? false,
+  }));
+  return {
+    id: `d${id}`, diff_discussion: true, individual_note: false, resolvable: true, resolved: o.resolved ?? false, notes, position,
+    original_position: position, ...(o.positions ? { positions: o.positions } : {}),
+  };
+}
+
+const urlOf = (id: string) => noteUrl('https://gitlab.example.com', 'plc/machine', 7, id);
+const gitlabThreads = (list: unknown) => threadsFromGitlab(list, urlOf);
+
+/** The threads under section lines, as `thread object section kind text`. */
+function underLines(v: FileView, threads: ReviewThread[], commits = { base: A, head: B }): string[] {
+  return [...placeThreads(v, threads, commits).lines].flatMap(([key, list]) => {
+    const [o, s, k] = key.split(':').map(Number);
+    const sec = v.objects[o].sections[s];
+    return list.map(p => `${p.thread.id} ${v.objects[o].label} ${sec.label} ${sec.lines[k].kind} ${sec.lines[k].text} @${p.side}${p.line}`);
+  }).sort();
+}
+
+test('comments: a note goes under the section line its XML line is on: old_line in the base file, new_line in the head file', () => {
+  const before = valve();
+  const after = valve({ openImpl: 'nCycles := nCycles + 1;\nbOpened := bForce OR bOpen;\nRETURN;' });
+  const v = view({ before, after });
+  // The head has one line more in Open: below it, the same line has another number at the base than at the head.
+  assert.equal(lineOf(after, 'METHOD Close'), lineOf(before, 'METHOD Close') + 1);
+  const threads = gitlabThreads([
+    discussion(1, at({ new: lineOf(after, 'RETURN;') })),
+    discussion(2, at({ old: lineOf(before, 'bOpened := TRUE;') }), { replies: 2 }),
+    discussion(3, at({ old: lineOf(before, 'nCycles := nCycles + 1;'), new: lineOf(after, 'nCycles := nCycles + 1;') })),
+    discussion(4, at({ old: lineOf(before, 'METHOD Close'), new: lineOf(after, 'METHOD Close') })),
+    // On the base side of an unchanged line: the base file's line, which is another line in the head file.
+    discussion(5, at({ old: lineOf(before, 'METHOD Close') })),
+  ]);
+  assert.deepEqual(underLines(v, threads), [
+    `d1 FB_Valve.Open Implementation add RETURN; @R${lineOf(after, 'RETURN;')}`,
+    `d2 FB_Valve.Open Implementation del bOpened := TRUE; @L${lineOf(before, 'bOpened := TRUE;')}`,
+    `d3 FB_Valve.Open Implementation same nCycles := nCycles + 1; @R${lineOf(after, 'nCycles := nCycles + 1;')}`,
+    `d4 FB_Valve.Close Declaration same METHOD Close @R${lineOf(after, 'METHOD Close')}`,
+    `d5 FB_Valve.Close Declaration same METHOD Close @L${lineOf(before, 'METHOD Close')}`,
+  ]);
+  const p = placeThreads(v, threads, { base: A, head: B });
+  assert.deepEqual(v.objects.map((o, i) => `${o.label} ${p.perObject[i]}`).filter(s => !s.endsWith(' 0')), ['FB_Valve.Open 3', 'FB_Valve.Close 2']);
+  assert.deepEqual([p.xml.length, p.outdated.length], [0, 0]);
+  // The thread as the view shows it: author, time, text, replies, resolved state, where it is in the page.
+  const d2 = threads.find(t => t.id === 'd2')!;
+  assert.deepEqual(d2.notes.map(n => `${n.author}: ${n.body}`), ['Reviewer 1: Comment 2', 'Reviewer 2: Reply 1', 'Reviewer 3: Reply 2']);
+  assert.deepEqual([d2.resolved, d2.anchor, d2.url], [false, 'note_20', 'https://gitlab.example.com/plc/machine/-/merge_requests/7#note_20']);
+});
+
+test('comments: a note on a line in no section (LineIds, the XML declaration, the whole file) goes to the comments on the XML', () => {
+  const before = valve();
+  const after = valve({ lineIds: '2', cfc: '<Box Id="1" X="30" Y="20" />' });
+  const v = view({ before, after });
+  const threads = gitlabThreads([
+    discussion(1, at({ old: lineOf(before, '<LineId Id="3"') })),
+    discussion(2, at({ new: lineOf(after, '<LineId Id="3"') })),
+    discussion(3, at({ old: 1, new: 1 })),
+    discussion(4, { ...at({}), position_type: 'file' }),
+    // A line of graphical code: under its section, which shows no lines.
+    discussion(5, at({ new: lineOf(after, '<Box Id="1" X="30"') })),
+  ]);
+  const p = placeThreads(v, threads, { base: A, head: B });
+  assert.equal(p.lines.size, 0);
+  assert.deepEqual(p.xml.map(x => `${x.thread.id} ${x.position?.file ? 'file' : `${x.side}${x.line}`} ${x.object === undefined ? '-' : v.objects[x.object].label}`), [
+    `d1 L${lineOf(before, '<LineId Id="3"')} FB_Valve`, `d2 R${lineOf(after, '<LineId Id="3"')} FB_Valve`, 'd3 R1 -', 'd4 file -',
+  ]);
+  const draw = v.objects.findIndex(o => o.label === 'FB_Valve.A_Draw');
+  assert.deepEqual([...p.sections.keys()], [`${draw}:0`]);
+  assert.deepEqual(v.objects.map((o, i) => `${o.label} ${p.perObject[i]}`).filter(s => !s.endsWith(' 0')), ['FB_Valve.A_Draw 1']);
+});
+
+test('comments: a note on other commits than the page compares is outdated; one GitLab carried to the merge ref is placed there', () => {
+  const after = valve({ openImpl: 'nCycles := nCycles + 1;\nbOpened := bForce OR bOpen;\nRETURN;' });
+  const v = view({ before: valve(), after });
+  const ret = lineOf(after, 'RETURN;');
+  const threads = gitlabThreads([
+    // Made on an older version (head D) and not carried on: its line changed since.
+    discussion(1, at({ new: 5 }, A, D)),
+    // On the merge base → head diff, and carried by GitLab to the merge ref's diff (target branch E → merge commit C).
+    discussion(2, at({ new: ret }), { positions: [at({ new: ret + 2 }, E, C)] }),
+  ]);
+  let p = placeThreads(v, threads, { base: A, head: B });
+  assert.deepEqual(p.outdated.map(x => `${x.thread.id} R${x.position?.newLine} at ${x.position?.head?.slice(0, 7)}`), ['d1 R5 at ddddddd']);
+  assert.deepEqual(underLines(v, threads), [`d2 FB_Valve.Open Implementation add RETURN; @R${ret}`]);
+  // The page compares the merge ref: the position on it is the one that counts.
+  assert.deepEqual(currentPosition(threads[1], { base: E, head: C })?.newLine, ret + 2);
+  p = placeThreads(v, threads, { base: E, head: C });
+  assert.deepEqual(p.outdated.map(x => x.thread.id), ['d1']);
+  // A note's file, renamed or not: by its path at the head or at the base.
+  assert.equal(threadsOfFile(threads, VALVE).length, 2);
+  assert.equal(threadsOfFile(threads, 'POUs/Valves/FB_Valve.TcPOU', VALVE).length, 2);
+  assert.equal(threadsOfFile(threads, 'POUs/FB_Pump.TcPOU').length, 0);
+});
+
+test('comments: GitLab\'s discussions of the page and of the REST API, without system notes and comments on the merge request', () => {
+  const rest = [
+    // The REST API: the position is on the note, its text in `body`.
+    { id: 'r1', individual_note: false, notes: [{ id: 91, type: 'DiffNote', body: 'From the API', author: { name: 'API User' }, created_at: '2026-10-19T10:00:00Z', system: false, resolvable: true, resolved: true, position: { ...at({ new: 12 }), line_range: { start: { old_line: null, new_line: 10 }, end: { old_line: null, new_line: 12 } } } }] },
+    // A comment on the merge request, not on its diff; a system note.
+    { id: 'r2', individual_note: true, notes: [{ id: 92, type: null, body: 'Looks good', author: { name: 'API User' }, system: false }] },
+    { id: 'r3', individual_note: true, notes: [{ id: 93, type: null, body: 'added 1 commit', system: true }] },
+    // An image's note is on no XML line.
+    { id: 'r4', notes: [{ id: 94, type: 'DiffNote', body: 'x', position: { ...at({}), position_type: 'image' } }] },
+  ];
+  const threads = gitlabThreads(rest);
+  assert.deepEqual(threads.map(t => [t.id, t.notes.map(n => n.body), t.resolved]), [['r1', ['From the API'], true]]);
+  assert.deepEqual(threads[0].positions, [{ oldPath: VALVE, newPath: VALVE, base: A, head: B, newLine: 12, start: { side: 'R', line: 10 } }]);
+  assert.deepEqual(gitlabThreads({ message: '401 Unauthorized' }), []);
+  // The page's discussions: all of them (not the filter saved for the user), in pages after a cursor.
+  assert.equal(discussionsUrl('https://gitlab.example.com', 'group/plc machine', 7),
+    'https://gitlab.example.com/group/plc%20machine/-/merge_requests/7/discussions.json?notes_filter=0&persist_filter=false&per_page=100');
+  assert.match(discussionsUrl('https://gitlab.com', 'a/b', 7, 'x+y=='), /&cursor=x%2By%3D%3D$/);
+});
+
+test('comments: GitHub\'s review comments make threads with their replies; an outdated one keeps its original line', () => {
+  const path = 'PLC/POUs/FB_Valve.TcPOU';
+  const comment = (c: Record<string, unknown>) => ({
+    path, commit_id: B, original_commit_id: B, side: 'RIGHT', user: { login: 'octocat' }, created_at: '2026-10-20T09:00:00Z', subject_type: 'line',
+    html_url: `https://github.com/acme/plc/pull/12#discussion_r${c.id}`, body: `Comment ${c.id}`, ...c,
+  });
+  const threads = threadsFromGithub([
+    comment({ id: 11, line: 40, original_line: 38, original_commit_id: D }),
+    comment({ id: 12, in_reply_to_id: 11, line: 40, user: { login: 'hubot' } }),
+    comment({ id: 13, line: null, original_line: 12, side: 'LEFT', commit_id: D, original_commit_id: D }),
+    comment({ id: 14, line: null, subject_type: 'file' }),
+    comment({ id: 15, line: 44, start_line: 42, start_side: 'RIGHT' }),
+  ]);
+  assert.deepEqual(threads.map(t => `${t.anchor} ${t.notes.map(n => n.author).join('+')} ${t.resolved}`),
+    ['discussion_r11 octocat+hubot undefined', 'discussion_r13 octocat undefined', 'discussion_r14 octocat undefined', 'discussion_r15 octocat undefined']);
+  const commits = { base: A, head: B };
+  assert.deepEqual(currentPosition(threads[0], commits), { newPath: path, head: B, newLine: 40 });
+  assert.equal(currentPosition(threads[1], commits), undefined);
+  assert.deepEqual(threads[1].positions, [{ newPath: path, head: D, oldLine: 12 }]);
+  assert.deepEqual(currentPosition(threads[2], commits), { newPath: path, head: B, file: true });
+  assert.deepEqual(currentPosition(threads[3], commits)?.start, { side: 'R', line: 42 });
+  assert.equal(reviewCommentsUrl({ owner: 'acme', repo: 'plc', number: 12 }, 2), 'https://api.github.com/repos/acme/plc/pulls/12/comments?per_page=100&page=2');
+});
+
+test('navigation: an anchor in the diff a TwinCAT view hides turns that view off, with the way back; a link to the file keeps it', () => {
+  const valveBlock = `diff-${'1'.repeat(64)}`;
+  const pumpBlock = '5d2c773018c2590cb27a24e51e7e2d43b6633c83';
+  const offBlock = `diff-${'2'.repeat(64)}`;
+  const views: ViewState[] = [
+    { anchor: valveBlock, path: VALVE, on: true },
+    { anchor: pumpBlock, path: 'POUs/FB_Pump.TcPOU', oldPath: 'POUs/Old/FB_Pump.TcPOU', on: true },
+    { anchor: offBlock, path: 'POUs/FB_Off.TcPOU', on: false },
+  ];
+  const [onValve] = gitlabThreads([discussion(1, at({ new: 40 }), { replies: 1 })]);
+  const onOff: ReviewThread = { ...onValve, id: 'd9', notes: [{ ...onValve.notes[0], id: '99' }], positions: [{ newPath: 'POUs/FB_Off.TcPOU', head: B, newLine: 3 }] };
+  const threads = [onValve, onOff];
+  // In the page, in the hidden diff of a view that is on: off, coming back to the thread.
+  assert.deepEqual(leaveFor('#note_10', views, { anchor: valveBlock, inDiff: true }, threads), { anchor: valveBlock, back: { thread: 'd1' } });
+  assert.deepEqual(leaveFor(`#${valveBlock}R12`, views, { anchor: valveBlock, inDiff: true }, []), { anchor: valveBlock, back: { xml: { side: 'R', line: 12 } } });
+  // In the file's header or its block itself, or in the diff of a view that is off: nothing to do.
+  assert.equal(leaveFor('#note_10', views, { anchor: valveBlock, inDiff: false }, threads), undefined);
+  assert.equal(leaveFor('#note_99', views, { anchor: offBlock, inDiff: true }, threads), undefined);
+  // Not in the page (not rendered yet): the thread's file, from the threads, a reply's anchor too.
+  assert.deepEqual(leaveFor('#note_11', views, undefined, threads), { anchor: valveBlock, back: { thread: 'd1' }, thread: onValve });
+  assert.equal(leaveFor('#note_99', views, undefined, threads), undefined);
+  assert.equal(leaveFor('#note_12345', views, undefined, threads), undefined);
+  // Line anchors: GitHub's; GitLab's Rapid Diffs (`A`: an added line) and classic page.
+  const line = (anchor: string, side: 'L' | 'R', n: number) => ({ anchor, back: { xml: { side, line: n } }, line: { side, line: n } });
+  assert.deepEqual(leaveFor(`#${valveBlock}L7`, views, undefined, []), line(valveBlock, 'L', 7));
+  assert.deepEqual(leaveFor('#line_5d2c77301_A15', views, undefined, []), line(pumpBlock, 'R', 15));
+  assert.deepEqual(leaveFor('#line_5d2c77301_14', views, undefined, []), line(pumpBlock, 'L', 14));
+  assert.deepEqual(leaveFor(`#${pumpBlock}_10_11`, views, undefined, []), line(pumpBlock, 'R', 11));
+  assert.equal(leaveFor(`#${offBlock}R3`, views, undefined, []), undefined);
+  // A link to a file, another anchor, no anchor.
+  assert.equal(leaveFor(`#${valveBlock}`, views, undefined, []), undefined);
+  assert.equal(leaveFor('#top', views, undefined, threads), undefined);
+  assert.equal(leaveFor('', views, undefined, threads), undefined);
+  assert.deepEqual(['note_5', 'discussion_r1234', 'r77', 'notes'].map(noteOfAnchor), ['5', '1234', '77', undefined]);
+  assert.equal(anchorId('#note_%31'), 'note_1');
+});
+
+test('tree: the review threads on an object and on its file', () => {
+  const path = 'PLC/POUs/FB_Valve.TcPOU';
+  const v = buildFileView({ path, before: valve(), after: valve({ openImpl: 'bOpened := TRUE;', getImpl: 'State := 1;' }) });
+  const perObject = v.objects.map(o => (o.label === 'FB_Valve.Open' ? 2 : o.label === 'FB_Valve.State.Get' ? 1 : 0));
+  const file = buildTree([{ path, view: v, comments: { perObject, total: 4 } }])[0].children[0];
+  assert.equal(file.comments, 4);
+  assert.equal(file.children.find(n => n.label === 'Open')?.comments, 2);
+  const state = file.children.find(n => n.label === 'State')!;
+  assert.deepEqual([state.comments, state.children[0].comments], [undefined, 1]);
 });

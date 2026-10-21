@@ -87,6 +87,19 @@ html, body {
 .muted > .label { color: var(--muted); }
 .desc { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
 .letter { flex: none; margin-left: auto; padding-left: 8px; font: 600 12px/22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* The review threads on an object or a file. */
+.cmt { flex: none; margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--muted); }
+.cmt + .letter { margin-left: 0; }
+.bubble {
+  width: 11px;
+  height: 11px;
+  margin-right: 2px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vertical-align: -1px;
+}
 .l-added { color: var(--added); }
 .l-modified { color: var(--modified); }
 .l-deleted { color: var(--deleted); }

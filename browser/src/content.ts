@@ -1,11 +1,14 @@
 // Content script on review pages: GitHub's "Files changed", GitLab's "Changes" (gitlab.com, and the self-managed
 // instances the user turned the extension on for). It finds the blocks of the TwinCAT files, adds a "TwinCAT view"
 // toggle to their headers and, when on, shows the extension's viewer in a frame in place of the host's diff, with
-// the change's coordinates. Above the host's file tree it adds a "TwinCAT" tab, the extension's tree of the changed
-// objects in a frame, and takes a click there to the object's view. It reads no files itself, except for a frame
-// that asks it to (the page has the user's session). Everything that knows a host's DOM is in its adapter (host.ts).
+// the change's coordinates and the review threads on the file. Above the host's file tree it adds a "TwinCAT" tab,
+// the extension's tree of the changed objects in a frame, and takes a click there to the object's view. A jump from
+// a view to the host's diff (an XML line, a thread), and a navigation to an anchor in the diff a view hides, turn
+// that view off, with a button beside the toggle to come back. It reads no files itself, except for a frame that
+// asks it to (the page has the user's session). Everything that knows a host's DOM is in its adapter (host.ts).
 
 import { Accessor } from '../../src/core/objectText';
+import { ReviewThread, Side, ThreadsResult, currentPosition, threadsOfFile } from './comments';
 import { fetchText } from './fetchText';
 import { filesPage } from './github';
 import { isChangesTab, mergeRequestPage } from './gitlab';
@@ -13,8 +16,9 @@ import { Host } from './host';
 import { GitHubHost } from './hostGithub';
 import { GitLabHost } from './hostGitlab';
 import { hasObjectView } from './model';
+import { Back, Found, anchorId, leaveFor } from './navigation';
 import { Commits, ViewerParams, encodeTreeParams, encodeViewerParams } from './params';
-import { ChangedFile, FrameMessage, PageMessage, fetchAllowed } from './protocol';
+import { ChangedFile, FrameMessage, PageMessage, Reveal, fetchAllowed } from './protocol';
 
 const EXTENSION = new URL(chrome.runtime.getURL('')).origin;
 const VIEWER = chrome.runtime.getURL('viewer.html');
@@ -39,8 +43,10 @@ interface Block extends ChangedFile {
   frame?: HTMLIFrameElement;
   /** The viewer in the frame has started: it takes messages. */
   ready?: boolean;
-  /** An object view the tree asked for, until the viewer has shown it. */
-  reveal?: { objectId: string; accessor?: Accessor };
+  /** A place in the view the tree or the back button asked for, until the viewer is told. */
+  reveal?: Reveal;
+  /** Where the view was left for the host's diff, while it is off: where the back button goes. */
+  back?: Back;
 }
 
 let host: Host | undefined;
@@ -50,11 +56,57 @@ let blocks = new Map<string, Block>();
 /** Blocks looked at that are not TwinCAT files. */
 let skipped = new Set<string>();
 let commits: Promise<Commits | undefined> = Promise.resolve(undefined);
+/** The commits once known, for the line of a thread. */
+let pageCommits: Commits | undefined;
 
 /** The commits, looked for again when the page had not loaded its data yet (a soft navigation to the tab). */
 async function currentCommits(): Promise<Commits | undefined> {
   if (!host) return undefined;
-  return (await commits) ?? (await (commits = host.commits()));
+  return (pageCommits = (await commits) ?? (await (commits = host.commits())));
+}
+
+// ------------------------------------------------------------------ the review threads
+
+let threads: Promise<ThreadsResult> | undefined;
+let threadsAsked = 0;
+/** The threads last read, as the frames were told. */
+let lastThreads: ThreadsResult | undefined;
+
+/** The review threads, read when a frame first wants them, and again (`fresh`) once the host's time to keep them is over. */
+function loadThreads(fresh = false): Promise<ThreadsResult> {
+  if (!host) return Promise.resolve({ threads: [] });
+  if (!threads || (fresh && Date.now() - threadsAsked > host.threadsFresh)) {
+    threadsAsked = Date.now();
+    const asked = host.threads().catch((e: unknown): ThreadsResult => ({ threads: [], problem: `The comments could not be read (${String(e)}).` }));
+    threads = asked;
+    void asked.then(r => {
+      if (threads !== asked) return;
+      const changed = JSON.stringify(r) !== JSON.stringify(lastThreads);
+      lastThreads = r;
+      if (!changed) return;
+      log(r.problem ?? `${r.threads.length} review thread(s) on files (${r.source})`);
+      for (const b of blocks.values()) if (b.ready) postThreads(b.frame, b);
+      if (treeReady) postThreads(treeFrame);
+    });
+  }
+  return threads;
+}
+
+/** To a viewer the threads on its file, to the tree all of them. */
+function postThreads(frame: HTMLIFrameElement | undefined, block?: Block): void {
+  if (!frame || !lastThreads) return;
+  const { source, problem } = lastThreads;
+  const list = block ? threadsOfFile(lastThreads.threads, block.path, block.oldPath) : lastThreads.threads;
+  const message: PageMessage = { tcx: 'threads', threads: list, source, problem };
+  frame.contentWindow?.postMessage(message, EXTENSION);
+}
+
+/** The line of the host's diff a thread is on, for the page's commits (and its line at the base, for an unchanged one). */
+function threadLine(thread: ReviewThread): { side: Side; line: number; oldLine?: number } | undefined {
+  const p = pageCommits && currentPosition(thread, pageCommits);
+  if (p?.newLine) return { side: 'R', line: p.newLine, oldLine: p.oldLine };
+  if (p?.oldLine) return { side: 'L', line: p.oldLine };
+  return undefined;
 }
 
 // ------------------------------------------------------------------ the blocks of the files
@@ -100,16 +152,26 @@ async function apply(block: Block): Promise<void> {
   for (const el of hide) el.classList.add('tcx-hidden');
 }
 
+/** Turns a block's view on or off; on, the viewer goes to the place asked for, and the threads are read again if old. */
 function setOn(block: Block, on: boolean): void {
   block.on = on;
-  containerOf(block)?.querySelector('.tcx-toggle')?.setAttribute('aria-pressed', String(on));
-  void apply(block);
+  const container = containerOf(block);
+  container?.querySelector('.tcx-toggle')?.setAttribute('aria-pressed', String(on));
+  if (on) {
+    block.back = undefined;
+    container?.querySelector('.tcx-back')?.remove();
+    void loadThreads(true);
+  }
+  void apply(block).then(() => {
+    if (on) postReveal(block);
+  });
 }
 
 function addToggle(block: Block, header: HTMLElement): void {
   const existing = header.querySelector('.tcx-toggle');
   if (existing) {
     existing.setAttribute('aria-pressed', String(block.on));
+    addBack(block);
     return;
   }
   const button = document.createElement('button');
@@ -118,13 +180,49 @@ function addToggle(block: Block, header: HTMLElement): void {
   button.textContent = 'TwinCAT view';
   button.title = 'Show the TwinCAT objects of this file instead of its XML (Alt+click: all TwinCAT files)';
   button.setAttribute('aria-pressed', String(block.on));
-  button.addEventListener('click', e => {
-    e.preventDefault();
-    e.stopPropagation();
-    const on = !block.on;
-    for (const b of e.altKey ? blocks.values() : [block]) setOn(b, on);
-  });
   host!.toggleSlot(header).append(button);
+  addBack(block);
+}
+
+/**
+ * The clicks on the toggles and back buttons, taken on the document before the host sees them: a block the host
+ * renders again from a copy of its markup (GitLab's classic page, as it scrolls) has the buttons without listeners.
+ */
+function onButtonClick(e: MouseEvent): void {
+  const button = (e.target as Element | null)?.closest?.('.tcx-toggle, .tcx-back');
+  const block = button && [...blocks.values()].find(b => containerOf(b)?.contains(button));
+  if (!button || !block) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (button.classList.contains('tcx-back')) {
+    block.reveal = block.back;
+    setOn(block, true);
+    return;
+  }
+  const on = !block.on;
+  for (const b of e.altKey ? blocks.values() : [block]) {
+    b.reveal = undefined;
+    setOn(b, on);
+  }
+}
+
+/** Leaves a block's view for the host's diff, with the way back to where it was. */
+function leave(block: Block, back: Back): void {
+  setOn(block, false);
+  block.back = back;
+  addBack(block);
+}
+
+/** While a view is off after a jump to the host's diff: a button beside the toggle to come back where it was left. */
+function addBack(block: Block): void {
+  const toggle = containerOf(block)?.querySelector('.tcx-toggle');
+  if (!toggle || !block.back || block.on || toggle.parentElement?.querySelector('.tcx-back')) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'tcx-back';
+  button.textContent = '↩ Back to the TwinCAT view';
+  button.title = 'Show this file\'s TwinCAT view again, where you left it';
+  toggle.after(button);
 }
 
 /** A short message beside a block's toggle. */
@@ -270,9 +368,11 @@ async function reveal(path: string, objectId?: string, accessor?: Accessor): Pro
   else postReveal(block);
 }
 
+/** Tells the viewer the place asked for, once: it opens it when it can, and says where it is. */
 function postReveal(block: Block): void {
   if (!block.reveal || !block.ready || !block.frame) return;
   const message: PageMessage = { tcx: 'reveal', ...block.reveal };
+  block.reveal = undefined;
   block.frame.contentWindow?.postMessage(message, EXTENSION);
 }
 
@@ -298,8 +398,16 @@ async function scan(): Promise<void> {
       lastFiles = '';
       document.querySelector('.tcx-tree')?.remove();
       treeFrame = undefined;
+      threads = undefined;
+      lastThreads = undefined;
+      pageCommits = undefined;
       commits = host ? host.commits() : Promise.resolve(undefined);
-      if (host) void commits.then(c => log(host?.kind, page, c ? `compares ${c.base.slice(0, 7)}...${c.head.slice(0, 7)} (${c.source})` : 'commits unknown'));
+      if (host) {
+        void commits.then(c => {
+          pageCommits ??= c;
+          log(host?.kind, page, c ? `compares ${c.base.slice(0, 7)}...${c.head.slice(0, 7)} (${c.source})` : 'commits unknown');
+        });
+      }
     }
     if (!host) return;
     const known = blocks.size;
@@ -311,6 +419,8 @@ async function scan(): Promise<void> {
     if (blocks.size > known) log(`${blocks.size - known} more TwinCAT file(s); ${blocks.size} in all, ${skipped.size} other file(s)`);
     await ensureTreePanel();
     await postFiles();
+    // A hash set without a hashchange (history.pushState) shows here, with the page's next change.
+    checkHash();
   } finally {
     scanning = false;
     if (rescan) {
@@ -329,15 +439,75 @@ function schedule(): void {
   }, 200);
 }
 
-// ------------------------------------------------------------------ the frames' messages
+// ------------------------------------------------------------------ navigation
 
-function goto(block: Block, side: 'L' | 'R', line: number): void {
-  setOn(block, false);
+/** Shows a line of the host's diff; an unchanged line by its line at the head, else by its line at the base. */
+function showLine(container: HTMLElement, side: Side, line: number, oldLine?: number): boolean {
+  return !!host && (host.goToLine(container, side, line) || (side === 'R' && !!oldLine && host.goToLine(container, 'L', oldLine)));
+}
+
+/** From a viewer: the host's diff at a line of the XML. */
+function goto(block: Block, side: Side, line: number, oldLine?: number): void {
+  leave(block, { xml: { side, line } });
   requestAnimationFrame(() => {
     const container = containerOf(block);
-    if (!host || !container || !host.goToLine(container, side, line)) note(block, 'That line is not in the page\'s diff here (not loaded yet?).');
+    if (!container || !showLine(container, side, line, oldLine)) note(block, 'That line is not in the page\'s diff here (outside its changes, or not loaded yet).');
   });
 }
+
+/** From a viewer: a thread in the host's diff, else the line it is on. */
+function gotoThread(block: Block, id: string, side?: Side, line?: number, oldLine?: number): void {
+  const thread = lastThreads?.threads.find(t => t.id === id);
+  leave(block, { thread: id });
+  requestAnimationFrame(() => {
+    const container = containerOf(block);
+    if (!host || !container) return;
+    if (thread && host.goToThread(container, thread)) return;
+    if (side && line && showLine(container, side, line, oldLine)) return;
+    note(block, 'That thread is not in the page\'s diff here (collapsed, or not loaded yet).');
+  });
+}
+
+let lastHash = location.hash;
+
+/** The block an element is in, and whether in the host's diff of the file, which the view hides. */
+function foundIn(el: HTMLElement): Found | undefined {
+  for (const b of blocks.values()) {
+    const container = containerOf(b);
+    const header = container && host?.header(container);
+    if (!host || !container || !header || !container.contains(el)) continue;
+    return { anchor: b.anchor, inDiff: host.layout(container, header).hide.some(h => h.contains(el)) };
+  }
+  return undefined;
+}
+
+/** A navigation to an anchor in the diff a view hides (a link to a comment or a line) turns the view off (navigation.ts). */
+function checkHash(): void {
+  if (location.hash === lastHash) return;
+  lastHash = location.hash;
+  if (!host || blocks.size === 0) return;
+  const id = anchorId(location.hash);
+  const el = id ? document.getElementById(id) : null;
+  const views = [...blocks.values()].map(b => ({ anchor: b.anchor, path: b.path, oldPath: b.oldPath, on: b.on }));
+  const target = leaveFor(location.hash, views, el ? foundIn(el) : undefined, lastThreads?.threads ?? []);
+  const block = target && blocks.get(target.anchor);
+  if (!target || !block) return;
+  log('The page went to', id, 'in the diff of', block.path, ': its TwinCAT view goes off');
+  leave(block, target.back);
+  requestAnimationFrame(() => {
+    const container = containerOf(block);
+    if (!host || !container) return;
+    if (el) {
+      el.scrollIntoView({ block: 'center' });
+      return;
+    }
+    if (target.thread && host.goToThread(container, target.thread)) return;
+    const line: { side: Side; line: number; oldLine?: number } | undefined = target.line ?? (target.thread ? threadLine(target.thread) : undefined);
+    if (line) showLine(container, line.side, line.line, line.oldLine);
+  });
+}
+
+// ------------------------------------------------------------------ the frames' messages
 
 /** What scrolls an element into view: GitLab's panels scroll inside the page, GitHub's page itself. */
 function scrollerOf(el: Element): Element {
@@ -364,6 +534,8 @@ function onFrameMessage(e: MessageEvent): void {
       treeReady = true;
       lastFiles = '';
       void postFiles();
+      postThreads(treeFrame);
+      void loadThreads();
     } else if (m?.tcx === 'reveal' && typeof m.path === 'string') void reveal(m.path, m.objectId, m.accessor);
     else if (m?.tcx === 'fetch') answerFetch(treeFrame, m);
     return;
@@ -371,16 +543,23 @@ function onFrameMessage(e: MessageEvent): void {
   const block = [...blocks.values()].find(b => b.frame?.contentWindow === e.source);
   const frame = block?.frame;
   if (!block || !frame) return;
+  const isLine = (side: unknown, line: unknown): line is number => (side === 'L' || side === 'R') && Number.isInteger(line) && (line as number) > 0;
+  const oldLine = (m?.tcx === 'goto' || m?.tcx === 'thread') && isLine('L', m.oldLine) ? m.oldLine : undefined;
   switch (m?.tcx) {
     case 'ready':
       block.ready = true;
       postReveal(block);
+      postThreads(frame, block);
+      void loadThreads();
       return;
     case 'height':
       frame.style.height = `${Math.max(40, Math.ceil(m.height))}px`;
       return;
     case 'goto':
-      if ((m.side === 'L' || m.side === 'R') && Number.isInteger(m.line) && m.line > 0) goto(block, m.side, m.line);
+      if (isLine(m.side, m.line)) goto(block, m.side, m.line, oldLine);
+      return;
+    case 'thread':
+      if (typeof m.id === 'string') gotoThread(block, m.id, isLine(m.side, m.line) ? m.side : undefined, isLine(m.side, m.line) ? m.line : undefined, oldLine);
       return;
     case 'scroll': {
       block.reveal = undefined;
@@ -412,6 +591,9 @@ if (!started.tcxContent) {
   started.tcxContent = true;
   window.addEventListener('message', onFrameMessage);
   window.addEventListener('resize', resize);
+  window.addEventListener('hashchange', checkHash);
+  window.addEventListener('popstate', checkHash);
+  document.addEventListener('click', onButtonClick, { capture: true });
   // Any scrolling, of the page or of a panel in it (scroll events do not bubble; they are seen while captured).
   document.addEventListener('scroll', resize, { capture: true, passive: true });
   chrome.storage.local.get('tcxTree').then(v => {

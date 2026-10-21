@@ -17,6 +17,8 @@ export interface TreeFile {
   /** Undefined while the file is being read. */
   view?: FileView;
   error?: string;
+  /** The review threads on the file: under the lines of each object view (by its index), and in all. */
+  comments?: { perObject: number[]; total: number };
 }
 
 export interface TreeNode {
@@ -35,6 +37,8 @@ export interface TreeNode {
   accessor?: Accessor;
   /** It did not change, what is under it did (a property whose Get changed). */
   muted?: boolean;
+  /** Review threads: under the object's lines, or on the whole file. */
+  comments?: number;
   children: TreeNode[];
 }
 
@@ -63,7 +67,7 @@ function getOrAdd(parent: TreeNode, id: string, make: () => Omit<TreeNode, 'id' 
   return node;
 }
 
-function addMember(file: TreeNode, path: string, o: ObjectView): void {
+function addMember(file: TreeNode, path: string, o: ObjectView, comments: number | undefined): void {
   let parent = file;
   o.folderPath.forEach((name, i) => {
     parent = getOrAdd(parent, `ifolder:${path}|${o.folderPath.slice(0, i + 1).join('\\')}`, () => ({
@@ -79,14 +83,16 @@ function addMember(file: TreeNode, path: string, o: ObjectView): void {
     property.children.push({
       id: `acc:${path}|${o.objectId}|${o.accessor}`, kind: 'accessor', label: o.accessor, icon: accessorIconName(o.accessor),
       change: o.change === 'unchanged' ? undefined : o.change, file: path, objectId: o.objectId, accessor: o.accessor,
-      tooltip: `${o.label} (${o.change})`, children: [],
+      tooltip: `${o.label} (${o.change})`, comments: comments || undefined, children: [],
     });
     return;
   }
   const node = getOrAdd(parent, `obj:${path}|${o.objectId}`, () => ({
     kind: 'object', label: o.name, icon: objectIconName(o), file: path, objectId: o.objectId,
   }));
-  Object.assign(node, { muted: false, change: o.change === 'unchanged' ? undefined : o.change, description: words, tooltip: `${o.label} (${o.change})` });
+  Object.assign(node, {
+    muted: false, change: o.change === 'unchanged' ? undefined : o.change, description: words, tooltip: `${o.label} (${o.change})`, comments: comments || undefined,
+  });
 }
 
 function fileNode(f: TreeFile): TreeNode {
@@ -95,7 +101,7 @@ function fileNode(f: TreeFile): TreeNode {
   const node: TreeNode = {
     id: `file:${f.path}`, kind: 'file', label: root ? objectTreeLabel(root) : baseName(f.path).replace(/\.[^.]+$/, ''),
     icon: root ? objectIconName(root) : 'file', file: f.path, objectId: root?.id,
-    tooltip: f.oldPath ? `${f.path}\nRenamed from ${f.oldPath}` : f.path, children: [],
+    tooltip: f.oldPath ? `${f.path}\nRenamed from ${f.oldPath}` : f.path, comments: f.comments?.total || undefined, children: [],
   };
   if (!v) {
     node.description = f.error ?? 'reading…';
@@ -112,7 +118,9 @@ function fileNode(f: TreeFile): TreeNode {
   if (f.oldPath && (!own?.renamedFrom || dirName(f.path) !== dirName(f.oldPath))) words.push(moved(f.path, f.oldPath));
   node.description = words.join(' · ') || undefined;
   node.change = v.change !== 'modified' ? v.change : own && own.change !== 'unchanged' ? 'modified' : f.oldPath ? 'renamed' : undefined;
-  for (const o of v.objects) if (o.depth > 0 && o.change !== 'unchanged') addMember(node, f.path, o);
+  v.objects.forEach((o, i) => {
+    if (o.depth > 0 && o.change !== 'unchanged') addMember(node, f.path, o, f.comments?.perObject[i]);
+  });
   return node;
 }
 
@@ -145,7 +153,7 @@ export function buildTree(files: TreeFile[]): TreeNode[] {
       const icon = /\.tsproj$/i.test(f.path) ? 'twincat-project' : 'plc-project';
       const node: TreeNode = {
         id: `file:${f.path}`, kind: 'file', label: baseName(f.path), icon, file: f.path, tooltip: f.path, children: [],
-        description: v.metadataOnly ?? (v.change === 'modified' ? 'changed' : v.change), change: v.change,
+        description: v.metadataOnly ?? (v.change === 'modified' ? 'changed' : v.change), change: v.change, comments: f.comments?.total || undefined,
       };
       (v.metadataOnly ? build : projects).push(node);
       continue;

@@ -2,6 +2,7 @@
 // file, the tree) and the service worker.
 
 import { Accessor } from '../../src/core/objectText';
+import { ReviewThread, Side } from './comments';
 
 /** A file of a pull or merge request as the extension needs it. */
 export interface ChangedFile {
@@ -12,13 +13,26 @@ export interface ChangedFile {
   deleted?: boolean;
 }
 
+/** A place in a viewer: an object view, the section line on an XML line, a thread. */
+export interface Reveal {
+  objectId?: string;
+  accessor?: Accessor;
+  xml?: { side: Side; line: number };
+  thread?: string;
+}
+
 /** A frame to the content script, with `window.parent.postMessage`. */
 export type FrameMessage =
   | { tcx: 'ready' }
   /** A viewer's height: the page sizes the frame to it. */
   | { tcx: 'height'; height: number }
-  /** Show the host's own diff of the file at this line of the XML: `L` on the base side, `R` on the head side. */
-  | { tcx: 'goto'; side: 'L' | 'R'; line: number }
+  /**
+   * Show the host's own diff of the file at this line of the XML: `L` on the base side, `R` on the head side; for an
+   * unchanged line, also its line at the base (`oldLine`), which the host may know it by instead (GitLab's Rapid Diffs).
+   */
+  | { tcx: 'goto'; side: Side; line: number; oldLine?: number }
+  /** Show this thread in the host's own diff (else the line it is on). */
+  | { tcx: 'thread'; id: string; side?: Side; line?: number; oldLine?: number }
   /** Fetch this URL from the page (same origin as the host, with the user's session). */
   | { tcx: 'fetch'; id: number; url: string }
   /** From the tree: show this file's TwinCAT view, at this object view. */
@@ -31,8 +45,10 @@ export type PageMessage =
   | { tcx: 'fetched'; id: number; result: FetchResult }
   /** To the tree: the change's TwinCAT files, `complete` when the host's API gave them (else the page's list). */
   | { tcx: 'files'; files: ChangedFile[]; complete: boolean }
-  /** To a viewer: open this object view and say where it is. */
-  | { tcx: 'reveal'; objectId: string; accessor?: Accessor };
+  /** To a viewer: open this place and say where it is. */
+  | ({ tcx: 'reveal' } & Reveal)
+  /** To a viewer, the threads on its file; to the tree, all of them; or why there are none. */
+  | { tcx: 'threads'; threads: ReviewThread[]; source?: string; problem?: string };
 
 /** A frame to the service worker, with `chrome.runtime.sendMessage`. */
 export type WorkerRequest = { tcx: 'fetch'; url: string };

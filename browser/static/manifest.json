@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Explorer for TwinCAT: review view (spike)",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArTHD/EAyr+Zo2vt1A5DQExKLrwqS7xIJOqOUTqndvD7sb2LULQXjm3ImuaV8T/tf5pVk69sh2olrlBL2c3hfxBYEMOOD75RbAYYxgIobcQV4PD3YyOShur6R0Ixe9TsgUFAXyW2rgrijZ71WXhN/krDaYP9T7QX5zf8LLwpEZFfFbp1T4efeO6LnMWTkJUxAhNuwGNgsb3a2YnzJpyOW8Bcj/+XxSKglKQVFDyackbeXHNOxI3XWjw8ofH7KEzOVXhVbOf0PAkHM0b9rFiUaNAs5i3xNngMyjryY37OP+DP3+wOyIcoMrSHXQsrVOqW1T6xzEDiOShUoDE0RZ/ZVsQIDAQAB",
   "description": "Shows the TwinCAT files of a GitHub pull request or a GitLab merge request as objects (Declaration above Implementation) and as an XAE-like tree, instead of XML. Read-only spike.",
   "icons": { "128": "icon.png" },

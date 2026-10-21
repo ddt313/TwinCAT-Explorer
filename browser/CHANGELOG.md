@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - Large files no longer freeze the TwinCAT views and the tree: the view of a 1 MB `.TcPOU` took 2.5 seconds, with
   all the extension's frames stopped meanwhile, and now takes a few tens of milliseconds.
+- A big review page no longer freezes when the commits it compares are not found (not in the page, and a private
+  repository's REST API wants a token). They are looked for once a page, then again only when a view or the
+  TwinCAT tab is turned on, at most every few seconds; on GitHub in the diff URLs and the JSON the page embeds,
+  not in its whole markup. Found that way, they replace the messages that said they were not found.
 
 ## 0.1.0 - 2026-10-21
 

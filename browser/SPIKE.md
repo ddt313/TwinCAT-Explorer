@@ -91,12 +91,13 @@ The browser extension is released on its own, from the same repository as the VS
 | `src/treeModel.ts` | Platform-free tree of the changes: folders, files as their objects, changed members, groups for build output and project files. |
 | `src/github.ts`, `src/gitlab.ts` | Platform-free host knowledge: URLs, the commits in GitHub's markup, the files of a git diff, the threads of GitHub's review comments; GitLab's merge request URLs, REST API, `data-file-data`, line anchors, the threads of its discussions. |
 | `src/params.ts` | The frames' parameters, for any host: the page's origin, a raw-file URL template, the ways to read in order, the commits, the file. |
+| `src/lookup.ts` | Platform-free: the commits of a page looked for once and kept for all who ask, nothing found included; looked for again on a user's action only, some seconds apart at most. |
 | `src/reader.ts` | Reading a file in a frame, the three ways of question 1, in the order the host's adapter gives. |
 | `src/sites.ts`, `src/popup.ts` + `static/popup.html` | The sites the extension works on: github.com, gitlab.com, and the self-managed GitLab instances turned on from the popup. |
 | `src/lineDiff.ts` | Myers line diff (as git's default) with deletions before additions in each block, and the changed middle of a line. |
 | `src/highlight.ts` | Structured Text highlighting from `src/lang/lexer.ts`. |
 | `src/background.ts` | Service worker: one of the ways to read a file (see question 1); registers the content script on the sites turned on. |
-| `build.js`, `tsconfig.json` | esbuild bundles (content 28 KB, viewer 37 KB, tree 28 KB, popup 3 KB, worker 2 KB, minified) and the tree's icons (`media/icons`); `tsc` checks with the DOM library and without Node's types. |
+| `build.js`, `tsconfig.json` | esbuild bundles (content 29 KB, viewer 37 KB, tree 28 KB, popup 3 KB, worker 2 KB, minified) and the tree's icons (`media/icons`); `tsc` checks with the DOM library and without Node's types. |
 
 The core is used as it is, without a fork: `parseTcText` (`src/core/tcfile.ts`) parses both versions,
 `viewChanges` (`objectChanges.ts`) says which object views changed (and their old names), `viewSections` and
@@ -111,7 +112,7 @@ The model adds two things on top of `viewChanges`: unchanged objects are listed 
 object whose graphical implementation (CFC, SFC, FBD/LD) changed is *modified* even though its Structured Text
 did not (`viewChanges` compares ST only; its XML is compared here). Graphical code itself is not drawn.
 
-Unit tests: `test/unit/browserView.test.ts` (28 tests, part of `npm test`) on made-up files: a modified method,
+Unit tests: `test/unit/browserView.test.ts` (30 tests, part of `npm test`) on made-up files: a modified method,
 an added and a deleted method, a changed property Get, a deleted accessor and property, a renamed method, a
 metadata-only change, project files, a new, deleted and renamed file, CRLF files, a changed CFC action, a broken
 file, the line diff (checked against an LCS on random inputs), the GitHub helpers, the frames' parameters, the tree
@@ -120,7 +121,8 @@ anchors, color mode). On made-up comments: a note's XML line to its section line
 base file, `new_line` in the head file, an unchanged line by either), notes on LineIds, the XML declaration, the
 whole file and graphical code, an outdated note and one GitLab carried to the merge ref, GitLab's two formats
 (`discussions.json`, the REST API) and GitHub's review comments, the rule for a navigation to an anchor, and the
-threads in the tree.
+threads in the tree. And how often a page's commits are looked for: one attempt for all who ask, its result kept,
+another only on demand and some seconds after.
 
 ## The tree of the changes
 
@@ -312,7 +314,12 @@ The view needs the file at the **merge base** (the page shows a three-dot diff) 
   keys it really has). It never takes `baseRefOid` for the base: that is the base branch's tip (`425c629` here),
   which would show the base branch's own changes as reverted. Without commits in the page, the content script
   asks the REST API without a token (`/pulls/{n}`, then `/compare/{base}...{head}` for the merge base): this works
-  for public repositories only.
+  for public repositories only. It reads the elements that can name them (those URLs' `data-url`, the JSON
+  scripts), not the whole markup, and looks once a page, keeping what it found, nothing included; it looks again
+  only when a view or the TwinCAT tab is turned on, 5 s after the last attempt at the soonest, and the views and
+  the tree that said the commits were not found show once they are. Reading the whole markup of a 330-file page
+  (11.6 MB) took 0.7 s; with nothing found, it was read again for each view turned on and, with the TwinCAT tab
+  on, at each change of the page.
 - **The files.** `https://github.com/{owner}/{repo}/raw/{sha}/{path}` with the session: it answers `302` to
   `raw.githubusercontent.com/…` (for a private repository with a short-lived `?token=` in that URL), which sends
   `Access-Control-Allow-Origin: *`. A fork's head commit is served from the base repository's URL too
@@ -370,7 +377,7 @@ of a file, which links to files depend on.
 | The header (toggle's place) | `.file-header`, toggle in `.file-info` | `[class*="diff-file-header"]`, toggle in `[class*="file-path-section"]` (*pending*) | Medium: class names; CSS-module names keep their readable part. |
 | The diff to hide | the header's siblings in the block (`.js-file-content`) | same rule (*pending*) | Low to medium: structural, no class name. |
 | Deleted file | `data-file-deleted="true"` | none needed (a 404 tells) | Low. |
-| The commits | `/diffs/{base}..{head}` in `deferred-diff-lines[data-url]` | JSON keys (*pending*) | **High**: internal URLs and JSON. The REST API is the stable source, but needs a token for a private repository. |
+| The commits | `/diffs/{base}..{head}` in `deferred-diff-lines[data-url]`, `show_partial_comparison?…` in a `div[data-url]` | JSON keys (*pending*) | **High**: internal URLs and JSON. The REST API is the stable source, but needs a token for a private repository. |
 | Line links | `#diff-<hash>L<n>` / `R<n>` (cells with that id) | same format (*pending*) | Low: GitHub's public line-link format. |
 | Theme | `<html data-color-mode>` | same | Low. |
 

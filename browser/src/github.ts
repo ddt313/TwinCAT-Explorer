@@ -186,10 +186,27 @@ export function commitsInPage(markup: string): Commits | undefined {
   return undefined;
 }
 
-/** Every `key: "<sha>"` / `key=<sha>` of a text (JSON or URLs), in order, for commitsInPage and the diagnostics. */
+/**
+ * Every `key: "<sha>"` / `key=<sha>` of a text (JSON or URLs), in order, for commitsInPage and the diagnostics. The
+ * key is the identifier before the `:` or `=` (and a quote), from its first letter or underscore. Found from each
+ * separator before a commit, the key read backwards: looking for a key at each word of the text took most of a
+ * second on a big page's markup.
+ */
 export function shaKeys(text: string): [string, string][] {
   const out: [string, string][] = [];
-  const re = new RegExp(`["']?([A-Za-z_][\\w]*)["']?\\s*(?::|=)\\s*["']?(${SHA})(?![0-9a-f])`, 'g');
-  for (let m = re.exec(text); m; m = re.exec(text)) out.push([m[1], m[2]]);
+  const re = new RegExp(`[:=]\\s*["']?(${SHA})(?![0-9a-f])`, 'g');
+  // Where the last pair ended: the next key starts after it.
+  let from = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    let end = m.index;
+    while (end > from && /\s/.test(text[end - 1])) end--;
+    if (end > from && /["']/.test(text[end - 1])) end--;
+    let start = end;
+    while (start > from && /\w/.test(text[start - 1])) start--;
+    while (start < end && !/[A-Za-z_]/.test(text[start])) start++;
+    if (start === end) continue;
+    out.push([text.slice(start, end), m[1]]);
+    from = re.lastIndex;
+  }
   return out;
 }

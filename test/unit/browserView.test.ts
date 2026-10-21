@@ -1,16 +1,18 @@
 // The object view of the browser extension (browser/src): which objects of a TwinCAT file a pull request
 // changed, the line diff of their sections and the XML line of each changed line, where the review threads go in
-// it, and when a navigation turns a view off, on made-up files and made-up comments.
+// it, and when a navigation turns a view off, on made-up files and made-up comments; and how often a page's commits
+// are looked for.
 
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, reviewCommentsUrl, threadsFromGithub } from '../../browser/src/github';
+import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
   commitsFromDiffRefs, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, mergeRequestApi, mergeRequestPage, noteUrl, rapidFileData,
   rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
+import { Lookup } from '../../browser/src/lookup';
 import { FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile } from '../../browser/src/model';
 import { ViewState, anchorId, leaveFor, noteOfAnchor } from '../../browser/src/navigation';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
@@ -433,6 +435,55 @@ test('github: the commits a page compares, from the classic markup or from the J
   // The base branch's commit is not what the page compares with: no base then.
   assert.equal(commitsInPage(`{"baseRefOid":"${C}","headRefOid":"${B}"}`), undefined);
   assert.equal(commitsInPage('<html></html>'), undefined);
+  // The keys with a commit, as JSON and URLs have them: quoted or not, spaces around the separator, from a key's
+  // first letter; not a longer hex string, nor a commit without a key.
+  assert.deepEqual(shaKeys(`{"mergeBaseOid" : "${A}", 'headOid':'${B}'} ?x=1&end_commit_oid=${C}&9base_sha=${A}`),
+    [['mergeBaseOid', A], ['headOid', B], ['end_commit_oid', C], ['base_sha', A]]);
+  assert.deepEqual(shaKeys(`"blob":"${A}${A.slice(0, 24)}" "=${B}" 42=${A} key=${C}x`), [['key', C]]);
+});
+
+test('commits: one attempt a page that all who ask share, kept when it found nothing; another on demand, some seconds after', async () => {
+  let now = 0;
+  const attempts: ((found: string | undefined) => void)[] = [];
+  const lookup = new Lookup<string>(() => new Promise(resolve => attempts.push(resolve)), 5000, () => now);
+  const first = lookup.get();
+  assert.equal(lookup.get(), first);
+  assert.equal(lookup.retry(), undefined, 'not while an attempt is going on');
+  assert.equal(attempts.length, 1);
+  now = 2000;
+  attempts[0](undefined);
+  assert.equal(await first, undefined);
+  // Nothing found is kept: asking again makes no attempt, nor does a demand sooner than 5 s after the last one ended.
+  assert.equal(await lookup.get(), undefined);
+  now = 6999;
+  assert.equal(lookup.retry(), undefined);
+  assert.equal(attempts.length, 1);
+  now = 7000;
+  const second = lookup.retry();
+  assert.ok(second);
+  assert.equal(lookup.get(), second, 'those who ask now share the new attempt');
+  assert.equal(lookup.retry(), undefined);
+  assert.equal(attempts.length, 2);
+  assert.equal(lookup.value, undefined, 'nothing known while it is looked for');
+  attempts[1]('found');
+  assert.equal(await second, 'found');
+  assert.equal(lookup.value, 'found');
+  // Found is kept for good.
+  now = 60000;
+  assert.equal(lookup.retry(), undefined);
+  assert.equal(await lookup.get(), 'found');
+  assert.equal(attempts.length, 2);
+  // An attempt that fails has found nothing: no rejection, and a demand later makes another.
+  let calls = 0;
+  const failing = new Lookup<string>(async () => {
+    calls++;
+    throw new Error('offline');
+  }, 5000, () => now);
+  assert.equal(await failing.get(), undefined);
+  assert.equal(failing.retry(), undefined);
+  now += 5000;
+  assert.equal(await failing.retry(), undefined);
+  assert.equal(calls, 2);
 });
 
 test('frames: the parameters of a viewer and of the tree go through their URL, for any host', () => {

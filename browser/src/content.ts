@@ -352,7 +352,7 @@ async function ensureTreePanel(): Promise<void> {
       frame.className = 'tcx-tree-frame';
       frame.title = 'TwinCAT changes';
       frame.src = `${TREE}#${encodeTreeParams({
-        origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source, diff: host.diff,
+        origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source, diff: host.diff, host: host.kind,
       })}`;
       box.append(frame);
       treeFrame = frame;

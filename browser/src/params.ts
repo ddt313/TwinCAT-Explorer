@@ -43,6 +43,8 @@ export interface ViewerParams extends FrameParams {
 export interface TreeParams extends FrameParams {
   /** The change's git diff, the list of its files (else the page sends the list). */
   diff?: string;
+  /** The host whose page the tree is beside: its folders and files go in the order the page shows them. */
+  host?: 'github' | 'gitlab';
 }
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -99,6 +101,7 @@ export function encodeTreeParams(p: TreeParams): string {
   const q = new URLSearchParams();
   encodeFrame(p, q);
   if (p.diff) q.set('diff', p.diff);
+  if (p.host) q.set('k', p.host);
   return q.toString();
 }
 
@@ -107,5 +110,6 @@ export function decodeTreeParams(fragment: string): TreeParams | undefined {
   const frame = decodeFrame(q);
   const diff = q.get('diff') ?? undefined;
   if (!frame || (diff !== undefined && !diff.startsWith(`${frame.origin}/`))) return undefined;
-  return { ...frame, diff };
+  const host = q.get('k');
+  return { ...frame, diff, host: host === 'github' || host === 'gitlab' ? host : undefined };
 }

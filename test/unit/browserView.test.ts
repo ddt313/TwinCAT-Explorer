@@ -6,9 +6,9 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
+import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
-  commitsFromDiffRefs, compareApi, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
+  commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
   mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
@@ -505,7 +505,7 @@ test('frames: the parameters of a viewer and of the tree go through their URL, f
   assert.equal(decodeViewerParams('#origin=https%3A%2F%2Fgithub.com&p=a.TcPOU'), undefined);
   const t: TreeParams = {
     origin: 'https://github.com', raw: 'https://github.com/acme/plc/raw/{sha}/{path}', order: ['frame', 'worker', 'page'], base: A, head: B,
-    theme: 'auto', diff: 'https://github.com/acme/plc/pull/12.diff', source: undefined,
+    theme: 'auto', diff: 'https://github.com/acme/plc/pull/12.diff', source: undefined, host: 'github',
   };
   assert.deepEqual(decodeTreeParams(`#${encodeTreeParams(t)}`), t);
   assert.equal(decodeTreeParams(`#${encodeTreeParams({ ...t, diff: 'https://elsewhere.example.com/12.diff' })}`), undefined);
@@ -644,6 +644,21 @@ test('tree: folders, each file as its object with the members that changed, in t
   // While a file is read it shows by its name.
   assert.deepEqual(treeText(buildTree([{ path: 'PLC/POUs/FB_Valve.TcPOU' }])), ['PLC/POUs', '  FB_Valve · reading…']);
   assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU' }]), { files: 6, objects: 5, reading: 1 });
+});
+
+test('tree: the folders and files in the order of the host\'s page', () => {
+  const files = [
+    'PLC/Modules/POUs/FB_Valve.TcPOU', 'PLC/ModuleTests/POUs/FB_ValveTest.TcPOU', 'PLC/Modules/a.TcPOU', 'PLC/Modules/Z.TcPOU',
+  ].map(path => ({ path }));
+  const names = (paths?: (a: string, b: string) => number) => treeText(buildTree(files, paths)).map(l => l.replace(' · reading…', ''));
+  // XAE: folders first, then by name, whatever the case.
+  assert.deepEqual(names(), ['PLC', '  Modules', '    POUs', '      FB_Valve', '    a', '    Z', '  ModuleTests/POUs', '    FB_ValveTest']);
+  // GitLab: by each part of the path as bytes, a folder before the files beside it.
+  assert.deepEqual(names(compareGitlabPaths), ['PLC', '  ModuleTests/POUs', '    FB_ValveTest', '  Modules', '    POUs', '      FB_Valve', '    Z', '    a']);
+  // GitHub (git): by the whole path as bytes.
+  assert.deepEqual(names(compareGithubPaths), ['PLC', '  ModuleTests/POUs', '    FB_ValveTest', '  Modules', '    POUs', '      FB_Valve', '    Z', '    a']);
+  assert.deepEqual(['b/x', 'a.TcPOU', 'a/b', 'B'].sort(compareGitlabPaths), ['a/b', 'b/x', 'B', 'a.TcPOU']);
+  assert.deepEqual(['b/x', 'a.TcPOU', 'a/b', 'B'].sort(compareGithubPaths), ['B', 'a.TcPOU', 'a/b', 'b/x']);
 });
 
 test('github: the files of a pull request\'s diff, renamed, added, deleted and quoted ones included', () => {

@@ -169,6 +169,11 @@ export function filesInDiff(diff: string): DiffFile[] {
   return out;
 }
 
+/** The order of the files of GitHub's diff, git's: by their whole paths, as bytes (`Z` before `a`, `a.TcPOU` before `a/`). */
+export function compareGithubPaths(a: string, b: string): number {
+  return a === b ? 0 : a < b ? -1 : 1;
+}
+
 const SHA = '[0-9a-f]{40}';
 
 /**

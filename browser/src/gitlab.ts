@@ -149,6 +149,22 @@ export function commitsFromDiffRefs(refs: unknown, source: string): Commits | un
   return base && head ? { base, head, source } : undefined;
 }
 
+/**
+ * The order of the files of GitLab's diffs (its `FileCollectionSorter`): by their paths' parts, one by one, as bytes
+ * (`Z` before `a`), a folder before the files beside it.
+ */
+export function compareGitlabPaths(a: string, b: string): number {
+  const x = a.split('/');
+  const y = b.split('/');
+  for (let i = 0; i < x.length && i < y.length; i++) {
+    const xFile = i === x.length - 1;
+    const yFile = i === y.length - 1;
+    if (xFile !== yFile) return xFile ? 1 : -1;
+    if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  }
+  return x.length - y.length;
+}
+
 /** A file block of the Rapid Diffs page: its `data-file-data` (paths, raw path, the commits compared). */
 export function rapidFileData(json: string | undefined): { file: ChangedFile; commits?: Commits } | undefined {
   if (!json) return undefined;

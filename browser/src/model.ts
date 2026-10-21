@@ -5,7 +5,9 @@
 
 import { ViewChange, changeKey, metadataChange, onlyTmcHashChanged, viewChanges } from '../../src/core/objectChanges';
 import { Accessor, viewLabel, viewSections } from '../../src/core/objectText';
-import { DutKind, ObjectKind, PouKind, Section, TcObject, TcSourceFile, normalizeEol, parseTcText, sectionFileLines } from '../../src/core/tcfile';
+import {
+  DutKind, ObjectKind, PouKind, Section, TcObject, TcSourceFile, fileLineAt, normalizeEol, parseTcText, sectionFileLines,
+} from '../../src/core/tcfile';
 import { diffLines } from './lineDiff';
 
 export type ObjectChangeKind = 'added' | 'modified' | 'deleted' | 'unchanged';
@@ -184,7 +186,7 @@ function objectView(before: TcSourceFile | undefined, after: TcSourceFile | unde
   }
   // viewChanges compares the Structured Text only: a graphical implementation that changed makes its object modified.
   const kind: ObjectChangeKind = change?.change ?? (sections.some(s => s.status !== 'same') ? 'modified' : 'unchanged');
-  const span = (file: TcSourceFile, o: TcObject): [number, number] => [lineAt(file, o.element.start), lineAt(file, o.element.end - 1)];
+  const span = (file: TcSourceFile, o: TcObject): [number, number] => [fileLineAt(file, o.element.start), fileLineAt(file, o.element.end - 1)];
   return {
     objectId,
     accessor,
@@ -205,28 +207,6 @@ function objectView(before: TcSourceFile | undefined, after: TcSourceFile | unde
   };
 }
 
-/** The offsets of the line breaks of each file's text, for lineAt. */
-const BREAKS = new WeakMap<TcSourceFile, number[]>();
-
-/** Line of the file (1-based, counted by LF like git) an offset of its text is on. */
-function lineAt(file: TcSourceFile, offset: number): number {
-  let breaks = BREAKS.get(file);
-  if (!breaks) {
-    breaks = [];
-    for (let i = file.text.indexOf('\n'); i >= 0; i = file.text.indexOf('\n', i + 1)) breaks.push(i);
-    BREAKS.set(file, breaks);
-  }
-  // One more than the line breaks before the offset.
-  let lo = 0;
-  let hi = breaks.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (breaks[mid] < offset) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo + 1;
-}
-
 function sectionLabel(s: Section, withAccessor: boolean): string {
   const role = s.role === 'decl' ? 'Declaration' : 'Implementation';
   const language = s.editable ? '' : ` (${s.element.name === 'Implementation' ? 'empty' : s.element.name})`;
@@ -236,6 +216,9 @@ function sectionLabel(s: Section, withAccessor: boolean): string {
 function sectionView(before: TcSourceFile | undefined, after: TcSourceFile | undefined, old: Section | undefined,
   now: Section | undefined, withAccessor: boolean): SectionView {
   const s = (now ?? old)!;
+  // The XML line of each line of the section, before and after.
+  const aXml = old && before ? sectionFileLines(before, old) : [];
+  const bXml = now && after ? sectionFileLines(after, now) : [];
   const view: SectionView = {
     key: s.key,
     role: s.role,
@@ -245,10 +228,10 @@ function sectionView(before: TcSourceFile | undefined, after: TcSourceFile | und
     lines: [],
     added: 0,
     deleted: 0,
-    oldXml: old && before ? sectionFileLines(before, old)[0] : undefined,
-    newXml: now && after ? sectionFileLines(after, now)[0] : undefined,
-    oldXmlEnd: old && before ? lineAt(before, old.element.end - 1) : undefined,
-    newXmlEnd: now && after ? lineAt(after, now.element.end - 1) : undefined,
+    oldXml: aXml[0],
+    newXml: bXml[0],
+    oldXmlEnd: old && before ? fileLineAt(before, old.element.end - 1) : undefined,
+    newXmlEnd: now && after ? fileLineAt(after, now.element.end - 1) : undefined,
   };
   if (!s.editable) {
     // A graphical implementation: its XML tells whether it changed.
@@ -258,8 +241,6 @@ function sectionView(before: TcSourceFile | undefined, after: TcSourceFile | und
   }
   const a = old ? lines(old.text) : [];
   const b = now ? lines(now.text) : [];
-  const aXml = old ? sectionFileLines(before!, old) : [];
-  const bXml = now ? sectionFileLines(after!, now) : [];
   for (const e of diffLines(a, b)) {
     const line: DiffLine = { kind: e.kind, text: e.kind === 'add' ? b[e.b!] : a[e.a!] };
     if (e.a !== undefined) {

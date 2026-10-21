@@ -16,6 +16,7 @@ import { ViewState, anchorId, leaveFor, noteOfAnchor } from '../../browser/src/n
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
 import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
+import { parseTcText } from '../../src/core/tcfile';
 
 const POU = '{a1000000-0000-0000-0000-000000000001}';
 const INIT = '{a1000000-0000-0000-0000-000000000002}';
@@ -296,6 +297,53 @@ test('a changed graphical implementation makes its object modified, without line
 
 test('a file that is not TwinCAT XML is an error, not a crash', () => {
   assert.match(view({ before: valve(), after: '<TcPlcObject><POU Name="X">' }).error ?? '', /cannot be read/);
+});
+
+/** A function block with `n` methods of 30 lines, with CRLF line breaks; the method `changed` adds other numbers. */
+function bigPou(n: number, changed = -1): string {
+  const impl = (m: number) => Array.from({ length: 30 }, (_, i) => `nCount := nCount + ${m === changed ? i + 1 : i}; // line ${i + 1} of M${m}`);
+  const methods = Array.from({ length: n }, (_, m) => method(`{b${String(m).padStart(7, '0')}-0000-0000-0000-000000000000}`, `M${m}`,
+    `METHOD M${m} : BOOL\nVAR_INPUT\n\tnIn : INT;\nEND_VAR`, impl(m).join('\n')));
+  return `<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4026.12">
+  <POU Name="FB_Big" Id="${POU}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Big
+VAR
+	nCount : INT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>${methods.join('')}
+  </POU>
+</TcPlcObject>`.replace(/\n/g, '\r\n');
+}
+
+test('a large file\'s view builds in linear time: a few times as long as parsing the file', () => {
+  const before = bigPou(200);
+  const after = bigPou(200, 100);
+  const input: FileInput = { path: 'POUs/FB_Big.TcPOU', before, after };
+  const v = buildFileView(input);
+  assert.deepEqual(v.counts, { added: 0, modified: 1, deleted: 0, unchanged: 200 });
+  assert.equal(object(v, 'FB_Big.M199').sections[1].lines.at(-1)?.newXml, lineOf(after, 'line 30 of M199'));
+
+  /** The shortest of five runs, in milliseconds. */
+  const time = (run: () => void): number => {
+    let best = Infinity;
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      run();
+      best = Math.min(best, performance.now() - start);
+    }
+    return best;
+  };
+  const parse = time(() => {
+    parseTcText(input.path, before);
+    parseTcText(input.path, after);
+  });
+  const build = time(() => buildFileView(input));
+  // Both read the same text, so a slow or busy machine slows both: about 3 times as long, up to 13 with no core to spare.
+  // Counting the lines from the start of the file for each section, as sectionFileLines did, took about 200 times as long.
+  assert.ok(build < 40 * parse, `the view took ${build.toFixed(1)} ms, parsing the file ${parse.toFixed(1)} ms`);
 });
 
 // ------------------------------------------------------------------ line diff

@@ -682,6 +682,23 @@ test('tree: folders, each file as its object with the members that changed, in t
   assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU' }]), { files: 6, objects: 5, reading: 1 });
 });
 
+test('tree: the change\'s other files by their names, not read', () => {
+  const files = [
+    { path: 'PLC/POUs/FB_Valve.TcPOU' },
+    { path: '.agents/skills/verify/SKILL.md', other: 'modified' as const },
+    { path: 'docs/new.md', oldPath: 'docs/old.md', other: 'renamed' as const },
+  ];
+  assert.deepEqual(treeText(buildTree(files)), [
+    '.agents/skills/verify',
+    '  SKILL.md [M]',
+    'docs',
+    '  new.md [R] · renamed from old.md',
+    'PLC/POUs',
+    '  FB_Valve · reading…',
+  ]);
+  assert.deepEqual(treeSummary(files), { files: 3, objects: 0, reading: 1 });
+});
+
 test('tree: the folders and files in the order of the host\'s page', () => {
   const files = [
     'PLC/Modules/POUs/FB_Valve.TcPOU', 'PLC/ModuleTests/POUs/FB_ValveTest.TcPOU', 'PLC/Modules/a.TcPOU', 'PLC/Modules/Z.TcPOU',

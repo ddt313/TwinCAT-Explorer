@@ -2,7 +2,8 @@
 // frame of the extension beside the host's file tree. Its files come from the change's git diff (GitHub) or from
 // the page, which has them from the host's API (GitLab) or, failing that, from its own list. It reads each file at
 // the base and at the head, a few at a time, and fills the tree as they come, with the number of review threads on
-// each object and file (the page sends the threads). A click shows the object in its file's TwinCAT view.
+// each object and file (the page sends the threads). A click shows the object in its file's TwinCAT view. The change's
+// other files are in the tree too, not read: a click shows the host's diff of the file.
 
 import { ThreadsResult, placeThreads, threadsOfFile } from './comments';
 import { DiffFile, compareGithubPaths, filesInDiff } from './github';
@@ -12,7 +13,7 @@ import { decodeTreeParams, fileUrl } from './params';
 import { ChangedFile, FrameMessage, PageMessage } from './protocol';
 import { Reader } from './reader';
 import { isKnownSite } from './sites';
-import { TreeFile, TreeNode, buildTree, treeSummary } from './treeModel';
+import { NodeChange, TreeFile, TreeNode, buildTree, treeSummary } from './treeModel';
 
 const READING_AT_ONCE = 4;
 
@@ -30,6 +31,12 @@ interface Entry extends TreeFile {
   status?: DiffFile['status'];
 }
 
+/** A file of the change; one that is not TwinCAT's is not read, its change is its status. */
+function entry(path: string, oldPath: string | undefined, status: DiffFile['status'] | undefined): Entry {
+  const other: NodeChange | undefined = isTwinCatFile(path) ? undefined : status ?? 'modified';
+  return { path, oldPath, status, ...(other ? { other } : {}) };
+}
+
 let entries: Entry[] = [];
 /** Where the list of files came from: the change's diff, the host's API (through the page), the page's own list. */
 let source: 'diff' | 'api' | 'page' | undefined;
@@ -45,15 +52,15 @@ let nodes = new Map<string, TreeNode>();
 /** Files from the page: the host's API (`complete`) or the page's own list, which grows as the page loads. */
 function takeFiles(files: ChangedFile[]): void {
   let changed = false;
-  for (const f of files.filter(x => isTwinCatFile(x.path))) {
+  for (const f of files) {
     const e = entries.find(x => x.path === f.path);
     const status: DiffFile['status'] | undefined = f.added ? 'added' : f.deleted ? 'deleted' : f.oldPath ? 'renamed' : undefined;
     if (!e) {
-      entries.push({ path: f.path, oldPath: f.oldPath, status });
+      entries.push(entry(f.path, f.oldPath, status));
       changed = true;
     } else if (f.oldPath && !e.oldPath) {
       // The page showed the rename later: read again at the old path.
-      Object.assign(e, { oldPath: f.oldPath, status, view: undefined, error: undefined });
+      Object.assign(e, entry(f.path, f.oldPath, status), { view: undefined, error: undefined });
       changed = true;
     }
   }
@@ -80,7 +87,7 @@ async function readEntry(e: Entry): Promise<void> {
 
 async function readAll(): Promise<void> {
   const next = () => {
-    const e = entries.find(x => !x.view && !x.error && !reading.has(x));
+    const e = entries.find(x => !x.other && !x.view && !x.error && !reading.has(x));
     if (e) reading.add(e);
     return e;
   };
@@ -136,7 +143,7 @@ async function main(): Promise<void> {
   const diff = await reader.read('the change\'s diff', params.diff);
   if (diff.text !== undefined) {
     source = 'diff';
-    entries = filesInDiff(diff.text).filter(f => isTwinCatFile(f.path)).map(f => ({ path: f.path, oldPath: f.oldPath, status: f.status }));
+    entries = filesInDiff(diff.text).map(f => entry(f.path, f.oldPath, f.status));
     render();
     await readAll();
     return;
@@ -196,7 +203,7 @@ function render(): void {
     threads ? ` · ${threads} thread${threads === 1 ? '' : 's'}` : ''}${s.reading ? ` · reading ${s.reading}…` : ''}` : 'reading the list of files…';
   const rows: string[] = [];
   rowsHtml(buildTree(entries, pathOrder), 0, rows);
-  const empty = source && entries.length === 0 ? '<p class="note">No TwinCAT file in this change.</p>' : '';
+  const empty = source && !entries.some(e => !e.other) ? '<p class="note">No TwinCAT file in this change.</p>' : '';
   const notes = [problem, threadInfo?.problem && `Comments: ${threadInfo.problem}`].filter(Boolean).map(n => `<p class="note">${esc(n!)}</p>`).join('');
   root.innerHTML = `<div class="head"><span class="title">TwinCAT</span><span class="counts">${counts}</span></div>
     ${notes}${empty}<div class="tree" role="tree">${rows.join('')}</div>`;

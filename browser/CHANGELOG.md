@@ -21,6 +21,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The commits a review page compares are looked for once a TwinCAT view or the TwinCAT tab is turned on, no longer
   when the page opens: a page where the extension is not used makes no request to GitHub's API (whose limit without
   a token, 60 requests an hour, the review comments need too).
+- The TwinCAT tab lists all the change's files, as the host's own tree does: the files that are not TwinCAT's
+  (`.md`, `.java`, …) by their names, with their A, M, D or R badge and their comment threads, in the same folders
+  and order. A click on one shows the host's diff of the file.
 
 ## 0.1.2 - 2026-10-21
 

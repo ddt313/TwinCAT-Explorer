@@ -2,6 +2,10 @@
 # GitHub release whose notes come from CHANGELOG.md, and publishes it to the Visual Studio
 # Marketplace once the repository variable MARKETPLACE_PUBLISH is `true`.
 #
+# A version with a `-` (v1.0.0-pre.1) is a pre-release: its GitHub release is marked as one, so the
+# latest release stays the last version without a `-`, its notes do not point to the Marketplace,
+# and it is never published there (the Marketplace takes only major.minor.patch).
+#
 # The Marketplace job signs in to Microsoft Entra ID with the OIDC token of GitHub Actions, so no
 # PAT is stored: the Entra app (or managed identity) in AZURE_CLIENT_ID trusts this repository's
 # `marketplace` environment through a federated credential, and is a member of the publisher.
@@ -18,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to release, for example v0.12.0 (empty to only check the Marketplace sign-in)
+        description: Tag to release, for example v0.12.0 or v1.0.0-pre.1 (empty to only check the Marketplace sign-in)
         type: string
         default: ''
 
@@ -40,6 +44,7 @@ jobs:
       vsix: ${{ steps.package.outputs.vsix }}
       publisher: ${{ steps.package.outputs.publisher }}
       vsce: ${{ steps.package.outputs.vsce }}
+      prerelease: ${{ steps.package.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -70,16 +75,22 @@ jobs:
         run: |
           vsix="$(node -p "const p = require('./package.json'); p.name + '-' + p.version + '.vsix'")"
           npx vsce package --no-dependencies --out "$vsix"
+          case "$(node -p "require('./package.json').version")" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
           {
             echo "vsix=$vsix"
             echo "publisher=$(node -p "require('./package.json').publisher")"
             echo "vsce=$(node -p "require('@vscode/vsce/package.json').version")"
+            echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 
       - name: Release notes from the changelog
         if: env.RELEASE == 'true'
         env:
           VSIX: ${{ steps.package.outputs.vsix }}
+          PRERELEASE: ${{ steps.package.outputs.prerelease }}
         run: |
           version="${TAG#v}"
           notes="$(awk -v head="## $version" '
@@ -91,8 +102,13 @@ jobs:
             echo "::error::CHANGELOG.md has no section for $version."
             exit 1
           fi
-          printf '%s\n\nInstall the attached file with `code --install-extension %s`, or from the Marketplace.\n' \
-            "$notes" "$VSIX" > release-notes.md
+          install="Install the attached file with \`code --install-extension $VSIX\`"
+          if [ "$PRERELEASE" = true ]; then
+            printf '%s\n\n%s. To go back to a release version, uninstall this pre-release first: VS Code installs a lower version over it only with `--force`.\n' \
+              "$notes" "$install"
+          else
+            printf '%s\n\n%s, or from the Marketplace.\n' "$notes" "$install"
+          fi > release-notes.md
 
       - uses: actions/upload-artifact@v7
         with:
@@ -111,6 +127,7 @@ jobs:
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
       VSIX: ${{ needs.package.outputs.vsix }}
+      PRERELEASE: ${{ needs.package.outputs.prerelease }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
@@ -123,12 +140,16 @@ jobs:
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" "$VSIX" --clobber
           else
-            gh release create "$TAG" "$VSIX" --verify-tag --title "$TAG" --notes-file release-notes.md
+            gh release create "$TAG" "$VSIX" --verify-tag --title "$TAG" --notes-file release-notes.md \
+              --prerelease="$PRERELEASE"
           fi
 
   marketplace:
     needs: package
-    if: vars.MARKETPLACE_PUBLISH == 'true' || (github.event_name == 'workflow_dispatch' && inputs.tag == '')
+    # A pre-release is never published; the sign-in check runs whatever the version.
+    if: >-
+      (vars.MARKETPLACE_PUBLISH == 'true' && needs.package.outputs.prerelease != 'true')
+      || (github.event_name == 'workflow_dispatch' && inputs.tag == '')
     runs-on: ubuntu-latest
     environment: marketplace
     permissions:

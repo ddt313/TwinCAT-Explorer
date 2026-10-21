@@ -3,6 +3,39 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.14.0 - 2026-10-21
+
+### Added
+- `Add Library...` on `References` of a PLC project, like XAE's Library Manager > Add library: it lists
+  the libraries installed in the TwinCAT library repository, read without XAE, and writes the reference
+  XAE 3.1.4026 writes, a placeholder resolved to the newest version (`*`) or to the one picked.
+  `twincatExplorer.libraryRepositories` adds other repositories.
+- `Go to Implementation` (Ctrl+F12) in the split editor and in notebook cells: on an interface, the
+  function blocks that implement it, directly, through an interface that extends it or by extending one
+  that implements it; on a function block, those that extend it; on a method or property, also at a
+  call through an interface (`itfValve.Open()`), the methods and properties that implement or override
+  it. Other objects show read-only in a peek view. The TwinCAT tree has it on function blocks,
+  interfaces, methods and properties.
+- `TwinCAT: Show Type Hierarchy` in the TwinCAT tree and the split editor (context menu, editor title):
+  the supertypes (`EXTENDS`, `IMPLEMENTS`, up to the roots) and the subtypes of a function block or
+  interface, together in VS Code's References view; a click opens the split editor there. Without the
+  References view a quick pick lists them. Notebook cells get VS Code's own `Show Type Hierarchy`.
+- `Stage Changes` and `Unstage Changes` per object in the TwinCAT Changes view, to commit the change
+  of one method, property, accessor, action, DUT or GVL alone. The uncommitted changes are in two
+  lists, as in Source Control: `Staged Changes` (`HEAD` ↔ index) and `Changes` (index ↔ working tree).
+  New, deleted and renamed files, the build output and the project files are staged whole;
+  `Stage All Changes` and `Unstage All Changes` are on the lists. The rest of the index's version of
+  the file stays byte for byte, its line endings and `.gitattributes` conversions too.
+
+### Changed
+- The annotation of the line blame is no longer a link: the pointer stays the text cursor over it and
+  a click opens nothing. `Open Changes` in its hover opens the commit.
+- `Discard Changes` in the TwinCAT Changes view puts an object or a file back as the index has it, as
+  Source Control does: what is staged stays. It also brings back a deleted method, property, action
+  or accessor, and the name of a renamed one.
+- A click on an object in `Changes` shows its diff against the index; in `Staged Changes`, `HEAD` ↔
+  index, read-only, in the commit diff panel.
+
 ## 0.13.0 - 2026-10-20
 
 ### Added

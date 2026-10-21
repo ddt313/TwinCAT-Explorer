@@ -321,6 +321,28 @@ export function sectionOffsetToFileOffset(file: TcSourceFile, section: Section, 
   return segments[segments.length - 1].contentEnd;
 }
 
+/** The offsets of the line breaks of each file's text, for fileLineAt. */
+const LINE_BREAKS = new WeakMap<TcSourceFile, number[]>();
+
+/** Line of the file (1-based, counted by LF like git) an offset of its text is on. */
+export function fileLineAt(file: TcSourceFile, offset: number): number {
+  let breaks = LINE_BREAKS.get(file);
+  if (!breaks) {
+    breaks = [];
+    for (let i = file.text.indexOf('\n'); i >= 0; i = file.text.indexOf('\n', i + 1)) breaks.push(i);
+    LINE_BREAKS.set(file, breaks);
+  }
+  // One more than the line breaks before the offset.
+  let lo = 0;
+  let hi = breaks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (breaks[mid] < offset) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo + 1;
+}
+
 /**
  * Line of the file (1-based, counted like git: by LF) on which each line of a section starts: line `i` of
  * `section.text` is on line `result[i]` of the file.
@@ -329,8 +351,7 @@ export function sectionFileLines(file: TcSourceFile, section: Section): number[]
   const text = file.text;
   const segments = section.element.cdata;
   let pos = segments.length ? segments[0].contentStart : section.element.contentStart;
-  let line = 1;
-  for (let i = 0; i < pos; i++) if (text.charCodeAt(i) === 10) line++;
+  let line = fileLineAt(file, pos);
   const out = [line];
   for (const seg of segments) {
     // Between two CDATA sections (TwinCAT splits `]]>` across them) the section text goes on.

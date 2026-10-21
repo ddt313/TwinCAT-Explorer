@@ -1,0 +1,109 @@
+/* The tree panel: rows like XAE's Solution Explorer, in GitHub's colors; status letters like VS Code's git views. */
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --hover: #eff2f5;
+  --selected: #ddf4ff;
+  --border: #d1d9e0;
+  --added: #1a7f37;
+  --modified: #9a6700;
+  --deleted: #d1242f;
+  --renamed: #0969da;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0d1117;
+  --fg: #f0f6fc;
+  --muted: #9198a1;
+  --hover: #262c36;
+  --selected: #1d2d3e;
+  --border: #3d444d;
+  --added: #3fb950;
+  --modified: #d29922;
+  --deleted: #f85149;
+  --renamed: #4493f8;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    --bg: #0d1117;
+    --fg: #f0f6fc;
+    --muted: #9198a1;
+    --hover: #262c36;
+    --selected: #1d2d3e;
+    --border: #3d444d;
+    --added: #3fb950;
+    --modified: #d29922;
+    --deleted: #f85149;
+    --renamed: #4493f8;
+    color-scheme: dark;
+  }
+}
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+}
+.head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.title { font-weight: 600; }
+.counts { font-size: 12px; color: var(--muted); }
+.note { margin: 8px; font-size: 12px; color: var(--muted); }
+.tree { padding: 4px 0 12px; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px 0 calc(4px + var(--depth) * 12px);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.row:hover { background: var(--hover); }
+.row.selected { background: var(--selected); }
+.row:focus { outline: 1px solid var(--renamed); outline-offset: -1px; }
+.twisty { flex: none; width: 16px; text-align: center; color: var(--muted); }
+.twisty::before { content: "▸"; display: inline-block; }
+.twisty.open::before { transform: rotate(90deg); }
+.twisty.none::before { content: ""; }
+.icon { flex: none; width: 16px; height: 16px; }
+/* The name keeps its room; the description gets what is left. */
+.label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.file > .label { font-weight: 600; }
+.muted > .label { color: var(--muted); }
+.desc { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
+.letter { flex: none; margin-left: auto; padding-left: 8px; font: 600 12px/22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* The review threads on an object or a file. */
+.cmt { flex: none; margin-left: auto; padding-left: 8px; font-size: 11px; color: var(--muted); }
+.cmt + .letter { margin-left: 0; }
+.bubble {
+  width: 11px;
+  height: 11px;
+  margin-right: 2px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vertical-align: -1px;
+}
+.l-added { color: var(--added); }
+.l-modified { color: var(--modified); }
+.l-deleted { color: var(--deleted); }
+.l-renamed { color: var(--renamed); }
+.c-added > .label { color: var(--added); }
+.c-deleted > .label { color: var(--deleted); text-decoration: line-through; }
+.group > .label { font-weight: 600; color: var(--muted); }

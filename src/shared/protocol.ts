@@ -123,7 +123,8 @@ export type HostMessage =
   | { type: 'response'; id: number; result: unknown }
   | { type: 'probe'; id: number; action: ProbeAction };
 
-export type RequestKind = 'definition' | 'hover' | 'completion' | 'references' | 'signature' | 'prepareRename' | 'rename' | 'codeActions';
+export type RequestKind =
+  | 'definition' | 'hover' | 'completion' | 'references' | 'implementation' | 'signature' | 'prepareRename' | 'rename' | 'codeActions';
 
 export type WebviewMessage =
   | { type: 'ready' }
@@ -150,6 +151,8 @@ export type WebviewMessage =
   | { type: 'runFix'; id: number }
   /** Auto Declare... at an offset of a pane (Shift+F2): the host asks for the scope, name, type, initial value and comment. */
   | { type: 'autoDeclare'; key: string; text: string; offset: number }
+  /** Show Type Hierarchy at an offset of a pane (context menu): the host shows it in VS Code's References view. */
+  | { type: 'typeHierarchy'; key: string; text: string; offset: number }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 
@@ -254,17 +257,13 @@ export type ProbeAction =
   /** Reverts the change at a line (1-based) of a pane shown as a diff, like its Revert Block button. */
   | { kind: 'revertChange'; key: string; line: number }
   /** Puts the cursor on a line (1-based) and returns the blame annotation shown there (BlameProbe). */
-  | { kind: 'blame'; key: string; line: number }
-  /** A click on the blame annotation of a line (1-based). */
-  | { kind: 'blameClick'; key: string; line: number };
+  | { kind: 'blame'; key: string; line: number };
 
 /** The blame annotation of the current line. */
 export interface BlameProbe {
   text: string | null;
   sha: string | null;
   hover: string | null;
-  /** blameClick: the annotation was rendered and clicked. */
-  clicked?: boolean;
 }
 
 export interface PaneState {

@@ -19,6 +19,7 @@ import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree'
 import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { SymbolRename } from './vscode/rename';
+import { TypeHierarchy } from './vscode/typeHierarchy';
 import { ShownTab } from './vscode/tabs';
 import { itemOrder } from './core/project';
 import { isInFolder } from './lang/objects';
@@ -180,7 +181,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   history.openObject = item => commitDiff.show(item);
   const historyTree = vscode.window.createTreeView('twincatExplorer.history', { treeDataProvider: history, showCollapseAll: true });
   objectEditors.blame = new BlameService(gitChanges);
-  // A click on a line's blame: what that commit changed in the object, in the commit diff panel.
+  // Open Changes in the hover of a line's blame: what that commit changed in the object, in the commit diff panel.
   objectEditors.openBlame = async (session, root, commit) => {
     await commitDiff.show({
       root, commit: commit.sha, parent: await firstParent(root, commit.sha), path: commit.filename,
@@ -226,9 +227,12 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       changesView.schedule();
       history.workingChanged();
     }),
-    // A fetch can move the branch compared with; a push changes which commits are not pushed yet.
+    // A fetch can move the branch compared with; a push changes which commits are not pushed yet; a stage or
+    // unstage changes the index.
     gitDirs.onDidChange(() => {
-      if (changesView.scope.kind === 'branch') changesView.schedule(1000);
+      changesView.schedule(changesView.scope.kind === 'branch' ? 1000 : undefined);
+      objectEditors.refreshIndexBases();
+      void commitDiff.indexChanged();
       commitsView.schedule(1500);
       history.refsChanged();
     }),
@@ -254,6 +258,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.languages.registerCompletionItemProvider(stSelector, features, '.'),
     vscode.languages.registerSignatureHelpProvider(stSelector, features, { triggerCharacters: ['(', ','], retriggerCharacters: [] }),
     vscode.languages.registerReferenceProvider(stSelector, features),
+    vscode.languages.registerImplementationProvider(stSelector, features),
     vscode.languages.registerDocumentSymbolProvider(stSelector, features),
     vscode.languages.registerWorkspaceSymbolProvider(features),
   );
@@ -589,6 +594,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     }
   };
   changesView.openChanges = openWithChanges;
+  changesView.openStaged = item => commitDiff.show(item);
+  changesView.onDidChangeRepository = () => gitDirs.changed();
   history.openChanges = openWithChanges;
 
   /** The object view of the active editor: a split editor, an object notebook, or the commit diff panel. */
@@ -922,6 +929,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       const node = tree.nodesForFile(fsPath)[0] ?? tree.nodesForObject(fsPath, objectId)[0];
       if (node) await treeView.reveal(node, { select: true, focus: false, expand: false });
     },
+    revealLibrary: async (plcprojPath, include) => {
+      await tree.whenQuiet();
+      const node = tree.nodesForLibrary(plcprojPath, include)[0];
+      if (node) await treeView.reveal(node, { select: true, focus: false, expand: false });
+    },
   });
   // F2 in the split editor and in notebook cells: POUs and members as the tree renames them.
   const renames = new SymbolRename(index, features, {
@@ -935,6 +947,20 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   });
   objectEditors.renames = renames;
   context.subscriptions.push(vscode.languages.registerRenameProvider(stSelector, renames));
+  // The type hierarchy: VS Code's own in notebook cells; TwinCAT: Show Type Hierarchy where it does not reach, the
+  // split editor (a webview) and the TwinCAT tree. Go to Implementation of the tree (the editors have their own).
+  const hierarchy = new TypeHierarchy(index, features, showUses);
+  objectEditors.typeHierarchy = (fk, key, text, offset) => hierarchy.showAt(fk, key, text, offset);
+  context.subscriptions.push(
+    vscode.languages.registerTypeHierarchyProvider(stSelector, hierarchy),
+    vscode.commands.registerCommand('twincatExplorer.showTypeHierarchy', async (arg?: unknown) => {
+      // From the Command Palette in a notebook cell: at its cursor.
+      const editor = vscode.window.activeTextEditor;
+      if (arg === undefined && editor && cellInfo(editor.document)) await hierarchy.showInCell(editor.document, editor.selection.active);
+      else await hierarchy.showObject(target(arg));
+    }),
+    vscode.commands.registerCommand('twincatExplorer.goToImplementation', (arg?: unknown) => hierarchy.goToImplementation(target(arg))),
+  );
   /**
    * Where a new object goes: the PLC project or folder of a tree node; else the folder of the active editor's
    * object, or a PLC project picked.
@@ -962,6 +988,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.commands.registerCommand('twincatExplorer.newFolder', addObject(t => objects.newFolder(t))),
     vscode.commands.registerCommand('twincatExplorer.addExistingItem', addObject(t => objects.addExistingItems(t))),
     vscode.commands.registerCommand('twincatExplorer.addExistingFolderContent', addObject(t => objects.addExistingFolderContent(t))),
+    // On References, else the PLC project of the active editor's object, or one picked.
+    vscode.commands.registerCommand('twincatExplorer.addLibrary', async (arg?: unknown) => {
+      const plcprojPath = arg instanceof TreeNode && arg.libraryTarget ? arg.libraryTarget : (await objectTarget(arg))?.plcprojPath;
+      if (plcprojPath) await objects.addLibrary(plcprojPath);
+    }),
     vscode.commands.registerCommand('twincatExplorer.addMethod', addMember('method')),
     vscode.commands.registerCommand('twincatExplorer.addProperty', addMember('property')),
     vscode.commands.registerCommand('twincatExplorer.addAction', addMember('action')),
@@ -1067,6 +1098,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     }),
     vscode.commands.registerCommand('twincatExplorer.changes.open', (node?: ChangeNode) => node && changesView.open(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.discard', (node?: ChangeNode) => node && changesView.discard(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.stage', (node?: ChangeNode) => node && changesView.stage(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.unstage', (node?: ChangeNode) => node && changesView.unstage(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.stageAll', (node?: ChangeNode) => changesView.stageAll(node)),
+    vscode.commands.registerCommand('twincatExplorer.changes.unstageAll', (node?: ChangeNode) => changesView.unstageAll(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.openNotebook', (node?: ChangeNode) => node && changesView.openNotebook(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.refresh', () => changesView.refresh()),
     vscode.commands.registerCommand('twincatExplorer.changes.showUncommitted', () => changesView.setScope({ kind: 'head' })),

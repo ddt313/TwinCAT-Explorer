@@ -1,0 +1,547 @@
+// The TwinCAT view of one file of a pull or merge request, in a frame of the extension inside the host's page
+// (GitHub's "Files changed", GitLab's "Changes"), where the page's CSP and CSS do not reach it. It reads the file at the merge base and at the head and
+// shows its objects in the layout of the VS Code extension's commit diff: each changed object with its
+// Declaration diff above its Implementation diff, unchanged objects collapsed, and the review threads on the file
+// under the lines they are on (comments.ts), which the page sends. Read-only.
+
+import { KIND_WORD } from '../../src/core/treeLabels';
+import { LineRef, PlacedThread, Placement, ReviewNote, Side, ThreadsResult, placeThreads, unresolvedCount, xmlLineIndex } from './comments';
+import { Span, highlightLines } from './highlight';
+import { lineChange } from './lineDiff';
+import { DiffLine, FileView, ObjectView, buildFileView } from './model';
+import { decodeViewerParams, fileUrl } from './params';
+import { FrameMessage, PageMessage, Reveal } from './protocol';
+import { ALL_WAYS, Attempt, Reader } from './reader';
+import { isKnownSite } from './sites';
+/** Unchanged lines shown around a change; longer runs are folded. */
+const CONTEXT = 3;
+
+const root = document.getElementById('root')!;
+const params = decodeViewerParams(location.hash);
+document.documentElement.dataset.theme = params?.theme ?? 'auto';
+const post = (m: FrameMessage) => {
+  if (params) window.parent.postMessage(m, params.origin);
+};
+
+// ------------------------------------------------------------------ reading the two versions
+
+const files = new Reader(post, params?.origin ?? '', params?.order ?? []);
+const probes: Attempt[] = [];
+
+async function main(): Promise<void> {
+  // Only in a page of a site the extension works on, which made this frame: no other page gets the user's files.
+  if (!params || location.ancestorOrigins?.[0] !== params.origin || !(await isKnownSite(params.origin))) {
+    root.innerHTML = '<p class="notice error">This view did not get the file to show.</p>';
+    return;
+  }
+  post({ tcx: 'ready' });
+  const head = params.deleted ? undefined : await files.read('head', fileUrl(params.raw, params.head, params.path));
+  const base = params.added ? undefined : await files.read('base', fileUrl(params.raw, params.base, params.oldPath ?? params.path));
+  const after = files.textOf(head);
+  const before = files.textOf(base);
+  if (after === null || before === null || (after === undefined && before === undefined)) {
+    view = undefined;
+    root.innerHTML = `<p class="notice error">The file could not be read with this browser's session (see
+      Diagnostics). Turn the toggle off for the page's diff.</p>${diagnosticsHtml()}`;
+    return;
+  }
+  view = buildFileView({ path: params.path, oldPath: params.oldPath, before, after });
+  place();
+  render();
+  if (pendingReveal) void reveal(pendingReveal);
+}
+
+// ------------------------------------------------------------------ rendering
+
+let view: FileView | undefined;
+const highlights = new Map<string, { old: Span[][]; now: Span[][]; pairs: Map<number, [number, number]> }>();
+/** The review threads on the file, as the page sent them, and where they go in the view. */
+let threadInfo: ThreadsResult | undefined;
+let placement: Placement | undefined;
+let lineIndex: Record<Side, Map<number, LineRef>> | undefined;
+
+function place(): void {
+  placement = view && threadInfo && params ? placeThreads(view, threadInfo.threads, params) : undefined;
+}
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const short = (sha: string) => sha.slice(0, 7);
+
+const BADGE: Record<string, string> = { added: 'A', modified: 'M', deleted: 'D' };
+/** A speech bubble, before a count of threads. */
+const BUBBLE = '<svg class="bubble" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v8h-6l-3 3v-3h-2z"/></svg>';
+
+/** The threads under the lines and sections of an object view. */
+function objectThreads(i: number): PlacedThread[] {
+  if (!placement) return [];
+  return [...placement.lines, ...placement.sections].filter(([key]) => key.startsWith(`${i}:`)).flatMap(([, list]) => list);
+}
+
+const threadsAt = (i: number, s: number, k: number) => placement?.lines.get(`${i}:${s}:${k}`);
+const sectionHasThreads = (i: number, s: number) => view!.objects[i].sections[s].lines.some((_, k) => threadsAt(i, s, k));
+
+function render(): void {
+  const v = view!;
+  const parts = [summaryHtml(v)];
+  // An unchanged object with threads is shown on its own, open, not in a group.
+  const grouped = (i: number) => v.objects[i].change === 'unchanged' && !(placement?.perObject[i]);
+  for (let i = 0; i < v.objects.length;) {
+    if (!grouped(i)) {
+      parts.push(objectHtml(i, true));
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < v.objects.length && grouped(j)) j++;
+    parts.push(groupHtml(i, j));
+    i = j;
+  }
+  parts.push(commentListsHtml());
+  parts.push(diagnosticsHtml());
+  root.innerHTML = parts.join('');
+}
+
+/** Renders again (threads came or changed), keeping what was opened or closed. */
+function rerender(): void {
+  const key = (box: HTMLElement) => (box.classList.contains('group') ? `g${box.dataset.from}-${box.dataset.to}`
+    : box.classList.contains('obj') ? `o${box.dataset.o}` : `s${box.dataset.o}:${box.dataset.s}`);
+  const boxes = '.group, .obj, .sec[data-s]';
+  const was = new Map([...root.querySelectorAll<HTMLElement>(boxes)].map(b => [key(b), b.classList.contains('open')]));
+  const threadsOpen = new Map([...root.querySelectorAll<HTMLDetailsElement>('details.thread')].map(d => [d.dataset.t, d.open]));
+  render();
+  // Groups first, then the objects they render, then the sections those render.
+  for (const selector of ['.group', '.obj', '.sec[data-s]']) {
+    for (const box of root.querySelectorAll<HTMLElement>(selector)) {
+      const open = was.get(key(box));
+      if (open !== undefined && open !== box.classList.contains('open')) setOpen(box, open);
+    }
+  }
+  for (const d of root.querySelectorAll<HTMLDetailsElement>('details.thread')) {
+    const open = threadsOpen.get(d.dataset.t);
+    if (open !== undefined) d.open = open;
+  }
+}
+
+function summaryHtml(v: FileView): string {
+  const counts = (['modified', 'added', 'deleted'] as const).filter(k => v.counts[k] > 0).map(k => `${v.counts[k]} ${k}`);
+  if (v.counts.unchanged > 0) counts.push(`${v.counts.unchanged} unchanged`);
+  const file = v.change === 'added' ? 'New file' : v.change === 'deleted' ? 'Deleted file' : v.oldPath ? `Renamed from <code>${esc(v.oldPath)}</code>` : '';
+  const commits = params ? `<code>${short(params.base)}</code> → <code>${short(params.head)}</code>` : '';
+  const threads = threadInfo?.threads ?? [];
+  const open = unresolvedCount(threads);
+  const comments = threads.length ? ` · <span class="cmt">${BUBBLE}${threads.length} thread${threads.length === 1 ? '' : 's'}${open ? `, ${open} unresolved` : ''}</span>` : '';
+  let out = `<div class="summary"><span class="title">TwinCAT objects</span>${counts.length ? ` · ${counts.join(' · ')}` : ''}${file ? ` · ${file}` : ''}${comments}
+    <span class="muted right">read-only · ${commits}</span></div>`;
+  if (v.metadataOnly) out += `<p class="notice">No code changed: ${esc(v.metadataOnly)}</p>`;
+  if (v.note) out += `<p class="notice">${esc(v.note)}</p>`;
+  if (v.error) out += `<p class="notice error">${esc(v.error)}</p>`;
+  if (threadInfo?.problem) out += `<p class="notice">Comments: ${esc(threadInfo.problem)}</p>`;
+  return out;
+}
+
+function shortName(o: ObjectView): string {
+  return o.depth === 0 ? o.label : o.label.slice(o.label.indexOf('.') + 1);
+}
+
+function groupHtml(from: number, to: number): string {
+  const objects = view!.objects.slice(from, to);
+  const names = objects.slice(0, 6).map(shortName).join(', ') + (objects.length > 6 ? ', …' : '');
+  return `<div class="group" data-from="${from}" data-to="${to}">
+    <div class="group-head" role="button" tabindex="0" aria-expanded="false"><span class="chev"></span>${objects.length} unchanged object${objects.length === 1 ? '' : 's'}
+    <span class="muted">${esc(names)}</span></div><div class="group-body"></div></div>`;
+}
+
+function stat(added: number, deleted: number): string {
+  return `<span class="stat">${added ? `<span class="plus">+${added}</span>` : ''}${deleted ? ` <span class="minus">−${deleted}</span>` : ''}</span>`;
+}
+
+/** The number of threads of an object view, for its header. */
+function countHtml(list: PlacedThread[]): string {
+  if (list.length === 0) return '';
+  const open = unresolvedCount(list.map(p => p.thread));
+  const title = `${list.length} comment thread${list.length === 1 ? '' : 's'}${open ? `, ${open} unresolved` : ''}`;
+  return `<span class="cmt${open ? ' open' : ''}" title="${title}">${BUBBLE}${list.length}</span>`;
+}
+
+function objectHtml(i: number, open: boolean): string {
+  const o = view!.objects[i];
+  const badge = BADGE[o.change];
+  return `<div class="obj obj-${o.change} d${o.depth}${open ? ' open' : ''}" data-o="${i}">
+    <div class="obj-head" role="button" tabindex="0" aria-expanded="${open}"><span class="chev"></span>${badge ? `<span class="badge b-${o.change}" title="${o.change}">${badge}</span>` : ''}<span class="name">${esc(o.label)}</span><span class="kind">${o.accessor ? `${o.accessor} accessor` : KIND_WORD[o.kind]}</span>${o.renamedFrom ? `<span class="renamed">renamed from ${esc(o.renamedFrom)}</span>` : ''}${countHtml(objectThreads(i))}${o.change === 'unchanged' ? '<span class="muted">unchanged</span>' : stat(o.added, o.deleted)}</div>
+    <div class="obj-body">${open ? o.sections.map((_, s) => sectionHtml(i, s)).join('') : ''}</div></div>`;
+}
+
+function sectionHtml(i: number, s: number): string {
+  const o = view!.objects[i];
+  const sec = o.sections[s];
+  const label = `<span class="sec-label">${esc(sec.label)}</span>`;
+  if (!sec.text) {
+    const note = sec.status === 'same' ? 'unchanged' : `${sec.status}: graphical code is not shown, the page's diff has its XML`;
+    const link = sec.status === 'deleted' ? xmlLink('L', sec.oldXml) : sec.status !== 'same' ? xmlLink('R', sec.newXml) : '';
+    const threads = placement?.sections.get(`${i}:${s}`);
+    return `<div class="sec sec-${sec.status}"><div class="sec-head">${label}<span class="muted">${note}</span>${link}</div>${
+      threads ? `<div class="sec-threads">${threads.map(p => threadHtml(p)).join('')}</div>` : ''}</div>`;
+  }
+  if (sec.lines.length === 0) return `<div class="sec"><div class="sec-head">${label}<span class="muted">empty</span></div></div>`;
+  // In a changed object an unchanged section is folded, unless a thread is on it; an unchanged object, once opened, shows its code.
+  const folded = sec.status === 'same' && o.change !== 'unchanged' && !sectionHasThreads(i, s);
+  const status = sec.status === 'changed' ? stat(sec.added, sec.deleted) : `<span class="muted">${sec.status === 'same' ? 'unchanged' : sec.status}</span>`;
+  return `<div class="sec sec-${sec.status}${folded ? '' : ' open'}" data-o="${i}" data-s="${s}">
+    <div class="sec-head"${folded ? ' role="button" tabindex="0" aria-expanded="false"' : ''}>${folded ? '<span class="chev"></span>' : ''}${label}${status}</div>
+    <div class="sec-body">${folded ? '' : tableHtml(i, s)}</div></div>`;
+}
+
+function tableHtml(i: number, s: number): string {
+  const sec = view!.objects[i].sections[s];
+  const lines = sec.lines;
+  // A changed line or a line with threads, with its context; an unchanged section without threads, whole.
+  const marked = lines.map((l, k) => l.kind !== 'same' || !!threadsAt(i, s, k));
+  const folding = sec.status === 'changed' || sectionHasThreads(i, s);
+  const show = marked.map(m => m || !folding);
+  if (folding) {
+    marked.forEach((m, k) => {
+      if (!m) return;
+      for (let x = Math.max(0, k - CONTEXT); x <= Math.min(lines.length - 1, k + CONTEXT); x++) show[x] = true;
+    });
+  }
+  const rows: string[] = [];
+  for (let k = 0; k < lines.length;) {
+    if (show[k]) {
+      rows.push(rowHtml(i, s, k));
+      k++;
+      continue;
+    }
+    let end = k;
+    while (end < lines.length && !show[end]) end++;
+    // A fold of one line would take as much room as the line.
+    if (end - k === 1) rows.push(rowHtml(i, s, k));
+    else rows.push(foldHtml(i, s, k, end));
+    k = end;
+  }
+  return `<table class="diff"><tbody>${rows.join('')}</tbody></table>`;
+}
+
+function foldHtml(i: number, s: number, from: number, to: number): string {
+  return `<tr class="fold" data-o="${i}" data-s="${s}" data-from="${from}" data-to="${to}"><td colspan="5">⋯ ${to - from} unchanged lines</td></tr>`;
+}
+
+/**
+ * A link to an XML line in the page's diff, where it can be commented on. An unchanged line's is dimmed, and has its
+ * line at the base too, which the page may know the line by.
+ */
+function xmlLink(side: Side, line: number | undefined, oldLine?: number): string {
+  if (!line) return '';
+  const version = side === 'L' ? 'base' : 'head';
+  return `<a class="xml${oldLine ? ' same' : ''}" href="#" data-side="${side}" data-line="${line}"${oldLine ? ` data-old="${oldLine}"` : ''} title="Line ${line} of the XML file at the ${version}: show it in the page's diff">${side}${line}</a>`;
+}
+
+// ------------------------------------------------------------------ review threads
+
+function when(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function noteHtml(n: ReviewNote): string {
+  return `<div class="note"><div class="note-head"><span class="author">${esc(n.author)}</span><time datetime="${esc(n.created)}">${esc(when(n.created))}</time></div>
+    <div class="note-body">${esc(n.body.trim())}</div></div>`;
+}
+
+/**
+ * A thread, read-only: its first note (author, time, text as written), whether it is resolved, its replies (folded),
+ * and a link to it in the page's diff, or for an outdated one, to the thread on the site. Open unless resolved.
+ */
+function threadHtml(p: PlacedThread, where = '', outdated = false): string {
+  const t = p.thread;
+  const [first, ...replies] = t.notes;
+  const state = t.resolved === undefined ? '' : `<span class="state ${t.resolved ? 'resolved' : 'unresolved'}">${t.resolved ? 'Resolved' : 'Unresolved'}</span>`;
+  const count = replies.length ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : '';
+  // Only a link to the page's own site.
+  const url = t.url && params && t.url.startsWith(`${params.origin}/`) ? t.url : undefined;
+  const old = p.side === 'R' ? p.position?.oldLine : undefined;
+  const line = p.side && p.line ? ` data-side="${p.side}" data-line="${p.line}"${old ? ` data-old="${old}"` : ''}` : '';
+  const go = !outdated
+    ? `<a class="go" href="#" data-thread="${esc(t.id)}"${line} title="Show this thread in the page's diff">Show in the diff</a>`
+    : url ? `<a class="go" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="Open this thread on the site, in a new tab">Open ↗</a>` : '';
+  return `<details class="thread${t.resolved ? ' resolved' : ''}" data-t="${esc(t.id)}"${t.resolved ? '' : ' open'}>
+    <summary><span class="author">${esc(first.author)}</span><time datetime="${esc(first.created)}">${esc(when(first.created))}</time>${
+      where ? `<span class="where">${esc(where)}</span>` : ''}${state}${count ? `<span class="muted">${count}</span>` : ''}${go}</summary>
+    <div class="note-body">${esc(first.body.trim())}</div>${
+      replies.length ? `<details class="replies"><summary>${count}</summary>${replies.map(noteHtml).join('')}</details>` : ''}</details>`;
+}
+
+/** The threads in no section line: on the XML (and on the whole file), and the outdated ones. */
+function commentListsHtml(): string {
+  if (!placement) return '';
+  const list = (title: string, note: string, items: string[]) => (items.length === 0 ? '' : `<div class="comments">
+    <div class="comments-head">${BUBBLE}<span class="title">${title}</span><span class="muted">${items.length} · ${note}</span></div>${items.join('')}</div>`);
+  const xmlWhere = (p: PlacedThread) => (p.position?.file ? 'on the file'
+    : `${p.side}${p.line}${p.object !== undefined ? ` · in ${view!.objects[p.object].label}` : ''}`);
+  const oldWhere = ({ position: q }: PlacedThread) => {
+    const line = q?.file ? 'on the file' : q?.newLine ? `R${q.newLine}` : q?.oldLine ? `L${q.oldLine}` : '';
+    return `${line}${q?.head ? ` at ${short(q.head)}` : ''}`;
+  };
+  return list('Comments on the XML', 'on lines in no declaration or implementation', placement.xml.map(p => threadHtml(p, xmlWhere(p))))
+    + list('Outdated comments', 'on other commits than this page compares', placement.outdated.map(p => threadHtml(p, oldWhere(p), true)));
+}
+
+/** Token spans of the old and new texts of a section, and the changed middle of the lines paired in each change. */
+function sectionHighlights(i: number, s: number) {
+  const key = `${i}:${s}`;
+  let h = highlights.get(key);
+  if (h) return h;
+  const lines = view!.objects[i].sections[s].lines;
+  const pairs = new Map<number, [number, number]>();
+  for (let k = 0; k < lines.length;) {
+    if (lines[k].kind === 'same') {
+      k++;
+      continue;
+    }
+    const dels: number[] = [];
+    const adds: number[] = [];
+    while (k < lines.length && lines[k].kind !== 'same') (lines[k].kind === 'del' ? dels : adds).push(k++);
+    for (let p = 0; p < Math.min(dels.length, adds.length); p++) {
+      const a = lines[dels[p]].text;
+      const b = lines[adds[p]].text;
+      const c = lineChange(a, b);
+      // Only a part of the line: a line changed all over is marked as a whole already.
+      if (c.endA - c.start + c.endB - c.start < 0.6 * (a.length + b.length)) {
+        pairs.set(dels[p], [c.start, c.endA]);
+        pairs.set(adds[p], [c.start, c.endB]);
+      }
+    }
+  }
+  h = {
+    old: highlightLines(lines.filter(l => l.kind !== 'add').map(l => l.text).join('\n')),
+    now: highlightLines(lines.filter(l => l.kind !== 'del').map(l => l.text).join('\n')),
+    pairs,
+  };
+  highlights.set(key, h);
+  return h;
+}
+
+function rowHtml(i: number, s: number, k: number): string {
+  const l: DiffLine = view!.objects[i].sections[s].lines[k];
+  const h = sectionHighlights(i, s);
+  const spans = l.kind === 'del' ? h.old[l.oldLine! - 1] : h.now[l.newLine! - 1];
+  // An unchanged line links to its line at the head, where a comment on it goes too.
+  const link = l.kind === 'del' ? xmlLink('L', l.oldXml) : xmlLink('R', l.newXml, l.kind === 'same' ? l.oldXml : undefined);
+  const mark = l.kind === 'del' ? '−' : l.kind === 'add' ? '+' : '';
+  const threads = threadsAt(i, s, k);
+  return `<tr class="l-${l.kind}" data-k="${k}"><td class="n">${l.oldLine ?? ''}</td><td class="n">${l.newLine ?? ''}</td><td class="m">${mark}</td><td class="c">${codeHtml(l.text, spans ?? [], h.pairs.get(k))}</td><td class="x">${link}</td></tr>${
+    threads ? `<tr class="threads"><td colspan="5">${threads.map(p => threadHtml(p)).join('')}</td></tr>` : ''}`;
+}
+
+/** A line of code with its token classes and, for a paired line, its changed middle marked. */
+function codeHtml(text: string, spans: Span[], change: [number, number] | undefined): string {
+  if (text === '') return ' ';
+  const cuts = new Set([0, text.length]);
+  for (const sp of spans) {
+    cuts.add(sp.start);
+    cuts.add(sp.end);
+  }
+  if (change) {
+    cuts.add(change[0]);
+    cuts.add(change[1]);
+  }
+  const points = [...cuts].filter(p => p >= 0 && p <= text.length).sort((a, b) => a - b);
+  let out = '';
+  for (let p = 0; p + 1 < points.length; p++) {
+    const [a, b] = [points[p], points[p + 1]];
+    if (a === b) continue;
+    const classes = [spans.find(sp => sp.start <= a && b <= sp.end)?.cls, change && change[0] <= a && b <= change[1] ? 'chg' : undefined]
+      .filter(Boolean).join(' ');
+    const piece = esc(text.slice(a, b));
+    out += classes ? `<span class="${classes}">${piece}</span>` : piece;
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ diagnostics
+
+function wasm(): string {
+  try {
+    new WebAssembly.Module(new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]));
+    return 'allowed';
+  } catch (e) {
+    return `blocked: ${(e as Error).message}`;
+  }
+}
+
+function attemptsHtml(list: Attempt[]): string {
+  return list.map(a => `<li><code>${a.what}</code> via <b>${a.strategy}</b>: ${a.ok ? '✓' : '✗'} ${a.status || ''} ${a.host ? `from ${esc(a.host)}` : ''}
+    ${a.error ? `<span class="muted">(${esc(a.error)})</span>` : ''} <span class="muted">${a.ms} ms</span></li>`).join('');
+}
+
+function diagnosticsHtml(): string {
+  const p = params;
+  return `<details class="diag"><summary>Diagnostics</summary><ul>
+    ${p ? `<li>Commits: base <code>${p.base}</code>, head <code>${p.head}</code> <span class="muted">(${esc(p.source ?? 'unknown source')})</span></li>
+    <li>Paths: <code>${esc(p.path)}</code>${p.oldPath ? ` (base: <code>${esc(p.oldPath)}</code>)` : ''}</li>
+    <li>Page: <code>${esc(p.origin)}</code>, ways to read in order: ${esc(p.order.join(', '))}</li>` : ''}
+    ${attemptsHtml(files.attempts)}
+    <li>Comments: ${!threadInfo ? 'not read yet' : threadInfo.problem ? esc(threadInfo.problem)
+      : `${threadInfo.threads.length} thread(s) on this file <span class="muted">(${esc(threadInfo.source ?? 'unknown source')})</span>`}</li>
+    <li>WebAssembly in this frame: ${esc(wasm())}</li>
+    <li>Frame: <code>${esc(location.origin)}</code></li>
+  </ul>
+  <button type="button" class="probe">Try each way to read the file</button><ul class="probes">${attemptsHtml(probes)}</ul></details>`;
+}
+
+/** Reads the file at the head (or the base) each way, for the diagnostics. */
+async function probeAll(button: HTMLButtonElement): Promise<void> {
+  if (!params) return;
+  button.disabled = true;
+  const [what, sha, path] = params.deleted ? ['base', params.base, params.oldPath ?? params.path] : ['head', params.head, params.path];
+  for (const strategy of ALL_WAYS) await files.attempt(`probe ${what}`, strategy, fileUrl(params.raw, sha, path), probes);
+  const list = button.nextElementSibling;
+  if (list) list.innerHTML = attemptsHtml(probes);
+  button.disabled = false;
+}
+
+// ------------------------------------------------------------------ interaction
+
+/** Opens or closes an object, a section or a group of unchanged objects, rendering its contents the first time. */
+function setOpen(box: HTMLElement, open: boolean): void {
+  const head = box.querySelector(':scope > .obj-head, :scope > .sec-head, :scope > .group-head')!;
+  const body = box.querySelector(':scope > .obj-body, :scope > .sec-body, :scope > .group-body')!;
+  if (open && body.childElementCount === 0) {
+    if (box.classList.contains('obj')) {
+      const i = Number(box.dataset.o);
+      body.innerHTML = view!.objects[i].sections.map((_, s) => sectionHtml(i, s)).join('');
+    } else if (box.classList.contains('sec')) {
+      body.innerHTML = tableHtml(Number(box.dataset.o), Number(box.dataset.s));
+    } else {
+      const items: string[] = [];
+      for (let i = Number(box.dataset.from); i < Number(box.dataset.to); i++) items.push(objectHtml(i, false));
+      body.innerHTML = items.join('');
+    }
+  }
+  box.classList.toggle('open', open);
+  head.setAttribute('aria-expanded', String(open));
+}
+
+/** Shows the folded lines of a fold. */
+function unfold(fold: HTMLTableRowElement): void {
+  const [i, s, from, to] = ['o', 's', 'from', 'to'].map(k => Number(fold.dataset[k]));
+  const rows: string[] = [];
+  for (let k = from; k < to; k++) rows.push(rowHtml(i, s, k));
+  fold.insertAdjacentHTML('afterend', rows.join(''));
+  fold.remove();
+}
+
+/** An object view, opened (out of its group of unchanged objects, if it is in one). */
+function openObject(i: number): HTMLElement | null {
+  let box = root.querySelector<HTMLElement>(`.obj[data-o="${i}"]`);
+  if (!box) {
+    const group = [...root.querySelectorAll<HTMLElement>('.group')].find(g => Number(g.dataset.from) <= i && i < Number(g.dataset.to));
+    if (group) setOpen(group, true);
+    box = root.querySelector<HTMLElement>(`.obj[data-o="${i}"]`);
+  }
+  if (box) setOpen(box, true);
+  return box;
+}
+
+/** The row of a section line, its section opened and its fold unfolded. */
+function openRow(box: HTMLElement, ref: LineRef): HTMLElement | null {
+  const sec = box.querySelector<HTMLElement>(`.sec[data-o="${ref.o}"][data-s="${ref.s}"]`);
+  if (!sec) return null;
+  if (!sec.classList.contains('open')) setOpen(sec, true);
+  const fold = [...sec.querySelectorAll<HTMLTableRowElement>('tr.fold')].find(f => Number(f.dataset.from) <= ref.k && ref.k < Number(f.dataset.to));
+  if (fold) unfold(fold);
+  return sec.querySelector<HTMLElement>(`tr[data-k="${ref.k}"]`);
+}
+
+/** A place the page asked for before the view was rendered. */
+let pendingReveal: Reveal | undefined;
+
+/**
+ * Opens a place of the view and tells the page where it is: an object view (from the tree), the section line on an
+ * XML line or a thread (coming back from the page's diff). Out of the group of unchanged objects, the folded section
+ * and the fold it is in.
+ */
+async function reveal(r: Reveal): Promise<void> {
+  pendingReveal = undefined;
+  const v = view;
+  if (!v) return;
+  const where = r.thread ? placement?.where.get(r.thread) : undefined;
+  const [o, s, k] = where ? where.key.split(':').map(Number) : [];
+  const ref: LineRef | undefined = k !== undefined ? { o, s, k } : r.xml ? (lineIndex ??= xmlLineIndex(v))[r.xml.side].get(r.xml.line) : undefined;
+  const i = where?.o ?? ref?.o ?? (r.objectId !== undefined ? v.objects.findIndex(x => x.objectId === r.objectId && x.accessor === r.accessor) : -1);
+  const box = i >= 0 ? openObject(i) : null;
+  let target: HTMLElement | null = box;
+  if (box && ref) target = openRow(box, ref) ?? box;
+  // A thread: in the object it is in, or in the lists at the end.
+  const thread = r.thread ? root.querySelector<HTMLElement>(`.thread[data-t="${CSS.escape(r.thread)}"]`) : null;
+  if (thread) target = thread;
+  if (!target) return;
+  const flash = target === box ? box.querySelector<HTMLElement>(':scope > .obj-head')! : target;
+  flash.classList.remove('flash');
+  void flash.offsetWidth;
+  flash.classList.add('flash');
+  // A frame just shown again is laid out late (a second and more, seen on GitHub): measure once the target has a box.
+  for (let n = 0; n < 60 && target.getBoundingClientRect().height === 0; n++) await new Promise(done => setTimeout(done, 50));
+  post({ tcx: 'scroll', top: target.getBoundingClientRect().top + window.scrollY });
+}
+
+window.addEventListener('message', e => {
+  if (!params || e.origin !== params.origin || e.source !== window.parent) return;
+  const m = e.data as PageMessage;
+  if (m?.tcx === 'reveal') {
+    const r: Reveal = { objectId: m.objectId, accessor: m.accessor, xml: m.xml, thread: m.thread };
+    if (view) void reveal(r);
+    else pendingReveal = r;
+  } else if (m?.tcx === 'threads' && Array.isArray(m.threads)) {
+    threadInfo = { threads: m.threads, source: m.source, problem: m.problem };
+    if (!view) return;
+    place();
+    rerender();
+  }
+});
+
+root.addEventListener('click', e => {
+  const target = e.target as Element;
+  const oldLine = (a: HTMLElement) => (a.dataset.old ? Number(a.dataset.old) : undefined);
+  const xml = target.closest<HTMLAnchorElement>('a.xml');
+  if (xml) {
+    e.preventDefault();
+    post({ tcx: 'goto', side: xml.dataset.side === 'L' ? 'L' : 'R', line: Number(xml.dataset.line), oldLine: oldLine(xml) });
+    return;
+  }
+  const go = target.closest<HTMLAnchorElement>('a.go[data-thread]');
+  if (go) {
+    e.preventDefault();
+    const side = go.dataset.side === 'L' || go.dataset.side === 'R' ? go.dataset.side : undefined;
+    post({ tcx: 'thread', id: go.dataset.thread!, side, line: side ? Number(go.dataset.line) : undefined, oldLine: oldLine(go) });
+    return;
+  }
+  const probe = target.closest<HTMLButtonElement>('button.probe');
+  if (probe) {
+    void probeAll(probe);
+    return;
+  }
+  const fold = target.closest<HTMLTableRowElement>('tr.fold');
+  if (fold) {
+    unfold(fold);
+    return;
+  }
+  const head = target.closest('.obj-head, .sec-head[role="button"], .group-head');
+  if (!head) return;
+  const box = head.parentElement as HTMLElement;
+  setOpen(box, !box.classList.contains('open'));
+});
+
+root.addEventListener('keydown', e => {
+  const target = e.target as HTMLElement;
+  if ((e.key === 'Enter' || e.key === ' ') && target.getAttribute('role') === 'button') {
+    e.preventDefault();
+    target.click();
+  }
+});
+
+// The page sizes the frame to its content: the frame has no scroll bar of its own.
+new ResizeObserver(() => post({ tcx: 'height', height: Math.ceil(document.body.getBoundingClientRect().height) })).observe(document.body);
+
+void main().catch(e => {
+  root.innerHTML = `<p class="notice error">The TwinCAT view failed: ${esc(String((e as Error).stack ?? e))}</p>`;
+});

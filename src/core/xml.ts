@@ -147,6 +147,15 @@ export function children(el: XmlElement | undefined, name: string): XmlElement[]
   return el ? el.children.filter(c => c.name === name) : [];
 }
 
+/** The elements of a name under an element, at any depth, in document order. */
+export function findAll(el: XmlElement, name: string, out: XmlElement[] = []): XmlElement[] {
+  for (const c of el.children) {
+    if (c.name === name) out.push(c);
+    findAll(c, name, out);
+  }
+  return out;
+}
+
 /** Concatenated content of the element's CDATA sections (TwinCAT splits `]]>` across sections). */
 export function cdataText(text: string, el: XmlElement): string {
   return el.cdata.map(c => text.slice(c.contentStart, c.contentEnd)).join('');
@@ -154,6 +163,11 @@ export function cdataText(text: string, el: XmlElement): string {
 
 export function escapeAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** The text of an element as XML writes it: `&`, `<` and `>` escaped. */
+export function escapeText(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** Where the value of an attribute is in the start tag of an element, as written (entities not decoded). */

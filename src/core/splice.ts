@@ -5,8 +5,11 @@
 // staying as it is.
 
 import { randomUUID } from 'crypto';
-import { Accessor, viewSections } from './objectText';
-import { Section, TcObject, TcSourceFile, normalizeEol, parseTcText, sectionOffsetToFileOffset, stripTrivia, toEol } from './tcfile';
+import { viewChange, viewExists } from './objectChanges';
+import { Accessor, viewLabel, viewSections } from './objectText';
+import {
+  Section, TcObject, TcSourceFile, normalizeEol, normalizeId, parseTcText, sectionOffsetToFileOffset, stripTrivia, toEol,
+} from './tcfile';
 import { XmlElement, attributeRange, elementLines, escapeAttr, indentBefore } from './xml';
 
 export interface SectionEdit {
@@ -56,6 +59,14 @@ export interface SpliceResult {
   changedKeys: string[];
 }
 
+/** The edit that gives a section another text: its CDATA, with the line breaks of the file. */
+function cdataEdit(file: TcSourceFile, section: Section, text: string): TextEdit {
+  const el = section.element;
+  const inner = `<![CDATA[${escapeCdata(toEol(text, file.eol))}]]>`;
+  return el.selfClosing ? { start: el.start, end: el.end, value: `<${el.name}>${inner}</${el.name}>` }
+    : { start: el.contentStart, end: el.contentEnd, value: inner };
+}
+
 export function applySectionEdits(file: TcSourceFile, edits: SectionEdit[]): SpliceResult {
   const replacements: { start: number; end: number; value: string; key: string }[] = [];
   const seen = new Set<string>();
@@ -68,13 +79,7 @@ export function applySectionEdits(file: TcSourceFile, edits: SectionEdit[]): Spl
     if (normalizeEol(edit.text) === section.text) continue;
     if (!section.editable) throw new SpliceError(`${section.label} of ${section.owner.qualifiedName} is read-only`);
     checkRename(section, edit.text);
-    const el = section.element;
-    const inner = `<![CDATA[${escapeCdata(toEol(edit.text, file.eol))}]]>`;
-    if (el.selfClosing) {
-      replacements.push({ start: el.start, end: el.end, value: `<${el.name}>${inner}</${el.name}>`, key: edit.key });
-    } else {
-      replacements.push({ start: el.contentStart, end: el.contentEnd, value: inner, key: edit.key });
-    }
+    replacements.push({ ...cdataEdit(file, section, edit.text), key: edit.key });
   }
   replacements.sort((a, b) => b.start - a.start);
   let text = file.text;
@@ -157,6 +162,155 @@ export function removeMember(file: TcSourceFile, objectId: string, accessor?: 'G
   if (!el) throw new SpliceError(`${obj.qualifiedName} has no ${accessor} accessor to remove`);
   const lineIds = lineIdsOf(obj.parent.element, accessor ? `${obj.qualifiedName}.${accessor}` : obj.qualifiedName, !accessor);
   return applyEdits(file.text, [el, ...lineIds].map(e => elementBlock(file.text, e)));
+}
+
+// ------------------------------------------------------------------ an object view from another version of the file
+
+/** The text of an element of `from`, with the line breaks `eol`. */
+function copyOf(from: TcSourceFile, el: XmlElement, eol: string): string {
+  const text = from.text.slice(el.start, el.end);
+  return from.eol === eol ? text : toEol(text, eol);
+}
+
+/**
+ * The element among `candidates` (children of an element of another version of the file) that stands for `el`:
+ * the same tag with the same Id (members), else the same Name (LineIds, folders); a Get or Set by its tag.
+ */
+function counterpart(el: XmlElement, candidates: XmlElement[]): XmlElement | undefined {
+  const key = (e: XmlElement) => (e.name === 'Get' || e.name === 'Set' ? ''
+    : normalizeId(e.attrs.get('Id')) ?? `name:${e.attrs.get('Name') ?? ''}`);
+  return candidates.find(c => c.name === el.name && key(c) === key(el));
+}
+
+/**
+ * `into`'s text with `el`, an element of another version of the file (`from`), as a child of `parent`, an element
+ * of `into`: after the nearest element before it in `from` that `parent` has too (its declaration at least), else
+ * last; on a line of its own, indented as in `from`.
+ */
+function insertChild(into: TcSourceFile, from: TcSourceFile, el: XmlElement, parent: XmlElement): string {
+  const siblings = el.parent?.children ?? [];
+  let after: XmlElement | undefined;
+  for (let i = siblings.indexOf(el) - 1; i >= 0 && !after; i--) after = counterpart(siblings[i], parent.children);
+  after ??= parent.children[parent.children.length - 1];
+  if (!after) throw new SpliceError(`${parent.attrs.get('Name') ?? parent.name} in ${into.path} has no place for ${el.name}`);
+  const indent = indentBefore(from.text, el.start) ?? indentBefore(into.text, after.start) ?? '';
+  return into.text.slice(0, after.end) + into.eol + indent + copyOf(from, el, into.eol) + into.text.slice(after.end);
+}
+
+/**
+ * `into`'s text with the LineIds of an object view (with `prefix` also those under it: a member's accessors) as
+ * `from` has them: changed, put in at their place or removed. Only when both versions name the view alike (not
+ * when its POU or property has another name there), as LineIds are named after it.
+ */
+function withLineIds(into: TcSourceFile, from: TcSourceFile, objectId: string, accessor: Accessor | undefined, prefix: boolean): string {
+  const mine = into.objects.get(objectId);
+  const theirs = from.objects.get(objectId);
+  if (!into.root || !from.root || !mine || !theirs) return into.text;
+  const name = viewLabel(mine, accessor);
+  if (name.toUpperCase() !== viewLabel(theirs, accessor).toUpperCase()) return into.text;
+  const nameOf = (e: XmlElement) => (e.attrs.get('Name') ?? '').toUpperCase();
+  const wanted = lineIdsOf(from.root.element, name, prefix);
+  const edits: TextEdit[] = [];
+  for (const li of lineIdsOf(into.root.element, name, prefix)) {
+    const w = wanted.find(x => nameOf(x) === nameOf(li));
+    if (!w) edits.push(elementBlock(into.text, li));
+    else edits.push({ start: li.start, end: li.end, value: copyOf(from, w, into.eol) });
+  }
+  let file = edits.length ? parseTcText(into.path, applyEdits(into.text, edits), into.bom) : into;
+  for (const w of wanted) {
+    if (lineIdsOf(file.root!.element, w.attrs.get('Name') ?? '', false).length) continue;
+    file = parseTcText(into.path, insertChild(file, from, w, file.root!.element), into.bom);
+  }
+  return file.text;
+}
+
+/**
+ * The file `into` with a member of its POU or interface (a method, property, action or transition), or an
+ * accessor of a property, that another version of the file (`from`) has and `into` lacks: copied from `from`
+ * with its LineIds, at its place there (see insertChild); with a property `into` lacks, that property comes too,
+ * with this accessor only. The rest of the file stays byte-identical.
+ */
+export function insertMember(into: TcSourceFile, from: TcSourceFile, objectId: string, accessor?: Accessor): string {
+  const obj = from.objects.get(objectId);
+  if (!obj?.parent) throw new SpliceError(obj ? `${obj.qualifiedName} is a whole file, not a member` : `The object is not in ${from.path}`);
+  const prop = into.objects.get(objectId);
+  if (accessor && !prop) {
+    let trimmed = from;
+    for (const other of obj.accessors) {
+      if (other.kind !== accessor) trimmed = parseTcText(from.path, removeMember(trimmed, objectId, other.kind), from.bom);
+    }
+    return insertMember(into, trimmed, objectId);
+  }
+  if (accessor ? prop!.accessors.some(a => a.kind === accessor) : prop) {
+    throw new SpliceError(`${viewLabel(obj, accessor)} is already in ${into.path}`);
+  }
+  const owner = accessor ? prop : into.objects.get(obj.parent.id);
+  if (!owner) throw new SpliceError(`${obj.parent.qualifiedName} is not in ${into.path}`);
+  // Another member of that name (deleted there, and not yet in this version): two of a name do not compile.
+  const clash = accessor ? undefined : memberNameProblem(owner, obj.name);
+  if (clash) throw new SpliceError(clash);
+  const el = accessor ? obj.element.children.find(c => c.name === accessor) : obj.element;
+  if (!el) throw new SpliceError(`${obj.qualifiedName} has no ${accessor} accessor`);
+  const text = insertChild(into, from, el, owner.element);
+  return withLineIds(parseTcText(into.path, text, into.bom), from, objectId, accessor, !accessor);
+}
+
+/**
+ * The file `into` with the code of an object view that both versions have as `from` has it, and its name when
+ * it was renamed: its Name, as renameMember and renameObject change it with the LineIds named after it. Its own
+ * LineIds come along.
+ */
+function changeView(into: TcSourceFile, from: TcSourceFile, objectId: string, accessor?: Accessor): string {
+  const obj = into.objects.get(objectId)!;
+  const src = from.objects.get(objectId)!;
+  const sections = viewSections(obj, accessor);
+  const wanted = new Map(viewSections(src, accessor).map(s => [s.key, s.text]));
+  if (sections.length !== wanted.size || sections.some(s => !wanted.has(s.key))) {
+    throw new SpliceError(`${viewLabel(obj, accessor)} changed more than its code`);
+  }
+  let text: string;
+  if (accessor || obj.name === src.name) {
+    text = restoreView(into, from, objectId, accessor);
+  } else {
+    const name = attributeRange(into.text, obj.element, 'Name');
+    const newName = attributeRange(from.text, src.element, 'Name')?.value;
+    if (!name || !newName) throw new SpliceError(`${obj.qualifiedName} has no Name attribute`);
+    const clash = obj.parent && memberNameProblem(obj.parent, src.name, obj);
+    if (clash) throw new SpliceError(clash);
+    const edits: TextEdit[] = [
+      { ...name, value: newName }, ...lineIdRenames(into.text, (obj.parent ?? obj).element, obj.qualifiedName, obj.parent ? 1 : 0, newName),
+      ...sections.filter(s => s.text !== wanted.get(s.key)).map(s => cdataEdit(into, s, wanted.get(s.key)!)),
+    ];
+    text = applyEdits(into.text, edits);
+  }
+  return withLineIds(parseTcText(into.path, text, into.bom), from, objectId, accessor, false);
+}
+
+/**
+ * The file `into` with one object view (a POU, DUT, GVL or interface, a method, the declaration of a property, an
+ * accessor, an action or a transition) as another version of the file (`from`) has it: its code and name (see
+ * changeView), or the whole member put in (see insertMember) or removed (see removeMember) when only one version
+ * has it. Everything else stays byte-identical; the caller writes the text with the BOM `into` had. Staging an
+ * object takes it from the working tree into the index's version, unstaging from HEAD, and Discard Changes from
+ * the index into the working file.
+ */
+export function takeView(into: TcSourceFile, from: TcSourceFile, objectId: string, accessor?: Accessor): string {
+  for (const f of [into, from]) if (f.error) throw new SpliceError(`${f.path} cannot be read: ${f.error}`);
+  const had = viewExists(into, objectId, accessor);
+  const has = viewExists(from, objectId, accessor);
+  if (!had && !has) return into.text;
+  const text = !has ? removeMember(into, objectId, accessor) : !had ? insertMember(into, from, objectId, accessor)
+    : changeView(into, from, objectId, accessor);
+  // The view reads back as in `from`, the other sections as they were (a whole member's accessors are its own).
+  const whole = !accessor && had !== has;
+  const own = (s: Section) => s.owner.id === objectId && (accessor ? s.accessor === accessor : whole || !s.accessor);
+  const out = parseTcText(into.path, text, into.bom);
+  const kept = [...into.sections.values()].every(s => own(s) || out.sections.get(s.key)?.text === s.text);
+  if (out.error || viewChange(from, out, objectId, accessor) || !kept) {
+    const obj = from.objects.get(objectId) ?? into.objects.get(objectId)!;
+    throw new SpliceError(`${viewLabel(obj, accessor)} could not be taken over in ${into.path}`);
+  }
+  return text;
 }
 
 /** A member addMember creates: a method, a property with its accessors, or an action. */

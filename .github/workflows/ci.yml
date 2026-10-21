@@ -1,0 +1,125 @@
+# Checks a pull request, and develop and master once something is merged: the VS Code extension (tests, package)
+# and the browser extension (tests, build), each only when a change can touch it. The browser extension is built
+# on the VS Code extension's core (src/core, src/lang), so a change there checks both. The packages of the run
+# are its artifacts, for trying a pull request out.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      vscode: ${{ steps.filter.outputs.vscode }}
+      browser: ${{ steps.filter.outputs.browser }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Which extensions the change touches
+        id: filter
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # A new branch, or a push that rewrote history, has no base to compare with: everything is checked.
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2> /dev/null; then
+            echo "vscode=true" >> "$GITHUB_OUTPUT"
+            echo "browser=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
+          printf '%s\n' "$files"
+          # The VS Code extension: any file but those of the browser extension alone.
+          if printf '%s\n' "$files" | grep -qvE '^(browser/|\.github/workflows/release-browser\.yml$)'; then
+            vscode=true
+          else
+            vscode=false
+          fi
+          # The browser extension: browser/, the core it is built on, its tests, the build's setup, its workflows.
+          if printf '%s\n' "$files" | grep -qE '^(browser/|src/core/|src/lang/|test/unit/browserView|package(-lock)?\.json$|tsconfig|\.github/workflows/(ci|release-browser)\.yml$)'; then
+            browser=true
+          else
+            browser=false
+          fi
+          {
+            echo "vscode=$vscode"
+            echo "browser=$browser"
+          } >> "$GITHUB_OUTPUT"
+
+  vscode:
+    name: VS Code extension
+    needs: changes
+    if: needs.changes.outputs.vscode == 'true'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run compile
+
+      - run: npm run test:unit
+
+      - name: Package, without the browser extension
+        run: |
+          if npx vsce ls --no-dependencies | grep -q '^browser/'; then
+            echo "::error::The .vsix would hold files of browser/: see .vscodeignore."
+            exit 1
+          fi
+          npx vsce package --no-dependencies --out explorer-for-twincat.vsix
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vscode-extension
+          path: explorer-for-twincat.vsix
+          retention-days: 14
+
+  browser:
+    name: Browser extension
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run compile
+
+      - run: npm run test:unit
+
+      - run: npm run build:browser
+
+      # The folder to load unpacked.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: browser-extension
+          path: browser/dist
+          retention-days: 14

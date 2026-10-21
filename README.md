@@ -44,6 +44,10 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Adding methods, properties and actions](#adding-methods-properties-and-actions)).
 - Right-click a method, property, action or transition to rename or delete it (F2, Delete; see
   [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)).
+- Right-click a function block, an interface, or a method or property of one: `Go to Implementation`
+  opens what implements or overrides it (a list when there are several), and `Show Type Hierarchy`
+  shows the supertypes and subtypes of a function block or interface (see
+  [Structured Text language features](#structured-text-language-features)).
 - Right-click a POU, DUT, GVL or interface to rename it, move it to another folder or delete it, or drag
   it onto a folder; a folder to rename it or move it with everything in it (see
   [Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders](#renaming-moving-and-deleting-pous-duts-gvls-interfaces-and-folders)).
@@ -52,6 +56,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)), or
   files that are on disk already (see
   [Adding existing items and folder content](#adding-existing-items-and-folder-content)).
+- Right-click `References` to add a library installed in the TwinCAT library repository (see
+  [Adding libraries](#adding-libraries)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 
 ### Split editor
@@ -82,7 +88,7 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   - The end of the current line shows who changed it last, when, and the commit message
     (`You, 2 days ago • Fix the purge timer`).
   - The hover adds the date, `Open Changes` and `Show History`. `Open Changes` shows the commit's
-    changes of this object in the commit diff panel; a click on the annotation does the same.
+    changes of this object in the commit diff panel.
   - Lines changed since `HEAD`, saved or not, show `Uncommitted changes`.
   - `TwinCAT: Toggle Line Blame` or `twincatExplorer.blame.currentLine` turns it off.
 
@@ -206,6 +212,37 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Then:** the tree shows the new objects and selects the first one. A `.plcproj` with unsaved changes
   in an editor is refused.
 
+### Adding libraries
+
+- **Add Library...** is in the context menu of `References` of a PLC project in the TwinCAT tree, like
+  XAE's Library Manager > Add library. From the Command Palette it adds to the PLC project of the active
+  editor's object, or to a PLC project picked.
+- **It lists the libraries installed in the TwinCAT library repository**, read without XAE:
+  `C:\ProgramData\Beckhoff\TwinCAT\PlcEngineering\Managed Libraries` with TwinCAT 3.1.4026,
+  `%TWINCAT3DIR%Components\Plc\Managed Libraries` with 3.1.4024 and older, and the folders of
+  `twincatExplorer.libraryRepositories` (repositories added in XAE's Library Repository dialog).
+  - One entry per library and company: its title, company and newest version, its namespace and
+    categories. Typing filters on all of them.
+  - A library the PLC project references already, by either kind of reference, is marked and refused.
+- **Then the version:** `Always newest (*)`, XAE's default, or one of the installed versions.
+- **What it writes**, as TwinCAT XAE 3.1.4026 does, for the libraries of every company:
+
+  ```xml
+  <PlaceholderReference Include="Tc2_Utilities">
+    <DefaultResolution>Tc2_Utilities, * (Beckhoff Automation GmbH)</DefaultResolution>
+    <Namespace>Tc2_Utilities</Namespace>
+  </PlaceholderReference>
+  ```
+
+  - The placeholder is the one the repository's profile gives the library (Beckhoff's libraries have
+    their title), else the title. The default resolution has the version picked, `*` for always the
+    newest. The namespace is the library's default namespace.
+  - The reference goes among the others in alphabetical order, as XAE keeps them; the rest of the
+    `.plcproj` stays byte-identical.
+- **Then:** the tree selects the new library under `References`, and the language features know the
+  symbols of its [stub](#library-stubs), if there is one. A `.plcproj` with unsaved changes in an
+  editor is refused, and so is a workspace without a repository, with the folders looked in.
+
 ### Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders
 
 - **Rename...** (F2), **Move to Folder...** and **Delete** (Delete) are in the context menu of a POU,
@@ -285,6 +322,18 @@ These work in both panes and in notebook cells. They come from a parser of the T
   (`fbValve : FB_Valve(`). `Ctrl+Shift+Space` shows it again, as in XAE.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it.
+- **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that
+  implement it, directly, through an interface that extends it or by extending one that implements it;
+  on a function block, those that extend it, at any depth; on a method or property, also at a call
+  through an interface (`itfValve.Open()`), the methods and properties of these function blocks that
+  implement or override it. Other objects are shown read-only in a peek view. A library's function
+  block or interface lists what extends or implements it in the workspace.
+- **Type hierarchy**: notebook cells have VS Code's `Show Type Hierarchy`. In the split editor (context
+  menu, at the cursor; the editor title's `...` menu, for the object) and the TwinCAT tree,
+  `TwinCAT: Show Type Hierarchy` shows a function block or interface with its supertypes (`EXTENDS` and
+  `IMPLEMENTS`, up to the roots) and its subtypes (what extends or implements it) in VS Code's
+  References view; a click opens the split editor there. Without VS Code's built-in References view
+  extension, a quick pick lists them.
 - **Rename Symbol** (F2): the name under the cursor and its uses (see
   [Renaming with the uses](#renaming-with-the-uses)).
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
@@ -319,16 +368,32 @@ Three views in the Source Control sidebar.
 and marked `M`, `A` or `D`.
 
 - **Two scopes,** switched in the view's title bar:
-  - uncommitted changes (vs `HEAD`);
+  - uncommitted changes (vs `HEAD`), in two lists as in Source Control: `Staged Changes` (`HEAD` ↔
+    index) and `Changes` (index ↔ working tree);
   - branch changes since the merge base with another branch, what a merge request shows.
     `origin/develop` is the default; `Compare Branch With...` picks another one. Uncommitted changes
     are included.
 - **Opening:** a click opens the object in the split editor with the diff against that base, at its
   first change. A deleted object opens as read-only text of its old version.
-- **`Discard Changes`** (uncommitted scope only):
-  - the code of an object goes back to `HEAD`;
-  - a new method, property, action or accessor is removed;
-  - a whole file goes back to `HEAD`, in the working tree and the index.
+  - In `Changes`, the base is the index.
+  - In `Staged Changes`, the object opens read-only in the commit diff panel, `HEAD` ↔ index.
+- **`Stage Changes` (`+`) and `Unstage Changes` (`−`)** on an object or a file, to commit the change of
+  one method, property, accessor, action, DUT or GVL alone. `Stage All Changes` and `Unstage All
+  Changes` are on the lists.
+  - Staging an object puts it in the index as it is in the working tree: its code and name, or the whole
+    member when it is new or deleted. The rest of the index's version of the file stays byte for byte,
+    its line endings too (CRLF, `.gitattributes`).
+  - Unstaging puts it back as in `HEAD`.
+  - A new, deleted or renamed file is staged whole (`git add`, `git rm --cached`), and so are the build
+    output and the project files. A file with a merge conflict is staged whole once its conflict
+    markers are gone, which marks it resolved.
+
+  Staging is refused while an editor has unsaved edits of the file.
+- **`Discard Changes`** (in `Changes`), back to the version in the index, which is `HEAD`'s unless
+  changes are staged:
+  - the code and name of an object go back;
+  - a new method, property, action or accessor is removed, a deleted one comes back;
+  - a whole file goes back, in the working tree; what is staged stays.
 
   It is refused while an editor has unsaved edits of the file.
 - **`Build output (no code changes)`** gathers files whose change is only XAE metadata: a `.tsproj`, or
@@ -464,8 +529,11 @@ Commit SHA and Copy Name.
 | `TwinCAT: Add POU...` / `TwinCAT: Add DUT...` / `TwinCAT: Add Global Variable List...` / `TwinCAT: Add Interface...` | Add an object to a PLC project or one of its folders (see [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)). |
 | `TwinCAT: New Folder...` | Add a folder to a PLC project or one of its folders, on disk and in the `.plcproj`. |
 | `TwinCAT: Add Existing Item...` / `TwinCAT: Add Existing Folder Content...` | Add POU, DUT, GVL and interface files that are on disk already (see [Adding existing items and folder content](#adding-existing-items-and-folder-content)). |
+| `TwinCAT: Add Library...` | Add a reference to a library of the TwinCAT library repository to a PLC project (see [Adding libraries](#adding-libraries)). |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
+| `TwinCAT: Show Type Hierarchy` | The supertypes and subtypes of a function block or interface in the References view: of a tree node, of the split editor's object, or at the cursor of a pane (context menu) or notebook cell. |
+| `Go to Implementation` | In the TwinCAT tree: open what implements or overrides the function block, interface, method or property (Ctrl+F12 in the editors). |
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |
 | `TwinCAT: Auto Declare...` | Declare a variable at the cursor of a split editor or notebook cell, as XAE's Auto Declare (Shift+F2). |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as inline diffs against `HEAD`, or back as normal panes. |
@@ -492,6 +560,7 @@ Commit SHA and Copy Name.
 | Delete | TwinCAT tree | Delete the selected POU, DUT, GVL, interface, method, property, action, transition, `Get`, `Set` or empty folder |
 | F12, Ctrl+click | split editor, notebook cells | Go to Definition |
 | Shift+F12 | split editor, notebook cells | Find All References (peek view) |
+| Ctrl+F12 / Ctrl+Shift+F12 | split editor, notebook cells | Go to / Peek Implementations: what implements or overrides the interface, function block, method or property at the cursor |
 | Ctrl+Shift+Space | split editor, notebook cells | The parameters of the call at the cursor (signature help) |
 | F2 | split editor, notebook cells | Rename Symbol: the name under the cursor and its uses |
 | Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property |
@@ -511,6 +580,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
 | `twincatExplorer.blame.currentLine` | `true` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files: absolute paths, or paths relative to the first workspace folder (see [Library stubs](#library-stubs)). |
+| `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)). |
 | `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Folders ignored when searching for `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |
 
 ## Library stubs
@@ -550,14 +620,17 @@ sources.
 **Editing and projects**
 - Only Structured Text is editable; other implementation languages are shown as read-only
   placeholders.
-- POUs, DUTs, GVLs, interfaces, folders, methods, properties and actions can be added here, and
-  existing POU, DUT, GVL and interface files; other files of a folder are not. POUs, DUTs, GVLs,
-  interfaces, methods, properties, actions and transitions can be renamed and deleted here; POUs, DUTs,
-  GVLs, interfaces and folders moved; folders renamed, and deleted when empty. Transitions,
+- POUs, DUTs, GVLs, interfaces, folders, methods, properties, actions and library references can be
+  added here, and existing POU, DUT, GVL and interface files; other files of a folder are not. POUs,
+  DUTs, GVLs, interfaces, methods, properties, actions and transitions can be renamed and deleted here;
+  POUs, DUTs, GVLs, interfaces and folders moved; folders renamed, and deleted when empty. Transitions,
   visualizations and the other kinds of objects are created in TwinCAT XAE, and a folder with something
   in it is deleted there.
 - XAE's own move of a file or folder could not be driven in a hidden XAE: a move here changes the paths
   of the items in place, as XAE does when it renames a file or folder.
+- Add Library reads the folders, `cache` and `profile` of the library repositories, not the library
+  files: the placeholder of a library comes from the profile, not from the library itself. Libraries
+  are installed, and references removed or changed (version, namespace, properties), in XAE.
 - Rename changes the uses the language index finds in Structured Text. It does not read the other
   implementation languages, visualizations and other files, nor change names it cannot resolve: the
   message after a rename names those that have the old name. The parameters of a method keep their
@@ -572,8 +645,8 @@ sources.
     Reload the new file?". Answer Yes: XAE closes its editor and shows the object as VS Code wrote it.
     With No, XAE keeps its old copy, and the next edit of the object in XAE writes that copy back over
     the changes made here (a renamed or deleted member comes back).
-  - XAE asks before it reloads a changed `.plcproj` or `.tsproj`, as after Add POU or New Folder here:
-    answer Yes.
+  - XAE asks before it reloads a changed `.plcproj` or `.tsproj`, as after Add POU, New Folder or Add
+    Library here: answer Yes.
   - After a rename, move or delete of a file or folder here, XAE asks to reload the PLC project
     because its `.plcproj` changed. Answer Yes: XAE closes its editors of that PLC project, even those
     of other objects, and shows the new names. A deleted file does not come back when XAE saves again.
@@ -597,7 +670,9 @@ sources.
 **The split editor is a webview**
 - Extensions that work inside VS Code text editors (GitHub Copilot inline suggestions, vim keys,
   GitLens) do not reach it, and VS Code's Outline view stays empty for it.
-- Its change markers are its own and compare with `HEAD` only, not with the index.
+- Its change markers are its own and compare with `HEAD` only, not with the index, also when part of
+  the object is staged. Only its diff opened from `Changes` in the TwinCAT Changes view compares with
+  the index, until it is hidden.
 - Inside the panes, Monaco's own key bindings win.
   - Its `Ctrl+K` chords work: `Ctrl+K Ctrl+C` comments the line, `Ctrl+K Ctrl+0` folds all.
   - So do the common VS Code chords: `Ctrl+K S` saves all, `Ctrl+K W` and `Ctrl+K Ctrl+W` close
@@ -616,6 +691,9 @@ sources.
 - Opening a problem or a symbol briefly opens a read-only copy of the section, which the split editor
   then replaces. A copy opened pinned (double click, `Ctrl+T`) is closed instead, and
   `Reopen Closed Editor` then brings back the split editor of that object.
+- The type hierarchy in the References view shows the code as it was when it was shown; the view's
+  `Refresh` shows it again. Its nodes open the split editor as a problem does. `TwinCAT: Show Type
+  Hierarchy` from the Command Palette takes the split editor's object, not the type at its cursor.
 
 **Git**
 - Line blame is git's, by lines of the XML file. The first and last line of a section share their
@@ -623,6 +701,10 @@ sources.
   section's text is also named for its first or last line.
 - Merge commits are not listed in the TwinCAT History view; their changes come with the merged
   commits.
+- Stage Changes takes an object's code and name, not its place: a member moved to another folder of
+  its POU, or to another place in the file, stays where the index has it. That move is staged with the
+  file; once no object of the file differs, the file is listed as `XML only, no code` under
+  `Build output (no code changes)`.
 - Git compares paths case-sensitively. A file renamed only in case (`FB_motor` to `FB_Motor`) keeps
   its old name in git, so until the new name is committed (`git mv`), its comparison with `HEAD`, its
   history and its blame do not find it.
@@ -671,6 +753,15 @@ npm run package
   (`.github/workflows/release.yml`) builds and tests it, attaches the `.vsix` to a GitHub release
   with the changelog's notes, and publishes it to the Marketplace once the repository variable
   `MARKETPLACE_PUBLISH` is `true`.
+- A version with a `-` is a pre-release, for example `1.0.0-pre.1` of a feature developed on its own
+  branch. It is released the same way, from its own section of the changelog (`## 1.0.0-pre.1`), but
+  its GitHub release is marked as a pre-release, so the latest release stays the last version without
+  a `-`, and it is not published to the Marketplace, which takes only `major.minor.patch`.
+  - Number them `-pre.1`, `-pre.2`, ...: VS Code compares versions as semver does, so `-pre.10` comes
+    after `-pre.9`, while `+0001` and `+0002` count as the same version.
+  - Merge `develop` into the branch before each pre-release. VS Code installs a lower version over a
+    pre-release only with `--force`, so its users get the fixes of the release versions through the
+    next pre-release only.
 
 ## License
 

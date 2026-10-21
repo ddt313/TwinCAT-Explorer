@@ -37,6 +37,20 @@ export function mergeRequestApi(origin: string, project: string | number, iid: n
 }
 
 /**
+ * The Changes tab shows part of the merge request: one commit (`commit_id`), a version (`diff_id`) or a comparison of
+ * versions (`start_sha`). Its files are those of the commits it compares, not the merge request's.
+ */
+export function isPartialView(search: string): boolean {
+  const q = new URLSearchParams(search);
+  return ['commit_id', 'diff_id', 'start_sha'].some(k => q.has(k));
+}
+
+/** The REST API's comparison of two commits, `base..head` (its `diffs` are the files, as the merge request's are). */
+export function compareApi(origin: string, project: string | number, base: string, head: string): string {
+  return `${origin}/api/v4/projects/${encodeURIComponent(String(project))}/repository/compare?from=${base}&to=${head}&straight=true`;
+}
+
+/**
  * The discussions of a merge request as its own page reads them (`discussions.json`, a page of them after `cursor`):
  * all of them (`notes_filter=0`) without saving that filter as the user's choice (`persist_filter=false`).
  */

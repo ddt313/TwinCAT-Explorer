@@ -8,8 +8,8 @@ import * as assert from 'node:assert/strict';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
 import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
-  commitsFromDiffRefs, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, mergeRequestApi, mergeRequestPage, noteUrl, rapidFileData,
-  rapidLineAnchor, threadsFromGitlab,
+  commitsFromDiffRefs, compareApi, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
+  mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
@@ -522,6 +522,13 @@ test('gitlab: the merge request of a page, its raw files and its REST API', () =
     `https://gitlab.example.com/group/sub/machine/-/raw/${A}/PLC/POUs/FB_Valve.TcPOU`);
   assert.equal(mergeRequestApi('https://gitlab.com', 'group/sub/machine', 7), 'https://gitlab.com/api/v4/projects/group%2Fsub%2Fmachine/merge_requests/7');
   assert.equal(mergeRequestApi('https://gitlab.com', 58170678, 7), 'https://gitlab.com/api/v4/projects/58170678/merge_requests/7');
+});
+
+test('gitlab: a Changes tab of one commit, version or comparison, and the comparison of its commits', () => {
+  assert.ok(isPartialView(`?commit_id=${A}`) && isPartialView('?diff_id=12') && isPartialView(`?diff_id=12&start_sha=${A}`));
+  assert.ok(!isPartialView('') && !isPartialView('?diff_head=true') && !isPartialView('?view=parallel'));
+  assert.equal(compareApi('https://gitlab.com', 'group/sub/machine', A, B),
+    `https://gitlab.com/api/v4/projects/group%2Fsub%2Fmachine/repository/compare?from=${A}&to=${B}&straight=true`);
 });
 
 test('gitlab: the files and commits of the REST API and of the Rapid Diffs page', () => {

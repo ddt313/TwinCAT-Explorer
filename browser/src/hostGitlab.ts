@@ -3,12 +3,14 @@
 // Vue app (`.diff-file.file-holder` blocks with `data-path`, rendered as the page scrolls). A block's id is the sha1 of
 // its path. The files come from the REST API, which takes the session cookie on its own origin (a private project
 // needs no token); the commits from the page's data (what it shows, its version and comparison included), else the
-// REST API; the review threads from the discussions the page itself reads, else the REST API, with the session too.
+// REST API; on a page of one commit, version or comparison (`commit_id`, `diff_id`, `start_sha`), the files are
+// those of the commits it compares, from the REST API too; the review threads from the discussions the page itself
+// reads, else the REST API, with the session too.
 
 import { ReviewThread, ThreadsResult } from './comments';
 import {
-  commitsFromDiffRefs, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, mergeRequestApi, MergeRequest, noteUrl, rapidFileData,
-  rapidLineAnchor, threadsFromGitlab,
+  commitsFromDiffRefs, compareApi, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isPartialView, mergeRequestApi, MergeRequest,
+  noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from './gitlab';
 import { Host, digest, showTarget } from './host';
 import { Commits, Strategy, Theme } from './params';
@@ -33,6 +35,10 @@ export class GitLabHost implements Host {
   readonly threadsFresh = 5000;
   private readonly project: string | number;
   private apiFiles: Promise<ChangedFile[] | undefined> | undefined;
+  /** The commits being looked for, for the files of a page that shows part of the merge request. */
+  private compared: Promise<Commits | undefined> | undefined;
+  /** The commits `apiFiles` is the comparison of, on such a page. */
+  private filesOf = '';
 
   /** The instance's root: its origin, and the path it is served under (`https://example.com/gitlab`). */
   private readonly root: string;
@@ -56,7 +62,12 @@ export class GitLabHost implements Host {
     return `${mergeRequestApi(this.root, this.project, this.mr.iid)}${path}`;
   }
 
-  async commits(): Promise<Commits | undefined> {
+  commits(): Promise<Commits | undefined> {
+    this.compared = this.findCommits();
+    return this.compared;
+  }
+
+  private async findCommits(): Promise<Commits | undefined> {
     const rapid = rapidFileData(document.querySelector<HTMLElement>(RAPID)?.dataset.fileData)?.commits;
     if (rapid) return rapid;
     // The classic page loads its diffs from this endpoint, with the version, commit and comparison of its URL: the
@@ -83,8 +94,13 @@ export class GitLabHost implements Host {
     return undefined;
   }
 
-  /** `…/merge_requests/:iid/diffs` (GitLab 15.7+), page by page, else `…/changes` of older versions. */
+  /**
+   * `…/merge_requests/:iid/diffs` (GitLab 15.7+), page by page, else `…/changes` of older versions. On a page of one
+   * commit, version or comparison, the comparison of its commits: a file the merge request changes elsewhere is not
+   * on the page (its block is not there to show).
+   */
   files(): Promise<ChangedFile[] | undefined> {
+    if (isPartialView(location.search)) return this.comparedFiles();
     this.apiFiles ??= (async () => {
       try {
         const out: ChangedFile[] = [];
@@ -104,6 +120,27 @@ export class GitLabHost implements Host {
         return undefined;
       }
     })();
+    return this.apiFiles;
+  }
+
+  /** Read once for the commits the page compares; none while they are not found (they may be, later: retryCommits). */
+  private async comparedFiles(): Promise<ChangedFile[] | undefined> {
+    const c = await this.compared;
+    if (!c) return undefined;
+    const key = `${c.base}..${c.head}`;
+    if (this.filesOf !== key || !this.apiFiles) {
+      this.filesOf = key;
+      this.apiFiles = (async () => {
+        try {
+          const r = await fetch(compareApi(this.root, this.project, c.base, c.head));
+          if (r.ok) return filesFromApi((await r.json() as { diffs?: unknown }).diffs);
+          log('The REST API did not compare the commits:', r.status);
+        } catch (e) {
+          log('The REST API did not compare the commits:', String(e));
+        }
+        return undefined;
+      })();
+    }
     return this.apiFiles;
   }
 

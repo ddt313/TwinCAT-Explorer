@@ -15,6 +15,7 @@ import { isChangesTab, mergeRequestPage } from './gitlab';
 import { Host } from './host';
 import { GitHubHost } from './hostGithub';
 import { GitLabHost } from './hostGitlab';
+import { Lookup } from './lookup';
 import { hasObjectView } from './model';
 import { Back, Found, anchorId, leaveFor } from './navigation';
 import { Commits, ViewerParams, encodeTreeParams, encodeViewerParams } from './params';
@@ -23,6 +24,8 @@ import { ChangedFile, FrameMessage, PageMessage, Reveal, fetchAllowed } from './
 const EXTENSION = new URL(chrome.runtime.getURL('')).origin;
 const VIEWER = chrome.runtime.getURL('viewer.html');
 const TREE = chrome.runtime.getURL('tree.html');
+/** How long after an attempt that found no commits a user's action may look for them again (ms). */
+const COMMITS_AGAIN = 5000;
 const log = (...args: unknown[]) => console.debug('[TwinCAT view]', ...args);
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -55,14 +58,30 @@ let page = '';
 let blocks = new Map<string, Block>();
 /** Blocks looked at that are not TwinCAT files. */
 let skipped = new Set<string>();
-let commits: Promise<Commits | undefined> = Promise.resolve(undefined);
-/** The commits once known, for the line of a thread. */
-let pageCommits: Commits | undefined;
+/**
+ * The commits the page compares: one attempt a page, which all who ask share, and its result kept, nothing found
+ * included (on a big page an attempt took most of a second of its main thread; on GitLab it makes requests).
+ */
+let commits: Lookup<Commits> | undefined;
 
-/** The commits, looked for again when the page had not loaded its data yet (a soft navigation to the tab). */
-async function currentCommits(): Promise<Commits | undefined> {
-  if (!host) return undefined;
-  return (pageCommits = (await commits) ?? (await (commits = host.commits())));
+function currentCommits(): Promise<Commits | undefined> {
+  return commits?.get() ?? Promise.resolve(undefined);
+}
+
+const compares = (c: Commits | undefined) => (c ? `compares ${c.base.slice(0, 7)}...${c.head.slice(0, 7)} (${c.source})` : 'commits unknown');
+
+/**
+ * On a user's action (a view or the TwinCAT tab turned on): the commits looked for again when they were not found,
+ * some seconds after the last attempt at the soonest, as the page may not have had its data then (a soft navigation
+ * to the tab). Found now, they take the place of the messages that said they were not (`apply`, `ensureTreePanel`).
+ */
+function retryCommits(): void {
+  const lookup = commits;
+  void lookup?.retry()?.then(c => {
+    if (lookup !== commits) return;
+    log(host?.kind, page, compares(c), '(looked for again)');
+    if (c) schedule();
+  });
 }
 
 // ------------------------------------------------------------------ the review threads
@@ -103,7 +122,8 @@ function postThreads(frame: HTMLIFrameElement | undefined, block?: Block): void 
 
 /** The line of the host's diff a thread is on, for the page's commits (and its line at the base, for an unchanged one). */
 function threadLine(thread: ReviewThread): { side: Side; line: number; oldLine?: number } | undefined {
-  const p = pageCommits && currentPosition(thread, pageCommits);
+  const c = commits?.value;
+  const p = c && currentPosition(thread, c);
   if (p?.newLine) return { side: 'R', line: p.newLine, oldLine: p.oldLine };
   if (p?.oldLine) return { side: 'L', line: p.oldLine };
   return undefined;
@@ -113,6 +133,22 @@ function threadLine(thread: ReviewThread): { side: Side; line: number; oldLine?:
 
 function containerOf(block: Block): HTMLElement | null {
   return document.getElementById(block.anchor);
+}
+
+/** The viewer's frame in a block, in place of what its host element had (nothing yet, or the message of no commits). */
+function addViewer(block: Block, frameHost: HTMLElement, c: Commits): void {
+  if (!host) return;
+  const params: ViewerParams = {
+    origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source,
+    path: block.path, oldPath: block.oldPath, deleted: block.deleted, added: block.added,
+  };
+  const frame = document.createElement('iframe');
+  frame.className = 'tcx-frame';
+  frame.title = `TwinCAT objects of ${block.path}`;
+  frame.src = `${VIEWER}#${encodeViewerParams(params)}`;
+  frameHost.replaceChildren(frame);
+  block.frame = frame;
+  block.ready = false;
 }
 
 /** Shows the viewer or the host's diff in a block, as its toggle says. */
@@ -132,27 +168,20 @@ async function apply(block: Block): Promise<void> {
     frameHost.className = 'tcx-host';
     after.after(frameHost);
     const c = await currentCommits();
-    if (!c) {
-      frameHost.innerHTML = '<p class="tcx-message">TwinCAT view: the commits this page compares were not found (see the console).</p>';
-    } else {
-      const params: ViewerParams = {
-        origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source,
-        path: block.path, oldPath: block.oldPath, deleted: block.deleted, added: block.added,
-      };
-      const frame = document.createElement('iframe');
-      frame.className = 'tcx-frame';
-      frame.title = `TwinCAT objects of ${block.path}`;
-      frame.src = `${VIEWER}#${encodeViewerParams(params)}`;
-      frameHost.append(frame);
-      block.frame = frame;
-      block.ready = false;
-    }
+    if (c) addViewer(block, frameHost, c);
+    else frameHost.innerHTML = '<p class="tcx-message">TwinCAT view: the commits this page compares were not found (see the console).</p>';
+  } else if (commits?.value && frameHost.querySelector(':scope > .tcx-message')) {
+    // Not found when the view was first turned on, found since (retryCommits).
+    addViewer(block, frameHost, commits.value);
   }
   frameHost.classList.remove('tcx-hidden');
   for (const el of hide) el.classList.add('tcx-hidden');
 }
 
-/** Turns a block's view on or off; on, the viewer goes to the place asked for, and the threads are read again if old. */
+/**
+ * Turns a block's view on or off. On, which is a user's action (the toggle, the back button, the tree), the viewer goes
+ * to the place asked for, the commits are looked for again if they were not found, and the threads read again if old.
+ */
 function setOn(block: Block, on: boolean): void {
   block.on = on;
   const container = containerOf(block);
@@ -160,6 +189,7 @@ function setOn(block: Block, on: boolean): void {
   if (on) {
     block.back = undefined;
     container?.querySelector('.tcx-back')?.remove();
+    retryCommits();
     void loadThreads(true);
   }
   void apply(block).then(() => {
@@ -293,6 +323,7 @@ async function ensureTreePanel(): Promise<void> {
       if (!tab) return;
       treeOn = tab.dataset.tab === 'twincat';
       void chrome.storage.local.set({ tcxTree: treeOn }).catch(() => undefined);
+      if (treeOn) retryCommits();
       void ensureTreePanel();
     });
     if (panel) panel.prepend(box);
@@ -311,21 +342,24 @@ async function ensureTreePanel(): Promise<void> {
     }
   }
   if (treeOn && !treeFrame) {
-    const c = await currentCommits();
-    if (!treeOn || box.querySelector('.tcx-tree-frame, .tcx-message')) return;
-    if (!c) {
+    // Once the message says they were not found, the scans do not wait for the commits: a user's action looks for
+    // them again (retryCommits), and scans again when it finds them.
+    const c = box.querySelector('.tcx-message') ? commits?.value : await currentCommits();
+    if (!treeOn || treeFrame || !box.isConnected) return;
+    if (c) {
+      box.querySelector('.tcx-message')?.remove();
+      const frame = document.createElement('iframe');
+      frame.className = 'tcx-tree-frame';
+      frame.title = 'TwinCAT changes';
+      frame.src = `${TREE}#${encodeTreeParams({
+        origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source, diff: host.diff,
+      })}`;
+      box.append(frame);
+      treeFrame = frame;
+      treeReady = false;
+    } else if (!box.querySelector('.tcx-message')) {
       box.insertAdjacentHTML('beforeend', '<p class="tcx-message">TwinCAT: the commits this page compares were not found (see the console).</p>');
-      return;
     }
-    const frame = document.createElement('iframe');
-    frame.className = 'tcx-tree-frame';
-    frame.title = 'TwinCAT changes';
-    frame.src = `${TREE}#${encodeTreeParams({
-      origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source, diff: host.diff,
-    })}`;
-    box.append(frame);
-    treeFrame = frame;
-    treeReady = false;
   }
   treeFrame?.classList.toggle('tcx-hidden', !treeOn);
   box.querySelector('.tcx-message')?.classList.toggle('tcx-hidden', !treeOn);
@@ -400,13 +434,14 @@ async function scan(): Promise<void> {
       treeFrame = undefined;
       threads = undefined;
       lastThreads = undefined;
-      pageCommits = undefined;
-      commits = host ? host.commits() : Promise.resolve(undefined);
-      if (host) {
-        void commits.then(c => {
-          pageCommits ??= c;
-          log(host?.kind, page, c ? `compares ${c.base.slice(0, 7)}...${c.head.slice(0, 7)} (${c.source})` : 'commits unknown');
-        });
+      commits = undefined;
+      if (found) {
+        const lookup = new Lookup(() => found.commits().catch((e: unknown) => {
+          log('The commits could not be looked for:', String(e));
+          return undefined;
+        }), COMMITS_AGAIN);
+        commits = lookup;
+        void lookup.get().then(c => log(found.kind, key, compares(c)));
       }
     }
     if (!host) return;

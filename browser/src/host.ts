@@ -25,7 +25,10 @@ export interface Host {
   /** How long threads read stay fresh (ms): a view turned on after that reads them again. */
   readonly threadsFresh: number;
 
-  /** The commits the page compares. */
+  /**
+   * The commits the page compares: one attempt. The content script makes one a page and keeps its result, nothing
+   * found included; it makes another only on a user's action, some seconds later at the soonest (lookup.ts).
+   */
   commits(): Promise<Commits | undefined>;
   /** The change's review threads, read with the session (no token), or why they cannot be read. */
   threads(): Promise<ThreadsResult>;

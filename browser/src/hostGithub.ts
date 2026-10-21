@@ -1,8 +1,9 @@
 // GitHub's "Files changed" page, classic and React. A file's block is the element whose id is GitHub's anchor of
 // the file, `diff-<sha256 of the path>` (links to files rely on it); the path is a text of the block's header (or
 // of the file's row in GitHub's tree) whose sha256 is that anchor; the header and the tree's panel are found by
-// class name and role. The commits come from the page's markup, else from the REST API (public repositories); the
-// review comments from the REST API without a token, so for public repositories only.
+// class name and role. The commits come from the page (the URLs the classic page loads its diffs from, the JSON the
+// React page embeds), else from the REST API (public repositories); the review comments from the REST API without a
+// token, so for public repositories only.
 
 import { ReviewThread, ThreadsResult } from './comments';
 import { PullRequest, commitsInPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from './github';
@@ -15,6 +16,13 @@ const FILE_ANCHOR = /^diff-([0-9a-f]{64})$/;
 /** Headers of the classic page and of the React page (its CSS module classes keep their readable part). */
 const HEADER = '.file-header, [class*="diff-file-header"], [class*="DiffFileHeader"]';
 const PATH_ATTRIBUTES = ['data-path', 'data-tagsearch-path', 'data-file-path', 'title', 'value', 'aria-label'];
+/**
+ * The elements that may name the commits the page compares: the URLs the classic page loads its diffs from
+ * (`deferred-diff-lines[data-url]` with `/diffs/<base>..<head>`, `show_partial_comparison?base_commit_oid=…` in
+ * another `data-url`), and the JSON the React page embeds.
+ */
+const URL_ATTRIBUTES = ['data-url', 'src'];
+const COMMIT_SOURCES = [...URL_ATTRIBUTES.flatMap(a => [`[${a}*="/diffs/"]`, `[${a}*="_commit_oid="]`]), 'script[type="application/json"]'].join(', ');
 const log = (...args: unknown[]) => console.debug('[TwinCAT view]', ...args);
 
 /**
@@ -40,6 +48,16 @@ function pathCandidates(shallow: Element[], deep: Element[]): { path: string; ol
     singles.push({ path: t });
   }
   return [...pairs, ...singles].filter(c => isTwinCatFile(c.path));
+}
+
+/** The URLs and the JSON of the elements that may name the commits, in the page's order: not its whole markup (megabytes). */
+function commitSources(): string {
+  const texts: string[] = [];
+  for (const el of document.querySelectorAll(COMMIT_SOURCES)) {
+    if (el.tagName === 'SCRIPT') texts.push(el.textContent ?? '');
+    else for (const a of URL_ATTRIBUTES) texts.push(el.getAttribute(a) ?? '');
+  }
+  return texts.filter(t => t).join('\n');
 }
 
 /** The path of a TwinCAT file: the candidate whose sha256 is the file's anchor. */
@@ -71,11 +89,11 @@ export class GitHubHost implements Host {
   }
 
   async commits(): Promise<Commits | undefined> {
-    const markup = document.documentElement.outerHTML;
-    const found = commitsInPage(markup);
+    const sources = commitSources();
+    const found = commitsInPage(sources);
     if (found) return found;
-    log('No commits found in the page; keys with a commit there:',
-      [...new Set(shaKeys(markup.replace(/&quot;/g, '"')).map(([k, v]) => `${k}=${v.slice(0, 7)}`))].join(' '));
+    log('No commits found in the page; keys with a commit in its diff URLs and JSON:',
+      [...new Set(shaKeys(sources).map(([k, v]) => `${k}=${v.slice(0, 7)}`))].join(' ') || 'none');
     try {
       const api = `https://api.github.com/repos/${this.pr.owner}/${this.pr.repo}`;
       const pull = await fetch(`${api}/pulls/${this.pr.number}`);

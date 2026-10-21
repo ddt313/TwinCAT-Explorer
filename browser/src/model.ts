@@ -5,7 +5,7 @@
 
 import { ViewChange, changeKey, metadataChange, onlyTmcHashChanged, viewChanges } from '../../src/core/objectChanges';
 import { Accessor, viewLabel, viewSections } from '../../src/core/objectText';
-import { DutKind, ObjectKind, PouKind, Section, TcSourceFile, normalizeEol, parseTcText, sectionFileLines } from '../../src/core/tcfile';
+import { DutKind, ObjectKind, PouKind, Section, TcObject, TcSourceFile, normalizeEol, parseTcText, sectionFileLines } from '../../src/core/tcfile';
 import { diffLines } from './lineDiff';
 
 export type ObjectChangeKind = 'added' | 'modified' | 'deleted' | 'unchanged';
@@ -36,6 +36,9 @@ export interface SectionView {
   /** Line of the XML file the section starts on, before and after. */
   oldXml?: number;
   newXml?: number;
+  /** Line of the XML file its element ends on, before and after (graphical code spans the lines up to it). */
+  oldXmlEnd?: number;
+  newXmlEnd?: number;
 }
 
 /** What a tree needs to name and draw an object: XAE's label and icon. */
@@ -66,6 +69,9 @@ export interface ObjectView {
   sections: SectionView[];
   added: number;
   deleted: number;
+  /** First and last line of the object's XML element, before and after (none for a Get or Set view). */
+  oldXmlSpan?: [number, number];
+  newXmlSpan?: [number, number];
 }
 
 export interface FileInput {
@@ -178,6 +184,7 @@ function objectView(before: TcSourceFile | undefined, after: TcSourceFile | unde
   }
   // viewChanges compares the Structured Text only: a graphical implementation that changed makes its object modified.
   const kind: ObjectChangeKind = change?.change ?? (sections.some(s => s.status !== 'same') ? 'modified' : 'unchanged');
+  const span = (file: TcSourceFile, o: TcObject): [number, number] => [lineAt(file, o.element.start), lineAt(file, o.element.end - 1)];
   return {
     objectId,
     accessor,
@@ -193,7 +200,31 @@ function objectView(before: TcSourceFile | undefined, after: TcSourceFile | unde
     sections,
     added: sections.reduce((n, s) => n + s.added, 0),
     deleted: sections.reduce((n, s) => n + s.deleted, 0),
+    oldXmlSpan: old && before && !accessor ? span(before, old) : undefined,
+    newXmlSpan: now && after && !accessor ? span(after, now) : undefined,
   };
+}
+
+/** The offsets of the line breaks of each file's text, for lineAt. */
+const BREAKS = new WeakMap<TcSourceFile, number[]>();
+
+/** Line of the file (1-based, counted by LF like git) an offset of its text is on. */
+function lineAt(file: TcSourceFile, offset: number): number {
+  let breaks = BREAKS.get(file);
+  if (!breaks) {
+    breaks = [];
+    for (let i = file.text.indexOf('\n'); i >= 0; i = file.text.indexOf('\n', i + 1)) breaks.push(i);
+    BREAKS.set(file, breaks);
+  }
+  // One more than the line breaks before the offset.
+  let lo = 0;
+  let hi = breaks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (breaks[mid] < offset) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo + 1;
 }
 
 function sectionLabel(s: Section, withAccessor: boolean): string {
@@ -216,6 +247,8 @@ function sectionView(before: TcSourceFile | undefined, after: TcSourceFile | und
     deleted: 0,
     oldXml: old && before ? sectionFileLines(before, old)[0] : undefined,
     newXml: now && after ? sectionFileLines(after, now)[0] : undefined,
+    oldXmlEnd: old && before ? lineAt(before, old.element.end - 1) : undefined,
+    newXmlEnd: now && after ? lineAt(after, now.element.end - 1) : undefined,
   };
   if (!s.editable) {
     // A graphical implementation: its XML tells whether it changed.

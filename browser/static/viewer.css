@@ -213,6 +213,74 @@ tr.fold td {
 tr.fold:hover td { color: var(--link); }
 a.xml { font: 11px/20px var(--mono); color: var(--link); text-decoration: none; }
 a.xml:hover { text-decoration: underline; }
+/* On an unchanged line: there to comment on it in the page's diff, quieter than a change's. */
+a.xml.same { color: var(--muted); opacity: 0.7; }
+tr:hover a.xml.same, a.xml.same:focus { color: var(--link); opacity: 1; }
+
+/* Review threads, read-only: under the line, the graphical section or in the lists at the end. */
+.bubble {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vertical-align: -1px;
+  margin-right: 3px;
+}
+.cmt { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.obj-head .cmt.open { color: var(--modified); }
+tr.threads > td {
+  padding: 4px 16px 6px 64px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.sec-threads { padding: 4px 8px 6px 24px; border-top: 1px solid var(--border); }
+.thread {
+  max-width: 920px;
+  margin: 4px 0;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--modified);
+  border-radius: 6px;
+}
+.thread.resolved { border-left-color: var(--added); }
+.thread > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.thread > summary::-webkit-details-marker { display: none; }
+.thread > summary::before { content: "▸"; display: inline-block; width: 10px; color: var(--muted); }
+.thread[open] > summary::before { transform: rotate(90deg); }
+.thread .author { font-weight: 600; }
+.thread time, .thread .where { color: var(--muted); }
+.thread .where { font-family: var(--mono); font-size: 11.5px; }
+.state { font-weight: 600; }
+.state.resolved { color: var(--added); }
+.state.unresolved { color: var(--modified); }
+.thread .go { margin-left: auto; color: var(--link); text-decoration: none; }
+.thread .go:hover { text-decoration: underline; }
+.note-body {
+  padding: 2px 10px 8px 30px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.replies { margin: 0 10px 6px 30px; }
+.replies > summary { font-size: 12px; color: var(--link); cursor: pointer; }
+.note { margin-top: 6px; border-top: 1px solid var(--border); }
+.note-head { display: flex; gap: 10px; align-items: baseline; padding-top: 4px; font-size: 12px; }
+.note .note-body { padding-left: 0; }
+.comments { margin: 12px 16px 4px; }
+.comments-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; font-size: 12px; }
+.comments-head .title { font-weight: 600; }
 
 .kw { color: var(--kw); }
 .ty { color: var(--ty); }
@@ -232,6 +300,6 @@ a.xml:hover { text-decoration: underline; }
 .diag ul { margin: 4px 0; padding-left: 18px; }
 .diag button { margin: 4px 0; font-size: 12px; }
 
-/* An object the tree went to. */
+/* An object, a line or a thread the view went to (from the tree, back from the page's diff). */
 @keyframes tcx-flash { from { background: var(--fold); } to { background: transparent; } }
-.obj.flash > .obj-head { animation: tcx-flash 1.6s ease-out; }
+.obj-head.flash, tr.flash > td, .thread.flash { animation: tcx-flash 1.6s ease-out; }

@@ -1,7 +1,8 @@
 // What the extension needs to know of github.com, without its DOM: the pull request a URL is about, where its raw
-// files and its diff are, the files of a git diff, and which commits a "Files changed" page compares (read from the
-// page's markup as text). Platform-free, so the unit tests cover it.
+// files and its diff are, the files of a git diff, which commits a "Files changed" page compares (read from the
+// page's markup as text), and the review threads of its review comments. Platform-free, so the unit tests cover it.
 
+import { ReviewThread, Side, ThreadPosition } from './comments';
 import { Commits } from './params';
 
 export interface PullRequest {
@@ -24,6 +25,57 @@ export function githubRawTemplate(pr: PullRequest): string {
 /** The pull request's diff as github.com serves it with the session: what the page shows, merge base to head. */
 export function pullDiffUrl(pr: PullRequest): string {
   return `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}.diff`;
+}
+
+/** A page of the pull request's review comments, from the REST API (a public repository needs no token). */
+export function reviewCommentsUrl(pr: PullRequest, page: number): string {
+  return `https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/comments?per_page=100&page=${page}`;
+}
+
+/**
+ * The review threads of a pull request's review comments (`GET …/pulls/{n}/comments`): a comment and the replies to
+ * it (`in_reply_to_id`). A comment is on the diff of its `commit_id`, at `line` on its `side` (`RIGHT`: the head,
+ * `LEFT`: the base); an outdated one has no `line` any more, only its `original_line` on its `original_commit_id`.
+ * The REST API does not say whether a thread is resolved.
+ */
+export function threadsFromGithub(comments: unknown): ReviewThread[] {
+  if (!Array.isArray(comments)) return [];
+  const list = (comments as Record<string, unknown>[]).filter(c => c && typeof c.id === 'number');
+  const threads = new Map<number, ReviewThread>();
+  const num = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined);
+  const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+  const note = (c: Record<string, unknown>) => ({
+    id: String(c.id), author: str((c.user as Record<string, unknown> | undefined)?.login) ?? 'Someone', created: str(c.created_at) ?? '', body: str(c.body) ?? '',
+  });
+  const position = (c: Record<string, unknown>, line: unknown, startLine: unknown, head: unknown): ThreadPosition | undefined => {
+    const path = str(c.path);
+    if (!path || !str(head)) return undefined;
+    const p: ThreadPosition = { newPath: path, head: str(head) };
+    if (c.subject_type === 'file') return { ...p, file: true };
+    const n = num(line);
+    if (!n) return undefined;
+    const side: Side = c.side === 'LEFT' ? 'L' : 'R';
+    if (side === 'L') p.oldLine = n;
+    else p.newLine = n;
+    const start = num(startLine);
+    if (start && start !== n) p.start = { side: c.start_side === 'LEFT' ? 'L' : c.start_side === 'RIGHT' ? 'R' : side, line: start };
+    return p;
+  };
+  for (const c of list) {
+    if (typeof c.in_reply_to_id === 'number' && list.some(x => x.id === c.in_reply_to_id)) continue;
+    const current = c.line == null && c.subject_type !== 'file' ? undefined : position(c, c.line, c.start_line, c.commit_id);
+    const original = position(c, c.original_line, c.original_start_line, c.original_commit_id);
+    const positions = [current, original].filter((p): p is ThreadPosition => !!p);
+    if (positions.length === 0) continue;
+    threads.set(c.id as number, {
+      id: String(c.id), anchor: `discussion_r${c.id}`, url: str(c.html_url), notes: [note(c)], positions,
+    });
+  }
+  for (const c of list) {
+    const thread = typeof c.in_reply_to_id === 'number' ? threads.get(c.in_reply_to_id) : undefined;
+    if (thread && thread.id !== String(c.id)) thread.notes.push(note(c));
+  }
+  return [...threads.values()];
 }
 
 export interface DiffFile {

@@ -1,10 +1,12 @@
 // GitHub's "Files changed" page, classic and React. A file's block is the element whose id is GitHub's anchor of
 // the file, `diff-<sha256 of the path>` (links to files rely on it); the path is a text of the block's header (or
 // of the file's row in GitHub's tree) whose sha256 is that anchor; the header and the tree's panel are found by
-// class name and role. The commits come from the page's markup, else from the REST API (public repositories).
+// class name and role. The commits come from the page's markup, else from the REST API (public repositories); the
+// review comments from the REST API without a token, so for public repositories only.
 
-import { PullRequest, commitsInPage, githubRawTemplate, pullDiffUrl, shaKeys } from './github';
-import { Host, digest } from './host';
+import { ReviewThread, ThreadsResult } from './comments';
+import { PullRequest, commitsInPage, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from './github';
+import { Host, digest, showTarget } from './host';
 import { isTwinCatFile } from './model';
 import { Commits, Strategy, Theme } from './params';
 import { ChangedFile } from './protocol';
@@ -57,6 +59,8 @@ export class GitHubHost implements Host {
   readonly diff: string;
   readonly stickyTop = 150;
   readonly treeOverlay = false;
+  /** The REST API without a token allows 60 requests an hour: read again a minute apart at most. */
+  readonly threadsFresh = 60000;
   private readonly listed = new Map<string, ChangedFile>();
   private readonly notListed = new Set<string>();
 
@@ -85,6 +89,30 @@ export class GitHubHost implements Host {
       log('The REST API without a token does not tell either (a private repository needs a token):', String(e));
       return undefined;
     }
+  }
+
+  /** `GET …/pulls/{n}/comments`, page by page, without a token: a private repository answers 404. */
+  async threads(): Promise<ThreadsResult> {
+    const all: unknown[] = [];
+    try {
+      for (let page = 1; page <= 30; page++) {
+        const r = await fetch(reviewCommentsUrl(this.pr, page));
+        if (r.status === 404) {
+          return { threads: [], problem: 'The review comments of a private repository need a GitHub token, which this version of the extension does not take.' };
+        }
+        if (r.status === 403 || r.status === 429) {
+          return { threads: [], problem: 'GitHub refused to give the review comments without a token (its limit of requests an hour, most likely): try again later.' };
+        }
+        const data: unknown = r.ok ? await r.json() : undefined;
+        if (!Array.isArray(data)) throw new Error(r.ok ? 'not a list' : `HTTP ${r.status}`);
+        all.push(...data);
+        if (!/rel="next"/.test(r.headers.get('link') ?? '')) break;
+      }
+    } catch (e) {
+      log('The review comments were not read:', String(e));
+      return { threads: [], problem: `The review comments could not be read (${(e as Error).message ?? e}).` };
+    }
+    return { threads: threadsFromGithub(all), source: 'REST API, no token' };
   }
 
   async files(): Promise<ChangedFile[] | undefined> {
@@ -146,6 +174,11 @@ export class GitHubHost implements Host {
     const el = document.getElementById(anchor);
     el?.scrollIntoView({ block: 'center' });
     return !!el;
+  }
+
+  /** The comment's element: `discussion_r<id>` (classic page), `r<id>`. */
+  goToThread(container: HTMLElement, thread: ReviewThread): boolean {
+    return showTarget(container, document.getElementById(thread.anchor) ?? document.getElementById(thread.anchor.replace(/^discussion_/, '')));
   }
 
   goToFile(anchor: string): void {

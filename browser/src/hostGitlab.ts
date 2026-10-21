@@ -3,10 +3,14 @@
 // Vue app (`.diff-file.file-holder` blocks with `data-path`, rendered as the page scrolls). A block's id is the sha1 of
 // its path. The files come from the REST API, which takes the session cookie on its own origin (a private project
 // needs no token); the commits from the page's data (what it shows, its version and comparison included), else the
-// REST API.
+// REST API; the review threads from the discussions the page itself reads, else the REST API, with the session too.
 
-import { commitsFromDiffRefs, filesFromApi, gitlabRawTemplate, gitlabTheme, mergeRequestApi, MergeRequest, rapidFileData, rapidLineAnchor } from './gitlab';
-import { Host, digest } from './host';
+import { ReviewThread, ThreadsResult } from './comments';
+import {
+  commitsFromDiffRefs, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, mergeRequestApi, MergeRequest, noteUrl, rapidFileData,
+  rapidLineAnchor, threadsFromGitlab,
+} from './gitlab';
+import { Host, digest, showTarget } from './host';
 import { Commits, Strategy, Theme } from './params';
 import { ChangedFile } from './protocol';
 
@@ -25,6 +29,8 @@ export class GitLabHost implements Host {
   /** The page scrolls in a panel below GitLab's bars; its sticky file header is in it. */
   readonly stickyTop = 110;
   readonly treeOverlay = true;
+  /** Read again each time a view is turned on, a few seconds apart: a comment just written shows. */
+  readonly threadsFresh = 5000;
   private readonly project: string | number;
   private apiFiles: Promise<ChangedFile[] | undefined> | undefined;
 
@@ -106,6 +112,45 @@ export class GitLabHost implements Host {
     return [];
   }
 
+  /**
+   * The discussions as the page reads them, `discussions.json`: what the page shows, with the positions GitLab carried
+   * to the merge ref, which the page compares when the merge request can be merged, and readable signed out on a
+   * public project (gitlab.com's REST API wants a session for notes). Else the REST API's `…/discussions`.
+   */
+  async threads(): Promise<ThreadsResult> {
+    const urlOf = (id: string) => noteUrl(this.root, this.path, this.mr.iid, id);
+    const failed: string[] = [];
+    try {
+      const all: unknown[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 50; page++) {
+        const r = await fetch(discussionsUrl(this.root, this.path, this.mr.iid, cursor), { headers: XHR });
+        const data: unknown = r.ok ? await r.json() : undefined;
+        if (!Array.isArray(data)) throw new Error(r.ok ? 'not a list' : `HTTP ${r.status}`);
+        all.push(...data);
+        cursor = r.headers.get('x-next-page-cursor') ?? undefined;
+        if (!cursor) return { threads: threadsFromGitlab(all, urlOf), source: 'page: discussions.json' };
+      }
+    } catch (e) {
+      failed.push(`discussions.json: ${(e as Error).message ?? e}`);
+    }
+    try {
+      const all: unknown[] = [];
+      for (let page = 1; page <= 50; page++) {
+        const r = await fetch(this.api(`/discussions?per_page=100&page=${page}`));
+        const data: unknown = r.ok ? await r.json() : undefined;
+        if (!Array.isArray(data)) throw new Error(r.ok ? 'not a list' : `HTTP ${r.status}`);
+        all.push(...data);
+        if (!r.headers.get('x-next-page')) return { threads: threadsFromGitlab(all, urlOf), source: 'REST API, session' };
+      }
+    } catch (e) {
+      failed.push(`REST API: ${(e as Error).message ?? e}`);
+    }
+    log('The comments were not read:', failed.join('; '));
+    const signedOut = failed.some(f => /HTTP 40[13]/.test(f));
+    return { threads: [], problem: `The comments could not be read (${failed.join('; ')})${signedOut ? ': sign in to see them' : ''}.` };
+  }
+
   containers(): HTMLElement[] {
     return [...document.querySelectorAll<HTMLElement>(`${RAPID}, ${CLASSIC}`)].filter(c => BLOCK_ID.test(c.id));
   }
@@ -150,10 +195,13 @@ export class GitLabHost implements Host {
     let target: HTMLElement | null;
     if (GitLabHost.rapid(container)) target = document.getElementById(rapidLineAnchor(container.id, side, line));
     else target = container.querySelector<HTMLElement>(`[data-interop-${side === 'L' ? 'old' : 'new'}-line="${line}"][id]`);
-    if (!target) return false;
-    location.hash = target.id;
-    target.scrollIntoView({ block: 'center' });
-    return true;
+    return showTarget(container, target);
+  }
+
+  /** The first note's element (`note_<id>`, both pages), else the discussion's (a collapsed one, resolved). */
+  goToThread(container: HTMLElement, thread: ReviewThread): boolean {
+    const el = document.getElementById(thread.anchor) ?? container.querySelector<HTMLElement>(`[data-discussion-id="${CSS.escape(thread.id)}"]`);
+    return showTarget(container, el);
   }
 
   goToFile(anchor: string): void {

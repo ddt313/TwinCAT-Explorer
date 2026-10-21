@@ -1,6 +1,7 @@
 // What the content script needs of a review page, whatever the host: one adapter per host (GitHub's "Files changed",
 // GitLab's "Changes"), the only code that knows the host's DOM and URLs.
 
+import { ReviewThread, Side, ThreadsResult } from './comments';
 import { Commits, Strategy, Theme } from './params';
 import { ChangedFile } from './protocol';
 
@@ -21,9 +22,13 @@ export interface Host {
    * renders only the rows it shows), and `goToFile` can still click one.
    */
   readonly treeOverlay: boolean;
+  /** How long threads read stay fresh (ms): a view turned on after that reads them again. */
+  readonly threadsFresh: number;
 
   /** The commits the page compares. */
   commits(): Promise<Commits | undefined>;
+  /** The change's review threads, read with the session (no token), or why they cannot be read. */
+  threads(): Promise<ThreadsResult>;
   /** The change's files from the host's API, when it has one the session opens. */
   files(): Promise<ChangedFile[] | undefined>;
   /** The files the page lists itself (its file tree), for the tree when nothing better is there. */
@@ -42,7 +47,9 @@ export interface Host {
   /** The id of a file's block. */
   anchorOf(path: string): Promise<string>;
   /** Shows a line of the host's diff of a file (its XML): false when the page does not show that line. */
-  goToLine(container: HTMLElement, side: 'L' | 'R', line: number): boolean;
+  goToLine(container: HTMLElement, side: Side, line: number): boolean;
+  /** Shows a thread in the host's diff of a file: false when the page does not show it (collapsed, not loaded). */
+  goToThread(container: HTMLElement, thread: ReviewThread): boolean;
   /** Makes the host bring a file's block into the page (it may load or render it first). */
   goToFile(anchor: string): void;
   /** The host's panel with its file tree (and filter field), where the TwinCAT tab goes. */
@@ -53,4 +60,12 @@ export interface Host {
 export async function digest(algorithm: 'SHA-1' | 'SHA-256', text: string): Promise<string> {
   const hash = await crypto.subtle.digest(algorithm, new TextEncoder().encode(text));
   return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Scrolls an element of a file's block to the middle of the window and makes it the location's target. */
+export function showTarget(container: HTMLElement, el: HTMLElement | null): boolean {
+  if (!el || !container.contains(el)) return false;
+  if (el.id) location.hash = el.id;
+  el.scrollIntoView({ block: 'center' });
+  return true;
 }

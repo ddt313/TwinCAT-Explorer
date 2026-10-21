@@ -52,6 +52,11 @@ A click on an object opens its file's TwinCAT view at that object.
 The same on a GitLab merge request's *Changes* tab: on gitlab.com right away; on a self-managed instance once the
 extension's popup (its toolbar button, on a page of the instance) has turned it on for that site.
 
+On any of these sites the popup's *Add the toggles and the TwinCAT tab to its review pages on its own* (on by
+default) can be unchecked: the pages then show nothing of the extension (its content script stays idle) until its
+*Start in this tab* adds the toggles and the tab to the page open, without a reload. Either way the extension asks the
+host nothing until a view or the TwinCAT tab is on: the commits a page compares are looked for then.
+
 Read-only: the review threads show in the view; they are written, answered and resolved in the host's own diff.
 
 ## Releases

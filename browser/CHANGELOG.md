@@ -13,6 +13,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The views follow the layout of the host's own diffs: GitHub's *Layout* setting (Unified, Split), GitLab's *Compare
   changes* (Inline, Side-by-side), when the page opens and when it is changed there. The switch changes the views of
   the page until then; on a page that does not show its layout, the last choice of the switch is kept.
+- In the popup, on github.com, gitlab.com and the sites turned on: *Add the toggles and the TwinCAT tab to its review
+  pages on its own* (on by default). Unchecked, the site's pages show nothing of the extension until *Start in this
+  tab*, which adds them to the page open without a reload.
+
+### Changed
+- The commits a review page compares are looked for once a TwinCAT view or the TwinCAT tab is turned on, no longer
+  when the page opens: a page where the extension is not used makes no request to GitHub's API (whose limit without
+  a token, 60 requests an hour, the review comments need too).
 
 ## 0.1.2 - 2026-10-21
 

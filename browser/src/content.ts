@@ -5,7 +5,8 @@
 // the extension's tree of the changed objects in a frame, and takes a click there to the object's view. A jump from
 // a view to the host's diff (an XML line, a thread), and a navigation to an anchor in the diff a view hides, turn
 // that view off, with a button beside the toggle to come back. It reads no files itself, except for a frame that
-// asks it to (the page has the user's session). Everything that knows a host's DOM is in its adapter (host.ts).
+// asks it to (the page has the user's session). On a site the user set to start by hand (sites.ts), it does nothing
+// until the popup starts it in the tab. Everything that knows a host's DOM is in its adapter (host.ts).
 
 import { Accessor } from '../../src/core/objectText';
 import { ReviewThread, Side, ThreadsResult, currentPosition, threadsOfFile } from './comments';
@@ -17,6 +18,7 @@ import { GitHubHost } from './hostGithub';
 import { GitLabHost } from './hostGitlab';
 import { Lookup } from './lookup';
 import { hasObjectView } from './model';
+import { startsOnItsOwn } from './sites';
 import { Back, Found, anchorId, leaveFor } from './navigation';
 import { Commits, ViewerParams, encodeTreeParams, encodeViewerParams } from './params';
 import { ChangedFile, DiffStyle, FrameMessage, PageMessage, Reveal, fetchAllowed } from './protocol';
@@ -459,12 +461,14 @@ async function scan(): Promise<void> {
       commits = undefined;
       lastStyle = undefined;
       if (found) {
-        const lookup = new Lookup(() => found.commits().catch((e: unknown) => {
+        // Looked for only once a view or the TwinCAT tab is on: a page where neither is used asks the host nothing.
+        commits = new Lookup(() => found.commits().then(c => {
+          log(found.kind, key, compares(c));
+          return c;
+        }, (e: unknown) => {
           log('The commits could not be looked for:', String(e));
           return undefined;
         }), COMMITS_AGAIN);
-        commits = lookup;
-        void lookup.get().then(c => log(found.kind, key, compares(c)));
       }
     }
     if (!host) return;
@@ -645,9 +649,12 @@ const resize = () => {
     sizeTree();
   });
 };
-// Once per page: the service worker also starts the script in the tab a site was just turned on in.
-const started = globalThis as { tcxContent?: boolean };
-if (!started.tcxContent) {
+// Once per page: the service worker also starts the script in the tab a site was just turned on in, and the popup in
+// a tab of a site that starts by hand (`tcxByHand`), where the script the page loaded stays idle.
+const started = globalThis as { tcxContent?: boolean; tcxByHand?: boolean };
+
+function start(): void {
+  if (started.tcxContent) return;
   started.tcxContent = true;
   window.addEventListener('message', onFrameMessage);
   window.addEventListener('resize', resize);
@@ -663,3 +670,6 @@ if (!started.tcxContent) {
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
   schedule();
 }
+
+if (started.tcxByHand) start();
+else void startsOnItsOwn(location.origin).then(on => on && start(), start);

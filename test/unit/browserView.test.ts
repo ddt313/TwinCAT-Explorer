@@ -123,8 +123,9 @@ function lineOf(text: string, needle: string): number {
 const changedLines = (o: ObjectView) => o.sections.flatMap(s => s.lines.filter(l => l.kind !== 'same')
   .map(l => `${s.label} ${l.kind === 'add' ? '+' : '-'}${l.text} @${l.kind === 'add' ? `R${l.newXml}` : `L${l.oldXml}`}`));
 
-const ALL = ['FB_Valve', 'FB_Valve.Init', 'FB_Valve.Open', 'FB_Valve.Close', 'FB_Valve.State', 'FB_Valve.State.Get',
-  'FB_Valve.State.Set', 'FB_Valve.A_Draw'];
+/** In the order of the tree: the POU, then its members by name, a property's Get and Set under it. */
+const ALL = ['FB_Valve', 'FB_Valve.A_Draw', 'FB_Valve.Close', 'FB_Valve.Init', 'FB_Valve.Open', 'FB_Valve.State',
+  'FB_Valve.State.Get', 'FB_Valve.State.Set'];
 
 test('a modified method: its implementation diff, each changed line with the XML line it is on', () => {
   const before = valve();
@@ -153,12 +154,12 @@ test('a modified method: its implementation diff, each changed line with the XML
   assert.deepEqual(object(v, 'FB_Valve').sections.map(s => `${s.label} ${s.status} ${s.lines.length}`), ['Declaration same 7', 'Implementation same 3']);
 });
 
-test('an added and a deleted method: all their lines added or removed; deleted views come last', () => {
+test('an added and a deleted method: all their lines added or removed; each in its place by name, as in the tree', () => {
   const before = valve();
   const after = valve({ close: false, reset: true });
   const v = view({ before, after });
-  assert.deepEqual(summary(v).filter(s => !s.endsWith('unchanged')), ['FB_Valve.Reset added', 'FB_Valve.Close deleted']);
-  assert.equal(summary(v).at(-1), 'FB_Valve.Close deleted');
+  assert.deepEqual(summary(v).filter(s => !s.endsWith('unchanged')), ['FB_Valve.Close deleted', 'FB_Valve.Reset added']);
+  assert.deepEqual(v.objects.map(o => o.name), ['FB_Valve', 'A_Draw', 'Close', 'Init', 'Open', 'Reset', 'State', 'State', 'State']);
   const reset = object(v, 'FB_Valve.Reset');
   const decl = lineOf(after, 'METHOD Reset');
   assert.deepEqual(changedLines(reset), [
@@ -206,7 +207,7 @@ test('a changed property Get: the accessor view is modified, the property and it
 test('a deleted accessor comes right after its property; a deleted property shows the code of its accessors', () => {
   let v = view({ before: valve(), after: valve({ set: false }) });
   assert.deepEqual(summary(v).filter(s => !s.endsWith('unchanged')), ['FB_Valve.State.Set deleted']);
-  assert.deepEqual(v.objects.map(o => o.label).slice(4, 7), ['FB_Valve.State', 'FB_Valve.State.Get', 'FB_Valve.State.Set']);
+  assert.deepEqual(v.objects.map(o => o.label).slice(5, 8), ['FB_Valve.State', 'FB_Valve.State.Get', 'FB_Valve.State.Set']);
 
   const withoutState = valve().replace(/\n {4}<Property[\s\S]*<\/Property>/, '');
   v = view({ before: valve(), after: withoutState });
@@ -265,8 +266,8 @@ test('a new file is all added, a deleted file all removed; a renamed file keeps 
   const deleted = view({ before: valve() });
   assert.equal(deleted.change, 'deleted');
   // A deleted file lists its objects once: the accessors go with their property.
-  assert.deepEqual(summary(deleted), ['FB_Valve deleted', 'FB_Valve.Init deleted', 'FB_Valve.Open deleted', 'FB_Valve.Close deleted',
-    'FB_Valve.State deleted', 'FB_Valve.A_Draw deleted']);
+  assert.deepEqual(summary(deleted), ['FB_Valve deleted', 'FB_Valve.A_Draw deleted', 'FB_Valve.Close deleted', 'FB_Valve.Init deleted',
+    'FB_Valve.Open deleted', 'FB_Valve.State deleted']);
 
   const renamed = view({ path: 'POUs/Valves/FB_Valve.TcPOU', oldPath: 'POUs/FB_Valve.TcPOU', before: valve(), after: valve({ initName: 'Setup' }) });
   assert.equal(renamed.oldPath, 'POUs/FB_Valve.TcPOU');
@@ -682,6 +683,20 @@ test('tree: folders, each file as its object with the members that changed, in t
   assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU' }]), { files: 6, objects: 5, reading: 1 });
 });
 
+test('the TwinCAT view lists its objects in the order of the tree: folders inside the POU first, then by name', () => {
+  const after = valve({ close: false, reset: true, openImpl: 'bOpened := TRUE;', getImpl: 'State := 1;' })
+    .replace(`<Method Name="Reset" Id="${RESET}">`, `<Method Name="Reset" Id="${RESET}" FolderPath="Internal\\">`);
+  const path = 'PLC/POUs/FB_Valve.TcPOU';
+  const v = buildFileView({ path, before: valve(), after });
+  const inTree = (nodes: TreeNode[]): string[] => nodes.flatMap(n => [
+    ...(n.objectId && n.kind !== 'file' && !n.muted ? [`${n.objectId}|${n.accessor ?? ''}|${n.change}`] : []), ...inTree(n.children),
+  ]);
+  const changed = v.objects.filter(o => o.depth > 0 && o.change !== 'unchanged').map(o => `${o.objectId}|${o.accessor ?? ''}|${o.change}`);
+  assert.deepEqual(changed, inTree(buildTree([{ path, view: v }])));
+  assert.deepEqual(summary(v).filter(s => !s.endsWith('unchanged')),
+    ['FB_Valve.Reset added', 'FB_Valve.Close deleted', 'FB_Valve.Open modified', 'FB_Valve.State.Get modified']);
+});
+
 test('tree: the change\'s other files by their names, not read', () => {
   const files = [
     { path: 'PLC/POUs/FB_Valve.TcPOU' },
@@ -831,7 +846,7 @@ test('comments: a note goes under the section line its XML line is on: old_line 
     `d5 FB_Valve.Close Declaration same METHOD Close @L${lineOf(before, 'METHOD Close')}`,
   ]);
   const p = placeThreads(v, threads, { base: A, head: B });
-  assert.deepEqual(v.objects.map((o, i) => `${o.label} ${p.perObject[i]}`).filter(s => !s.endsWith(' 0')), ['FB_Valve.Open 3', 'FB_Valve.Close 2']);
+  assert.deepEqual(v.objects.map((o, i) => `${o.label} ${p.perObject[i]}`).filter(s => !s.endsWith(' 0')), ['FB_Valve.Close 2', 'FB_Valve.Open 3']);
   assert.deepEqual([p.xml.length, p.outdated.length], [0, 0]);
   // The thread as the view shows it: author, time, text, replies, resolved state, where it is in the page.
   const d2 = threads.find(t => t.id === 'd2')!;

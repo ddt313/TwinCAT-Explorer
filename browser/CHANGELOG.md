@@ -4,6 +4,13 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- A TwinCAT view lists its objects in the order of the TwinCAT tab's tree beside it (the folders inside the POU
+  first, then by name, as XAE), not in the order of the file: a method no longer shows below a property that the tree
+  lists after it.
+
 ## 0.1.3 - 2026-10-21
 
 ### Added

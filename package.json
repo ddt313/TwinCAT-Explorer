@@ -345,6 +345,20 @@
         "icon": "$(history)"
       },
       {
+        "command": "twincatExplorer.navigateBack",
+        "title": "Go Back",
+        "category": "TwinCAT",
+        "icon": "$(arrow-left)",
+        "enablement": "twincatExplorer.canNavigateBack"
+      },
+      {
+        "command": "twincatExplorer.navigateForward",
+        "title": "Go Forward",
+        "category": "TwinCAT",
+        "icon": "$(arrow-right)",
+        "enablement": "twincatExplorer.canNavigateForward"
+      },
+      {
         "command": "twincatExplorer.history.refresh",
         "title": "Refresh",
         "category": "TwinCAT History",
@@ -1008,6 +1022,16 @@
       ],
       "editor/title": [
         {
+          "command": "twincatExplorer.navigateBack",
+          "when": "resourceScheme == twincat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.navigateForward",
+          "when": "resourceScheme == twincat",
+          "group": "navigation@2"
+        },
+        {
           "command": "twincatExplorer.openXml",
           "when": "resourceScheme == twincat",
           "group": "navigation@90"
@@ -1093,6 +1117,18 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "twincatExplorer.navigateBack",
+        "key": "alt+left",
+        "mac": "ctrl+-",
+        "when": "twincatExplorer.canNavigateBack && (resourceScheme == twincat || notebookType == twincat-object || focusedView == twincatExplorer.tree)"
+      },
+      {
+        "command": "twincatExplorer.navigateForward",
+        "key": "alt+right",
+        "mac": "ctrl+shift+-",
+        "when": "twincatExplorer.canNavigateForward && (resourceScheme == twincat || notebookType == twincat-object || focusedView == twincatExplorer.tree)"
+      },
       {
         "command": "twincatExplorer.goToObject",
         "key": "ctrl+alt+t",

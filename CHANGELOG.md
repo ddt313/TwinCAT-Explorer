@@ -3,6 +3,17 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.14.1 - 2026-10-22
+
+### Added
+- `TwinCAT: Go Back` and `TwinCAT: Go Forward` through the objects shown in split editors and object
+  notebooks, as arrows in their title bar and on Alt+Left / Alt+Right (macOS: Ctrl+- / Ctrl+Shift+-)
+  there and in the TwinCAT tree. VS Code's own Go Back loses an object once its preview tab is replaced
+  by the next one.
+
+### Fixed
+- Paste (Ctrl+V) and Cut (Ctrl+X) in the split editor and its diffs, which did nothing.
+
 ## 0.14.0 - 2026-10-21
 
 ### Added

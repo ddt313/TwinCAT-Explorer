@@ -6,7 +6,15 @@ Implementation**, and brings Structured Text language features and git views tha
 The code stays in the `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` XML files, and saving writes back only
 the sections you edited.
 
+![The TwinCAT tree beside the split editor of a function block: the Declaration above the Implementation](docs/images/vscode-overview.png)
+
+<!-- browser-only:start -->
+A companion [browser extension](#browser-extension) shows the TwinCAT files of a GitHub pull request or a
+GitLab merge request the same way, as objects instead of XML.
+<!-- browser-only:end -->
+
 - [Features](#features)
+- [Browser extension](#browser-extension) <!-- browser-only -->
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Getting started](#getting-started)
@@ -24,6 +32,13 @@ the sections you edited.
 ## Features
 
 ### TwinCAT tree
+
+The XAE project tree in the Explorer: the PLC projects of each `.tsproj`, their folders and objects, and
+inside a POU its methods, properties, actions and transitions, with XAE's labels and icons and the git
+state of each object.
+
+<details>
+<summary>Details</summary>
 
 The **TwinCAT** view in the Explorer, below Outline and Timeline:
 
@@ -60,7 +75,15 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Adding libraries](#adding-libraries)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 
+</details>
+
 ### Split editor
+
+Every POU, method, property and accessor in its own tab, the Declaration above the Implementation as in
+XAE, with its changes against `HEAD` and the blame of the current line.
+
+<details>
+<summary>Details</summary>
 
 - **One tab per object**, titled `FB_X`, `FB_X.Method` or `FB_X.Property.Get`.
 - **Two panes, like XAE:**
@@ -92,7 +115,15 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   - Lines changed since `HEAD`, saved or not, show `Uncommitted changes`.
   - `TwinCAT: Toggle Line Blame` or `twincatExplorer.blame.currentLine` turns it off.
 
+</details>
+
 ### Safe saving
+
+Saving replaces only the sections you edited and keeps every other byte of the file. A section changed on
+disk meanwhile is never overwritten.
+
+<details>
+<summary>Details</summary>
 
 - **Edited sections only:** only the CDATA of the sections you edited is replaced. BOM, CRLF, GUIDs
   and every other byte of the file stay as they were.
@@ -109,7 +140,15 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Renaming and deleting methods, properties and actions](#renaming-and-deleting-methods-properties-and-actions)
   and [Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders](#renaming-moving-and-deleting-pous-duts-gvls-interfaces-and-folders)).
 
+</details>
+
 ### Adding methods, properties and actions
+
+Add a method, property or action to a POU or an interface from the TwinCAT tree, written as XAE writes
+it.
+
+<details>
+<summary>Details</summary>
 
 - **Add Method...**, **Add Property...** and **Add Action...** are in the context menu of a POU or
   interface in the TwinCAT tree, and of a folder inside a POU. From the Command Palette they add to the
@@ -137,7 +176,14 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - A file with unsaved changes in an editor is refused: save or revert them first. To take back a new
   member, use Discard Changes in the TwinCAT Changes view.
 
+</details>
+
 ### Renaming and deleting methods, properties and actions
+
+Rename or delete a method, property, action or transition from the TwinCAT tree.
+
+<details>
+<summary>Details</summary>
 
 - **Rename...** (F2) and **Delete** (Delete) are in the context menu of a method, property, action or
   transition in the TwinCAT tree. Delete is also on the `Get` and `Set` of a property.
@@ -161,7 +207,14 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - A file with unsaved changes in an editor is refused. To take back a rename or a delete, use Discard
   Changes in the TwinCAT Changes view.
 
+</details>
+
 ### Adding POUs, DUTs, GVLs, interfaces and folders
+
+Add a POU, DUT, GVL, interface or folder to a PLC project, written as XAE writes it.
+
+<details>
+<summary>Details</summary>
 
 - **Add POU...**, **Add DUT...**, **Add Global Variable List...**, **Add Interface...** and **New
   Folder...** are in the context menu of a PLC project and of its folders in the TwinCAT tree. From the
@@ -189,7 +242,15 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - A `.plcproj` with unsaved changes in an editor is refused. A TwinCAT XAE 3.1.4026 that has the
   project open asks whether to reload the changed `.plcproj`: answer Yes.
 
+</details>
+
 ### Adding existing items and folder content
+
+Add files that are already on disk to a PLC project, like XAE's Add > Existing Item and Existing Folder
+Content.
+
+<details>
+<summary>Details</summary>
 
 - **Add Existing Item...** and **Add Existing Folder Content...** are in the context menu of a PLC
   project and of its folders in the TwinCAT tree, like XAE's Add > Existing Item and Existing Folder
@@ -212,7 +273,15 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Then:** the tree shows the new objects and selects the first one. A `.plcproj` with unsaved changes
   in an editor is refused.
 
+</details>
+
 ### Adding libraries
+
+Add a library installed in the TwinCAT library repository to the `References` of a PLC project, like
+XAE's Library Manager.
+
+<details>
+<summary>Details</summary>
 
 - **Add Library...** is in the context menu of `References` of a PLC project in the TwinCAT tree, like
   XAE's Library Manager > Add library. From the Command Palette it adds to the PLC project of the active
@@ -243,7 +312,14 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   symbols of its [stub](#library-stubs), if there is one. A `.plcproj` with unsaved changes in an
   editor is refused, and so is a workspace without a repository, with the folders looked in.
 
+</details>
+
 ### Renaming, moving and deleting POUs, DUTs, GVLs, interfaces and folders
+
+Rename, move or delete objects and folders from the TwinCAT tree, or drag them onto a folder.
+
+<details>
+<summary>Details</summary>
 
 - **Rename...** (F2), **Move to Folder...** and **Delete** (Delete) are in the context menu of a POU,
   DUT, GVL or interface in the TwinCAT tree; Rename... and Move to Folder... also in that of a folder.
@@ -274,7 +350,14 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   editor. To take a change back, use git: the TwinCAT Changes view shows the files, and the `.plcproj`
   under Project files.
 
+</details>
+
 ### Renaming with the uses
+
+Rename (F2) changes the uses too, in every PLC project of the workspace.
+
+<details>
+<summary>Details</summary>
 
 - **Rename...** in the TwinCAT tree and **Rename Symbol** (F2) in the split editor and in notebook
   cells change what they rename and its uses in every PLC project of the workspace, as the language
@@ -297,10 +380,17 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - A file with unsaved changes in an editor is refused; F2 in a tab with unsaved changes offers to save
   it first. To take a rename back, use Discard Changes in the TwinCAT Changes view.
 
+</details>
+
 ### Structured Text language features
 
 These work in both panes and in notebook cells. They come from a parser of the TwinCAT dialect
 (`EXTENDS`, `IMPLEMENTS`, `THIS^`, `SUPER^`, properties, `REFERENCE TO`, ...).
+
+![Completion after fbConveyor. lists the methods of FB_Conveyor, and the call with its arguments](docs/images/vscode-language.png)
+
+<details>
+<summary>Details</summary>
 
 - **Go to Definition** (F12, Ctrl+click), including members reached through variable types and
   inheritance. `fbValve.Open()` opens the `Open` method of `FB_Valve`, or of the function block it
@@ -360,9 +450,20 @@ These work in both panes and in notebook cells. They come from a parser of the T
 - **`TwinCAT: Check All Structured Text`** analyses every section of every project and reports the
   problems on the XML files.
 
+</details>
+
 ### Source Control views
 
-Three views in the Source Control sidebar.
+Three views in the Source Control sidebar that work per object instead of per file: **TwinCAT Changes**
+(uncommitted and branch changes, staged object by object), **TwinCAT Commits** (like GitLens' commits view)
+and **TwinCAT History** (the commits that changed one object).
+
+![TwinCAT Changes lists the changed methods and accessors; a click shows the change of FB_Valve.Close against HEAD](docs/images/vscode-changes.png)
+
+![A commit of TwinCAT Commits expanded to the objects it changed, and its change of FB_FillSequence in the commit diff panel](docs/images/vscode-commits.png)
+
+<details>
+<summary>Details</summary>
 
 **TwinCAT Changes** lists the objects that differ (POU, methods, properties, accessors), grouped by POU
 and marked `M`, `A` or `D`.
@@ -440,7 +541,15 @@ and marked `M`, `A` or `D`.
     commit.
   - `Uncommitted changes` at the top opens the diff against `HEAD`.
 
+</details>
+
 ### Notebooks
+
+An object or a whole file as a notebook, one cell per section, and a notebook diff of a whole file
+against git.
+
+<details>
+<summary>Details</summary>
 
 - **Object notebook:** set `twincatExplorer.editor` to `notebook`, or use
   `Reopen Editor With... > TwinCAT Object (Notebook)` on a tab. Each section is one cell.
@@ -459,6 +568,42 @@ and marked `M`, `A` or `D`.
   `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` hides the top toolbar and the insert buttons
   for every notebook. It changes `notebook.globalToolbar` and `notebook.insertToolbarLocation` in the
   user settings, and the same command shows them again.
+
+</details>
+
+<!-- browser-only:start -->
+## Browser extension
+
+A read-only extension for Chrome and Edge, in [`browser/`](browser), for code review: on a GitHub pull
+request's *Files changed* tab or a GitLab merge request's *Changes* tab, a changed `.TcPOU`, `.TcDUT`,
+`.TcGVL` or `.TcIO` file shows as TwinCAT objects instead of XML, in the layout of the commit diff panel.
+
+<details>
+<summary>Details</summary>
+
+- **TwinCAT view:** a toggle in the header of each TwinCAT file replaces the host's XML diff with the
+  objects the change touched (POU, methods, properties, accessors, actions, transitions), each marked
+  `M`, `A` or `D`, its Declaration diff above its Implementation diff. Unchanged objects and lines are
+  folded.
+- **Review threads** show under the lines they are on, and every line links to its XML line in the
+  host's own diff, where comments are written.
+- **Unified or Split**, following the host's own diff setting, with Structured Text highlighting and
+  word-level changes.
+- **TwinCAT tab:** above the host's file tree, the change as XAE's Solution Explorer shows a project,
+  with the number of threads on each object. A click opens that object's view.
+
+</details>
+
+![The TwinCAT tree of a pull request beside the TwinCAT view of FB_Conveyor: a new method with its review thread, and a changed Set accessor](docs/images/browser-object-view.png)
+
+![The TwinCAT view of FB_FillSequence in Split layout, dark theme](docs/images/browser-split-view.png)
+
+It is released apart from the VS Code extension, as a zip attached to the `browser-v*`
+[GitHub releases](https://github.com/ddt313/TwinCAT-Explorer/releases), and loaded unpacked
+(`chrome://extensions` or `edge://extensions`, developer mode, *Load unpacked*). How to build it, use it
+on a self-managed GitLab instance and what it reads is in [`browser/SPIKE.md`](browser/SPIKE.md); its
+changes are in [`browser/CHANGELOG.md`](browser/CHANGELOG.md).
+<!-- browser-only:end -->
 
 ## Requirements
 
@@ -744,6 +889,15 @@ npm run package
   oniguruma) with esbuild into `out/webview`.
 - `npm run package` builds `explorer-for-twincat-<version>.vsix`. `npm run install:local -- <profile>`
   installs it into that VS Code profile (`default` for the Default profile).
+- The `.vsix` carries this README without the parts about the browser extension, so the Marketplace
+  page shows the VS Code extension only: `npm run package` runs `scripts/marketplace-readme.js`, which
+  leaves out the lines between `<!-- browser-only:start -->` and `<!-- browser-only:end -->`, and the
+  lines that end with `<!-- browser-only -->` (for an item of a list), and writes
+  `out/README.marketplace.md` for vsce's `--readme-path`. Mark new text about the browser extension
+  the same way.
+- The screenshots are in `docs/images`, outside the `.vsix`: vsce turns their relative links into
+  links to the repository on GitHub, so a new image must be pushed before the version that shows it is
+  published.
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser
   and the resolver on a whole TwinCAT repository.
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the

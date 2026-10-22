@@ -3,6 +3,13 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- The line blame of the split editor no longer shows a wide gap inside a long annotation
+  (`Add the conveyor and th      e fill sequence`): the space before it is no longer repeated after every
+  50 characters.
+
 ## 0.14.1 - 2026-10-22
 
 ### Added

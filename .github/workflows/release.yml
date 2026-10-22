@@ -74,7 +74,7 @@ jobs:
         id: package
         run: |
           vsix="$(node -p "const p = require('./package.json'); p.name + '-' + p.version + '.vsix'")"
-          npx vsce package --no-dependencies --out "$vsix"
+          npm run package -- --out "$vsix"
           case "$(node -p "require('./package.json').version")" in
             *-*) prerelease=true ;;
             *) prerelease=false ;;

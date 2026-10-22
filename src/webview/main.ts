@@ -1415,6 +1415,8 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 /* Blame of the current line, after its end (like GitLens' current line blame). */
 .monaco-editor .view-line .tc-blame { color: var(--vscode-editorCodeLens-foreground, #999999) !important; opacity: 0.8; font-style: italic;
   margin-left: 3em; }
+/* Monaco renders a long annotation as several spans of 50 characters: the gap goes before the first only. */
+.monaco-editor .view-line .tc-blame + .tc-blame { margin-left: 0; }
 `;
 document.head.appendChild(style);
 

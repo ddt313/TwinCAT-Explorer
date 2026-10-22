@@ -13,6 +13,9 @@ export interface ChangedFile {
   deleted?: boolean;
 }
 
+/** A diff with the base's and the head's lines one under the other (unified), or side by side (split). */
+export type DiffStyle = 'unified' | 'split';
+
 /** A place in a viewer: an object view, the section line on an XML line, a thread. */
 export interface Reveal {
   objectId?: string;
@@ -43,10 +46,12 @@ export type FrameMessage =
 /** The content script to a frame. */
 export type PageMessage =
   | { tcx: 'fetched'; id: number; result: FetchResult }
-  /** To the tree: the change's TwinCAT files, `complete` when the host's API gave them (else the page's list). */
+  /** To the tree: the change's files, `complete` when the host's API gave them (else the page's list). */
   | { tcx: 'files'; files: ChangedFile[]; complete: boolean }
   /** To a viewer: open this place and say where it is. */
   | ({ tcx: 'reveal' } & Reveal)
+  /** To a viewer: the layout of the host's own diffs, as the user set it there (when the page shows it, and as it changes). */
+  | { tcx: 'style'; style: DiffStyle }
   /** To a viewer, the threads on its file; to the tree, all of them; or why there are none. */
   | { tcx: 'threads'; threads: ReviewThread[]; source?: string; problem?: string };
 

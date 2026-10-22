@@ -6,14 +6,14 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, filesInDiff, filesPage, githubRawTemplate, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
+import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
-  commitsFromDiffRefs, discussionsUrl, filesFromApi, gitlabRawTemplate, gitlabTheme, isChangesTab, mergeRequestApi, mergeRequestPage, noteUrl, rapidFileData,
-  rapidLineAnchor, threadsFromGitlab,
+  commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
+  mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
-import { FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile } from '../../browser/src/model';
+import { DiffLine, FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile, splitRows } from '../../browser/src/model';
 import { ViewState, anchorId, leaveFor, noteOfAnchor } from '../../browser/src/navigation';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
@@ -123,8 +123,9 @@ function lineOf(text: string, needle: string): number {
 const changedLines = (o: ObjectView) => o.sections.flatMap(s => s.lines.filter(l => l.kind !== 'same')
   .map(l => `${s.label} ${l.kind === 'add' ? '+' : '-'}${l.text} @${l.kind === 'add' ? `R${l.newXml}` : `L${l.oldXml}`}`));
 
-const ALL = ['FB_Valve', 'FB_Valve.Init', 'FB_Valve.Open', 'FB_Valve.Close', 'FB_Valve.State', 'FB_Valve.State.Get',
-  'FB_Valve.State.Set', 'FB_Valve.A_Draw'];
+/** In the order of the tree: the POU, then its members by name, a property's Get and Set under it. */
+const ALL = ['FB_Valve', 'FB_Valve.A_Draw', 'FB_Valve.Close', 'FB_Valve.Init', 'FB_Valve.Open', 'FB_Valve.State',
+  'FB_Valve.State.Get', 'FB_Valve.State.Set'];
 
 test('a modified method: its implementation diff, each changed line with the XML line it is on', () => {
   const before = valve();
@@ -153,12 +154,12 @@ test('a modified method: its implementation diff, each changed line with the XML
   assert.deepEqual(object(v, 'FB_Valve').sections.map(s => `${s.label} ${s.status} ${s.lines.length}`), ['Declaration same 7', 'Implementation same 3']);
 });
 
-test('an added and a deleted method: all their lines added or removed; deleted views come last', () => {
+test('an added and a deleted method: all their lines added or removed; each in its place by name, as in the tree', () => {
   const before = valve();
   const after = valve({ close: false, reset: true });
   const v = view({ before, after });
-  assert.deepEqual(summary(v).filter(s => !s.endsWith('unchanged')), ['FB_Valve.Reset added', 'FB_Valve.Close deleted']);
-  assert.equal(summary(v).at(-1), 'FB_Valve.Close deleted');
+  assert.deepEqual(summary(v).filter(s => !s.endsWith('unchanged')), ['FB_Valve.Close deleted', 'FB_Valve.Reset added']);
+  assert.deepEqual(v.objects.map(o => o.name), ['FB_Valve', 'A_Draw', 'Close', 'Init', 'Open', 'Reset', 'State', 'State', 'State']);
   const reset = object(v, 'FB_Valve.Reset');
   const decl = lineOf(after, 'METHOD Reset');
   assert.deepEqual(changedLines(reset), [
@@ -206,7 +207,7 @@ test('a changed property Get: the accessor view is modified, the property and it
 test('a deleted accessor comes right after its property; a deleted property shows the code of its accessors', () => {
   let v = view({ before: valve(), after: valve({ set: false }) });
   assert.deepEqual(summary(v).filter(s => !s.endsWith('unchanged')), ['FB_Valve.State.Set deleted']);
-  assert.deepEqual(v.objects.map(o => o.label).slice(4, 7), ['FB_Valve.State', 'FB_Valve.State.Get', 'FB_Valve.State.Set']);
+  assert.deepEqual(v.objects.map(o => o.label).slice(5, 8), ['FB_Valve.State', 'FB_Valve.State.Get', 'FB_Valve.State.Set']);
 
   const withoutState = valve().replace(/\n {4}<Property[\s\S]*<\/Property>/, '');
   v = view({ before: valve(), after: withoutState });
@@ -265,8 +266,8 @@ test('a new file is all added, a deleted file all removed; a renamed file keeps 
   const deleted = view({ before: valve() });
   assert.equal(deleted.change, 'deleted');
   // A deleted file lists its objects once: the accessors go with their property.
-  assert.deepEqual(summary(deleted), ['FB_Valve deleted', 'FB_Valve.Init deleted', 'FB_Valve.Open deleted', 'FB_Valve.Close deleted',
-    'FB_Valve.State deleted', 'FB_Valve.A_Draw deleted']);
+  assert.deepEqual(summary(deleted), ['FB_Valve deleted', 'FB_Valve.A_Draw deleted', 'FB_Valve.Close deleted', 'FB_Valve.Init deleted',
+    'FB_Valve.Open deleted', 'FB_Valve.State deleted']);
 
   const renamed = view({ path: 'POUs/Valves/FB_Valve.TcPOU', oldPath: 'POUs/FB_Valve.TcPOU', before: valve(), after: valve({ initName: 'Setup' }) });
   assert.equal(renamed.oldPath, 'POUs/FB_Valve.TcPOU');
@@ -407,10 +408,51 @@ const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
 
+test('split diff: unchanged lines on both sides, each run\'s deletions beside its additions', () => {
+  const kinds = (s: string): DiffLine[] => [...s].map(c => ({ kind: c === '=' ? 'same' : c === '-' ? 'del' : 'add', text: '' }));
+  // = - - + = + = - -
+  const lines = kinds('=--+=+=--');
+  assert.deepEqual(splitRows(lines), [
+    { left: 0, right: 0 },
+    { left: 1, right: 3 }, { left: 2, right: undefined },
+    { left: 4, right: 4 },
+    { left: undefined, right: 5 },
+    { left: 6, right: 6 },
+    { left: 7, right: undefined }, { left: 8, right: undefined },
+  ]);
+  // A part of the lines: an unfolded run of unchanged lines.
+  assert.deepEqual(splitRows(lines, 4, 5), [{ left: 4, right: 4 }]);
+  // Every line on one row, on its side.
+  const rows = splitRows(lines);
+  assert.deepEqual(rows.flatMap(r => (r.left === r.right ? [r.left] : [r.left, r.right])).filter(k => k !== undefined).sort((a, b) => a! - b!), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.ok(rows.every(r => r.left === undefined || lines[r.left].kind !== 'add'));
+  assert.ok(rows.every(r => r.right === undefined || lines[r.right].kind !== 'del'));
+});
+
+test('the host\'s layout: GitHub\'s from a row of its diff, else its URL; GitLab\'s from its cookie, else its URL', () => {
+  // A context line: both line numbers, then the code (unified); each number before its side's code (split).
+  assert.equal(githubDiffStyle('', ['L', 'R', '-']), 'unified');
+  assert.equal(githubDiffStyle('', ['L', '-', 'R', '-']), 'split');
+  assert.equal(githubDiffStyle('?diff=unified', ['L', '-', 'R', '-']), 'split');
+  assert.equal(githubDiffStyle('?diff=split'), 'split');
+  assert.equal(githubDiffStyle('?w=1&diff=unified', ['L', '-']), 'unified');
+  assert.equal(githubDiffStyle(''), undefined);
+  assert.equal(gitlabDiffStyle('', 'a=1; diff_view=parallel; b=2'), 'split');
+  assert.equal(gitlabDiffStyle('?view=parallel', 'diff_view=inline'), 'unified');
+  assert.equal(gitlabDiffStyle('?view=parallel', 'a=1'), 'split');
+  assert.equal(gitlabDiffStyle('', 'my_diff_view=parallel'), undefined);
+  assert.equal(gitlabDiffStyle('', ''), undefined);
+});
+
 test('github: the pull request of a "Files changed" page, in the classic and the React page and for a commit range', () => {
   assert.deepEqual(filesPage('/acme/plc/pull/12/files'), { owner: 'acme', repo: 'plc', number: 12 });
   assert.deepEqual(filesPage('/acme/plc/pull/12/changes'), { owner: 'acme', repo: 'plc', number: 12 });
-  assert.deepEqual(filesPage(`/acme/plc/pull/12/files/${A.slice(0, 7)}..${B.slice(0, 7)}`), { owner: 'acme', repo: 'plc', number: 12 });
+  assert.deepEqual(filesPage(`/acme/plc/pull/12/files/${A.slice(0, 7)}..${B.slice(0, 7)}`),
+    { owner: 'acme', repo: 'plc', number: 12, commits: `${A.slice(0, 7)}..${B.slice(0, 7)}` });
+  assert.deepEqual(filesPage(`/acme/plc/pull/12/changes/${A}`), { owner: 'acme', repo: 'plc', number: 12, commits: A });
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12 }), 'https://github.com/acme/plc/pull/12.diff');
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12, commits: A }), `https://github.com/acme/plc/commit/${A}.diff`);
+  assert.equal(pullDiffUrl({ owner: 'acme', repo: 'plc', number: 12, commits: `${A}..${B}` }), `https://github.com/acme/plc/compare/${A}...${B}.diff`);
   assert.equal(filesPage('/acme/plc/pull/12'), undefined);
   assert.equal(filesPage('/acme/plc/pull/12/commits'), undefined);
   assert.ok(isTwinCatFile('PLC/POUs/FB_Valve.TcPOU') && isTwinCatFile('a/E_State.tcdut') && isTwinCatFile('Machine.tsproj'));
@@ -500,7 +542,7 @@ test('frames: the parameters of a viewer and of the tree go through their URL, f
   assert.equal(decodeViewerParams('#origin=https%3A%2F%2Fgithub.com&p=a.TcPOU'), undefined);
   const t: TreeParams = {
     origin: 'https://github.com', raw: 'https://github.com/acme/plc/raw/{sha}/{path}', order: ['frame', 'worker', 'page'], base: A, head: B,
-    theme: 'auto', diff: 'https://github.com/acme/plc/pull/12.diff', source: undefined,
+    theme: 'auto', diff: 'https://github.com/acme/plc/pull/12.diff', source: undefined, host: 'github',
   };
   assert.deepEqual(decodeTreeParams(`#${encodeTreeParams(t)}`), t);
   assert.equal(decodeTreeParams(`#${encodeTreeParams({ ...t, diff: 'https://elsewhere.example.com/12.diff' })}`), undefined);
@@ -522,6 +564,13 @@ test('gitlab: the merge request of a page, its raw files and its REST API', () =
     `https://gitlab.example.com/group/sub/machine/-/raw/${A}/PLC/POUs/FB_Valve.TcPOU`);
   assert.equal(mergeRequestApi('https://gitlab.com', 'group/sub/machine', 7), 'https://gitlab.com/api/v4/projects/group%2Fsub%2Fmachine/merge_requests/7');
   assert.equal(mergeRequestApi('https://gitlab.com', 58170678, 7), 'https://gitlab.com/api/v4/projects/58170678/merge_requests/7');
+});
+
+test('gitlab: a Changes tab of one commit, version or comparison, and the comparison of its commits', () => {
+  assert.ok(isPartialView(`?commit_id=${A}`) && isPartialView('?diff_id=12') && isPartialView(`?diff_id=12&start_sha=${A}`));
+  assert.ok(!isPartialView('') && !isPartialView('?diff_head=true') && !isPartialView('?view=parallel'));
+  assert.equal(compareApi('https://gitlab.com', 'group/sub/machine', A, B),
+    `https://gitlab.com/api/v4/projects/group%2Fsub%2Fmachine/repository/compare?from=${A}&to=${B}&straight=true`);
 });
 
 test('gitlab: the files and commits of the REST API and of the Rapid Diffs page', () => {
@@ -632,6 +681,52 @@ test('tree: folders, each file as its object with the members that changed, in t
   // While a file is read it shows by its name.
   assert.deepEqual(treeText(buildTree([{ path: 'PLC/POUs/FB_Valve.TcPOU' }])), ['PLC/POUs', '  FB_Valve · reading…']);
   assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU' }]), { files: 6, objects: 5, reading: 1 });
+});
+
+test('the TwinCAT view lists its objects in the order of the tree: folders inside the POU first, then by name', () => {
+  const after = valve({ close: false, reset: true, openImpl: 'bOpened := TRUE;', getImpl: 'State := 1;' })
+    .replace(`<Method Name="Reset" Id="${RESET}">`, `<Method Name="Reset" Id="${RESET}" FolderPath="Internal\\">`);
+  const path = 'PLC/POUs/FB_Valve.TcPOU';
+  const v = buildFileView({ path, before: valve(), after });
+  const inTree = (nodes: TreeNode[]): string[] => nodes.flatMap(n => [
+    ...(n.objectId && n.kind !== 'file' && !n.muted ? [`${n.objectId}|${n.accessor ?? ''}|${n.change}`] : []), ...inTree(n.children),
+  ]);
+  const changed = v.objects.filter(o => o.depth > 0 && o.change !== 'unchanged').map(o => `${o.objectId}|${o.accessor ?? ''}|${o.change}`);
+  assert.deepEqual(changed, inTree(buildTree([{ path, view: v }])));
+  assert.deepEqual(summary(v).filter(s => !s.endsWith('unchanged')),
+    ['FB_Valve.Reset added', 'FB_Valve.Close deleted', 'FB_Valve.Open modified', 'FB_Valve.State.Get modified']);
+});
+
+test('tree: the change\'s other files by their names, not read', () => {
+  const files = [
+    { path: 'PLC/POUs/FB_Valve.TcPOU' },
+    { path: '.agents/skills/verify/SKILL.md', other: 'modified' as const },
+    { path: 'docs/new.md', oldPath: 'docs/old.md', other: 'renamed' as const },
+  ];
+  assert.deepEqual(treeText(buildTree(files)), [
+    '.agents/skills/verify',
+    '  SKILL.md [M]',
+    'docs',
+    '  new.md [R] · renamed from old.md',
+    'PLC/POUs',
+    '  FB_Valve · reading…',
+  ]);
+  assert.deepEqual(treeSummary(files), { files: 3, objects: 0, reading: 1 });
+});
+
+test('tree: the folders and files in the order of the host\'s page', () => {
+  const files = [
+    'PLC/Modules/POUs/FB_Valve.TcPOU', 'PLC/ModuleTests/POUs/FB_ValveTest.TcPOU', 'PLC/Modules/a.TcPOU', 'PLC/Modules/Z.TcPOU',
+  ].map(path => ({ path }));
+  const names = (paths?: (a: string, b: string) => number) => treeText(buildTree(files, paths)).map(l => l.replace(' · reading…', ''));
+  // XAE: folders first, then by name, whatever the case.
+  assert.deepEqual(names(), ['PLC', '  Modules', '    POUs', '      FB_Valve', '    a', '    Z', '  ModuleTests/POUs', '    FB_ValveTest']);
+  // GitLab: by each part of the path as bytes, a folder before the files beside it.
+  assert.deepEqual(names(compareGitlabPaths), ['PLC', '  ModuleTests/POUs', '    FB_ValveTest', '  Modules', '    POUs', '      FB_Valve', '    Z', '    a']);
+  // GitHub (git): by the whole path as bytes.
+  assert.deepEqual(names(compareGithubPaths), ['PLC', '  ModuleTests/POUs', '    FB_ValveTest', '  Modules', '    POUs', '      FB_Valve', '    Z', '    a']);
+  assert.deepEqual(['b/x', 'a.TcPOU', 'a/b', 'B'].sort(compareGitlabPaths), ['a/b', 'b/x', 'B', 'a.TcPOU']);
+  assert.deepEqual(['b/x', 'a.TcPOU', 'a/b', 'B'].sort(compareGithubPaths), ['B', 'a.TcPOU', 'a/b', 'b/x']);
 });
 
 test('github: the files of a pull request\'s diff, renamed, added, deleted and quoted ones included', () => {
@@ -751,7 +846,7 @@ test('comments: a note goes under the section line its XML line is on: old_line 
     `d5 FB_Valve.Close Declaration same METHOD Close @L${lineOf(before, 'METHOD Close')}`,
   ]);
   const p = placeThreads(v, threads, { base: A, head: B });
-  assert.deepEqual(v.objects.map((o, i) => `${o.label} ${p.perObject[i]}`).filter(s => !s.endsWith(' 0')), ['FB_Valve.Open 3', 'FB_Valve.Close 2']);
+  assert.deepEqual(v.objects.map((o, i) => `${o.label} ${p.perObject[i]}`).filter(s => !s.endsWith(' 0')), ['FB_Valve.Close 2', 'FB_Valve.Open 3']);
   assert.deepEqual([p.xml.length, p.outdated.length], [0, 0]);
   // The thread as the view shows it: author, time, text, replies, resolved state, where it is in the page.
   const d2 = threads.find(t => t.id === 'd2')!;

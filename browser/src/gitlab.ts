@@ -5,7 +5,7 @@
 
 import { ReviewNote, ReviewThread, ThreadPosition } from './comments';
 import { Commits, Theme } from './params';
-import { ChangedFile } from './protocol';
+import { ChangedFile, DiffStyle } from './protocol';
 
 export interface MergeRequest {
   /** `group/subgroup/project`. */
@@ -34,6 +34,20 @@ export function gitlabRawTemplate(origin: string, project: string): string {
 /** The REST API of a merge request; `project` is the project's id or its full path. */
 export function mergeRequestApi(origin: string, project: string | number, iid: number): string {
   return `${origin}/api/v4/projects/${encodeURIComponent(String(project))}/merge_requests/${iid}`;
+}
+
+/**
+ * The Changes tab shows part of the merge request: one commit (`commit_id`), a version (`diff_id`) or a comparison of
+ * versions (`start_sha`). Its files are those of the commits it compares, not the merge request's.
+ */
+export function isPartialView(search: string): boolean {
+  const q = new URLSearchParams(search);
+  return ['commit_id', 'diff_id', 'start_sha'].some(k => q.has(k));
+}
+
+/** The REST API's comparison of two commits, `base..head` (its `diffs` are the files, as the merge request's are). */
+export function compareApi(origin: string, project: string | number, base: string, head: string): string {
+  return `${origin}/api/v4/projects/${encodeURIComponent(String(project))}/repository/compare?from=${base}&to=${head}&straight=true`;
 }
 
 /**
@@ -135,6 +149,22 @@ export function commitsFromDiffRefs(refs: unknown, source: string): Commits | un
   return base && head ? { base, head, source } : undefined;
 }
 
+/**
+ * The order of the files of GitLab's diffs (its `FileCollectionSorter`): by their paths' parts, one by one, as bytes
+ * (`Z` before `a`), a folder before the files beside it.
+ */
+export function compareGitlabPaths(a: string, b: string): number {
+  const x = a.split('/');
+  const y = b.split('/');
+  for (let i = 0; i < x.length && i < y.length; i++) {
+    const xFile = i === x.length - 1;
+    const yFile = i === y.length - 1;
+    if (xFile !== yFile) return xFile ? 1 : -1;
+    if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  }
+  return x.length - y.length;
+}
+
 /** A file block of the Rapid Diffs page: its `data-file-data` (paths, raw path, the commits compared). */
 export function rapidFileData(json: string | undefined): { file: ChangedFile; commits?: Commits } | undefined {
   if (!json) return undefined;
@@ -157,6 +187,15 @@ export function rapidLineAnchor(fileHash: string, side: 'L' | 'R', line: number)
 }
 
 /** GitLab's color mode, from the classes of `<html>` (`gl-dark` when dark, also when it follows the system). */
+/**
+ * The layout of GitLab's diffs, as its *Compare changes* menu sets it: the `diff_view` cookie GitLab keeps the choice
+ * in (`parallel`: side by side, `inline`), else the URL's `view` (`?view=parallel`), which the menu does not change.
+ */
+export function gitlabDiffStyle(search: string, cookie: string): DiffStyle | undefined {
+  const view = /(?:^|;\s*)diff_view=([^;]*)/.exec(cookie)?.[1] ?? new URLSearchParams(search).get('view');
+  return view === 'parallel' ? 'split' : view === 'inline' ? 'unified' : undefined;
+}
+
 export function gitlabTheme(htmlClass: string): Theme {
   return /(?:^|\s)gl-dark(?:\s|$)/.test(htmlClass) ? 'dark' : 'light';
 }

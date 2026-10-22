@@ -22,6 +22,7 @@ import { SymbolRename } from './vscode/rename';
 import { TypeHierarchy } from './vscode/typeHierarchy';
 import { ShownTab } from './vscode/tabs';
 import { itemOrder } from './core/project';
+import { NavStack } from './core/navStack';
 import { isInFolder } from './lang/objects';
 import { Loc } from './lang/symbols';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
@@ -597,6 +598,45 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   changesView.openStaged = item => commitDiff.show(item);
   changesView.onDidChangeRepository = () => gitDirs.changed();
   history.openChanges = openWithChanges;
+
+  // ------------------------------------------------------------------ back and forward
+
+  // VS Code's Go Back drops a twincat: editor once its tab closes (each preview tab replaces the one before), so
+  // the objects shown have their own history, with TwinCAT: Go Back / Go Forward (Alt+Left / Alt+Right).
+  interface Visit { fsPath: string; objectId: string; accessor?: 'Get' | 'Set'; kind: 'editor' | 'notebook' }
+  const visits = new NavStack<Visit>(v => viewKey(v, fileKey));
+  const visitExists = (v: Visit) => {
+    const obj = ws.getFile(v.fsPath)?.objects.get(v.objectId);
+    return !!obj && (!v.accessor || obj.accessors.some(a => a.kind === v.accessor));
+  };
+  const updateNavContext = () => {
+    void vscode.commands.executeCommand('setContext', 'twincatExplorer.canNavigateBack', visits.canGoBack);
+    void vscode.commands.executeCommand('setContext', 'twincatExplorer.canNavigateForward', visits.canGoForward);
+  };
+  const onActiveTab = () => {
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    const input = tab?.input;
+    const kind = input instanceof vscode.TabInputCustom && input.viewType === OBJECT_EDITOR ? 'editor'
+      : input instanceof vscode.TabInputNotebook && input.notebookType === OBJECT_NOTEBOOK ? 'notebook' : undefined;
+    const ref = kind && parseObjectUri((input as vscode.TabInputCustom | vscode.TabInputNotebook).uri);
+    if (!kind || !ref) return;
+    visits.visit({ fsPath: ref.fsPath, objectId: ref.objectId, accessor: ref.accessor, kind });
+    updateNavContext();
+  };
+  const navigate = async (forward: boolean) => {
+    const v = forward ? visits.goForward(visitExists) : visits.goBack(visitExists);
+    updateNavContext();
+    if (!v) return;
+    if (v.kind === 'notebook') await openObject(v.fsPath, v.objectId, { accessor: v.accessor });
+    else await openSplit(v.fsPath, v.objectId, { accessor: v.accessor });
+  };
+  updateNavContext();
+  context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs(onActiveTab),
+    vscode.window.tabGroups.onDidChangeTabGroups(onActiveTab),
+    vscode.commands.registerCommand('twincatExplorer.navigateBack', () => navigate(false)),
+    vscode.commands.registerCommand('twincatExplorer.navigateForward', () => navigate(true)),
+  );
 
   /** The object view of the active editor: a split editor, an object notebook, or the commit diff panel. */
   const activeObject = (): HistoryTarget | undefined => {

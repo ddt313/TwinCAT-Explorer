@@ -1,13 +1,14 @@
 // What the browser extension shows for one TwinCAT file of a pull request: the object views of the file (POU,
-// methods, properties and their accessors, actions, transitions) in the order of the file, each added, modified,
-// deleted or unchanged, with the line diff of each of its sections (Declaration above Implementation) and the
-// line of the XML file each section line is on. Platform-free, like the core it is built on.
+// methods, properties and their accessors, actions, transitions) in the order of the TwinCAT tab's tree (XAE's: the
+// folders inside the POU first, then by name), each added, modified, deleted or unchanged, with the line diff of each
+// of its sections (Declaration above Implementation) and the line of the XML file each section line is on. Platform-free, like the core it is built on.
 
 import { ViewChange, changeKey, metadataChange, onlyTmcHashChanged, viewChanges } from '../../src/core/objectChanges';
 import { Accessor, viewLabel, viewSections } from '../../src/core/objectText';
 import {
   DutKind, ObjectKind, PouKind, Section, TcObject, TcSourceFile, fileLineAt, normalizeEol, parseTcText, sectionFileLines,
 } from '../../src/core/tcfile';
+import { compareLabels } from '../../src/core/treeLabels';
 import { diffLines } from './lineDiff';
 
 export type ObjectChangeKind = 'added' | 'modified' | 'deleted' | 'unchanged';
@@ -159,6 +160,7 @@ export function buildFileView(input: FileInput): FileView {
     for (const c of changes) if (c.change === 'deleted' && c.accessor && c.objectId === obj.id) push(c.objectId, c.accessor, c);
   }
   for (const c of changes) if (c.change === 'deleted' && !after?.objects.has(c.objectId)) push(c.objectId, undefined, c);
+  view.objects.sort(compareInTree);
 
   for (const o of view.objects) view.counts[o.change]++;
   if (view.counts.added + view.counts.modified + view.counts.deleted === 0 && before && after) {
@@ -166,6 +168,25 @@ export function buildFileView(input: FileInput): FileView {
       : metadataChange(before.text, after.text);
   }
   return view;
+}
+
+/**
+ * The order of the tree (treeModel): the file's own object first; then, at each level of the folders inside it, the
+ * folders before the objects, each by name; a property's Get and Set under it. Stable: an object deleted beside one
+ * added under its name stays after it, as in the tree.
+ */
+function compareInTree(a: ObjectView, b: ObjectView): number {
+  if (a.depth === 0 || b.depth === 0) return a.depth - b.depth;
+  const path = (o: ObjectView): [number, string][] => [
+    ...o.folderPath.map((name): [number, string] => [0, name]), [1, o.name], ...(o.accessor ? [[1, o.accessor] as [number, string]] : []),
+  ];
+  const x = path(a);
+  const y = path(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const d = x[i][0] - y[i][0] || compareLabels(x[i][1], y[i][1]);
+    if (d !== 0) return d;
+  }
+  return x.length - y.length;
 }
 
 function objectView(before: TcSourceFile | undefined, after: TcSourceFile | undefined, objectId: string,
@@ -262,4 +283,31 @@ function sectionView(before: TcSourceFile | undefined, after: TcSourceFile | und
 /** Lines of a section text; an empty section has none. */
 function lines(text: string): string[] {
   return text === '' ? [] : text.split('\n');
+}
+
+/** A row of a split diff: the section line on its left (the base) and on its right (the head), by index in the section. */
+export interface SplitRow {
+  left?: number;
+  right?: number;
+}
+
+/**
+ * The rows of a split diff of the section lines `[from, to)`, as GitHub's and GitLab's split views lay them out: an
+ * unchanged line on both sides, and in each run of changes its deleted lines beside its added ones, in order, the
+ * longer side's extra lines beside nothing.
+ */
+export function splitRows(lines: readonly DiffLine[], from = 0, to = lines.length): SplitRow[] {
+  const rows: SplitRow[] = [];
+  for (let k = from; k < to;) {
+    if (lines[k].kind === 'same') {
+      rows.push({ left: k, right: k });
+      k++;
+      continue;
+    }
+    const dels: number[] = [];
+    const adds: number[] = [];
+    while (k < to && lines[k].kind !== 'same') (lines[k].kind === 'del' ? dels : adds).push(k++);
+    for (let p = 0; p < Math.max(dels.length, adds.length); p++) rows.push({ left: dels[p], right: adds[p] });
+  }
+  return rows;
 }

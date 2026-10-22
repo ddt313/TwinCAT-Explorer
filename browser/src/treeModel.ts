@@ -1,8 +1,9 @@
 // The XAE-like tree of a pull request's TwinCAT changes: the folders of the changed files; each file as its POU,
 // DUT, GVL or interface; under it the methods, properties and their Get/Set, actions and transitions that
 // changed, in the folders TwinCAT keeps inside a POU. Sorted as in XAE's Solution Explorer (folders first, then by
-// name); files without code changes go to groups of their own, as in the VS Code extension's TwinCAT Changes view.
-// Platform-free.
+// name), or the folders and files in the order of the host's page beside it, when it is given; files without code
+// changes go to groups of their own, as in the VS Code extension's TwinCAT Changes view. The change's other files are
+// there too, by their names, so that the tab lists all its files, as the host's own tree does. Platform-free.
 
 import { Accessor } from '../../src/core/objectText';
 import { accessorIconName, compareLabels, objectIconName, objectTreeLabel } from '../../src/core/treeLabels';
@@ -14,6 +15,8 @@ export interface TreeFile {
   /** Path at the head (for a deleted file: at the base), and at the base when renamed. */
   path: string;
   oldPath?: string;
+  /** A file that is not TwinCAT's, not read: its change, from the list of the change's files. */
+  other?: NodeChange;
   /** Undefined while the file is being read. */
   view?: FileView;
   error?: string;
@@ -95,7 +98,17 @@ function addMember(file: TreeNode, path: string, o: ObjectView, comments: number
   });
 }
 
+/** A file that is not TwinCAT's: its name and its change, as in the host's tree. */
+function otherNode(f: TreeFile): TreeNode {
+  return {
+    id: `file:${f.path}`, kind: 'file', label: baseName(f.path), icon: 'file', file: f.path, change: f.other,
+    description: f.oldPath ? moved(f.path, f.oldPath) : undefined, tooltip: f.oldPath ? `${f.path}\nRenamed from ${f.oldPath}` : f.path,
+    comments: f.comments?.total || undefined, children: [],
+  };
+}
+
 function fileNode(f: TreeFile): TreeNode {
+  if (f.other) return otherNode(f);
   const v = f.view;
   const root = v?.root;
   const node: TreeNode = {
@@ -137,13 +150,28 @@ function compress(node: TreeNode): void {
   }
 }
 
-function sort(node: TreeNode): void {
+/**
+ * Sorts as XAE does; the folders and files, when `paths` is given, by the first path in them in that order: the
+ * host's order of its files, where a folder's files come one after the other.
+ */
+function sort(node: TreeNode, paths?: (a: string, b: string) => number): void {
   const rank = (n: TreeNode) => (n.kind === 'folder' || n.kind === 'innerFolder' ? 0 : 1);
-  node.children.sort((a, b) => rank(a) - rank(b) || compareLabels(a.label, b.label));
-  for (const c of node.children) sort(c);
+  const first = (n: TreeNode): string | undefined => {
+    if (n.kind === 'file') return n.file;
+    if (n.kind !== 'folder') return undefined;
+    return n.children.map(first).filter((p): p is string => p !== undefined).sort(paths)[0];
+  };
+  const byPath = (a: TreeNode, b: TreeNode) => {
+    const x = paths && first(a);
+    const y = paths && first(b);
+    return x !== undefined && y !== undefined ? paths!(x, y) : undefined;
+  };
+  node.children.sort((a, b) => byPath(a, b) ?? (rank(a) - rank(b) || compareLabels(a.label, b.label)));
+  for (const c of node.children) sort(c, paths);
 }
 
-export function buildTree(files: TreeFile[]): TreeNode[] {
+/** The tree of the files; `paths`, the host's order of its files, for the order of the folders and files. */
+export function buildTree(files: TreeFile[], paths?: (a: string, b: string) => number): TreeNode[] {
   const top: TreeNode = { id: 'folder:', kind: 'folder', label: '', children: [] };
   const build: TreeNode[] = [];
   const projects: TreeNode[] = [];
@@ -171,24 +199,24 @@ export function buildTree(files: TreeFile[]): TreeNode[] {
     parent.children.push(fileNode(f));
   }
   compress(top);
-  sort(top);
+  sort(top, paths);
   const groups = [[BUILD_OUTPUT, build], ['Project files', projects]] as const;
   const out = [...top.children];
   for (const [label, children] of groups) {
     if (children.length === 0) continue;
     const group: TreeNode = { id: `group:${label}`, kind: 'group', label, description: String(children.length), children: [...children] };
-    sort(group);
+    sort(group, paths);
     out.push(group);
   }
   return out;
 }
 
-/** Counts for the panel's title: changed files and object views, files still being read. */
+/** Counts for the panel's title: changed files (all of them) and object views, TwinCAT files still being read. */
 export function treeSummary(files: TreeFile[]): { files: number; objects: number; reading: number } {
   let objects = 0;
   let reading = 0;
   for (const f of files) {
-    if (!f.view && !f.error) reading++;
+    if (!f.view && !f.error && !f.other) reading++;
     objects += f.view?.objects.filter(o => o.change !== 'unchanged').length ?? 0;
   }
   return { files: files.length, objects, reading };

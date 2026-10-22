@@ -540,6 +540,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Open Changes as TwinCAT Notebook` | Compare a whole file with `HEAD` (or the index), section by section. |
 | `TwinCAT: Compare with Git Ref as TwinCAT Notebook...` | Compare a whole file with any branch, tag or commit. |
 | `TwinCAT: Show History` | Show the commits that changed the object, in the TwinCAT History view. |
+| `TwinCAT: Go Back` / `TwinCAT: Go Forward` | The TwinCAT object shown before or after in the editors (also the arrows in the title bar of the split editor and of object notebooks). VS Code's own Go Back loses an object once its preview tab is replaced by the next one. |
 | `TwinCAT: Open Current Version` | From the commit diff panel, open the object as it is now. |
 | `TwinCAT: Toggle Line Blame` | Turn the current line blame of the split editor on or off. |
 | `TwinCAT: Check All Structured Text` | Analyse every section of every project and report the problems. |
@@ -566,6 +567,7 @@ Commit SHA and Copy Name.
 | Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property |
 | Shift+F2 | split editor, notebook cells | Auto Declare... |
 | Alt+F5 / Shift+Alt+F5 | split editor | Next / previous change vs `HEAD` |
+| Alt+Left / Alt+Right (macOS: Ctrl+- / Ctrl+Shift+-) | split editor, object notebooks, TwinCAT tree | TwinCAT: Go Back / Go Forward through the objects shown |
 | F1, Ctrl+Shift+P, Ctrl+P | split editor | The VS Code pickers |
 | Ctrl+K S, Ctrl+K W, Ctrl+K Ctrl+W, ... | split editor | The common VS Code `Ctrl+K` chords (see the limitations) |
 

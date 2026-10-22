@@ -567,6 +567,9 @@ function editorOptions(section: PaneSection): Monaco.editor.IStandaloneEditorCon
     theme: THEME,
     readOnly: !section.editable,
     automaticLayout: false,
+    // VS Code pastes and cuts in a webview with document.execCommand, which does nothing with
+    // Monaco's EditContext input: the text area takes the clipboard.
+    editContext: false,
     // Hovers and suggestions may extend beyond the pane they belong to.
     fixedOverflowWidgets: true,
     ariaLabel: section.label,
@@ -583,6 +586,7 @@ function diffOptions(section: PaneSection, collapsed: boolean): Monaco.editor.IS
     renderSideBySide: false,
     useInlineViewWhenSpaceIsLimited: true,
     automaticLayout: false,
+    editContext: false,
     fixedOverflowWidgets: true,
     ignoreTrimWhitespace: false,
     renderOverviewRuler: true,

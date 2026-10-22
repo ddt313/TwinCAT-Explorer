@@ -20,6 +20,9 @@ declare namespace chrome.storage {
     get(keys: string | string[]): Promise<Record<string, unknown>>;
     set(items: Record<string, unknown>): Promise<void>;
   };
+  const onChanged: {
+    addListener(callback: (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void): void;
+  };
 }
 
 declare namespace chrome.permissions {

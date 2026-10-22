@@ -4,6 +4,52 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.1.4 - 2026-10-22
+
+### Fixed
+- A TwinCAT view lists its objects in the order of the TwinCAT tab's tree beside it (the folders inside the POU
+  first, then by name, as XAE), not in the order of the file: a method no longer shows below a property that the tree
+  lists after it.
+
+## 0.1.3 - 2026-10-21
+
+### Added
+- A **Unified | Split** switch at the top of each TwinCAT view: *Split* shows the Declaration and Implementation diffs
+  side by side, the base on the left and the head on the right, as GitHub's split view and GitLab's side-by-side view
+  do; a deleted line beside the line added in its place, with the changed words marked.
+- The views follow the layout of the host's own diffs: GitHub's *Layout* setting (Unified, Split), GitLab's *Compare
+  changes* (Inline, Side-by-side), when the page opens and when it is changed there. The switch changes the views of
+  the page until then; on a page that does not show its layout, the last choice of the switch is kept.
+- In the popup, on github.com, gitlab.com and the sites turned on: *Add the toggles and the TwinCAT tab to its review
+  pages on its own* (on by default). Unchecked, the site's pages show nothing of the extension until *Start in this
+  tab*, which adds them to the page open without a reload.
+
+### Changed
+- The commits a review page compares are looked for once a TwinCAT view or the TwinCAT tab is turned on, no longer
+  when the page opens: a page where the extension is not used makes no request to GitHub's API (whose limit without
+  a token, 60 requests an hour, the review comments need too).
+- The TwinCAT tab lists all the change's files, as the host's own tree does: the files that are not TwinCAT's
+  (`.md`, `.java`, …) by their names, with their A, M, D or R badge and their comment threads, in the same folders
+  and order. A click on one shows the host's diff of the file.
+
+## 0.1.2 - 2026-10-21
+
+### Fixed
+- On a GitLab merge request's *Changes* tab showing one commit (or one version, or a comparison of versions), the
+  TwinCAT tab lists the files of that commit only, not all the merge request's, and their changes are those of the
+  commit: a file the merge request changed in another commit is no longer there, shown as deleted, doing nothing
+  when clicked.
+- The same on a GitHub pull request's *Files changed* of one commit or a range of commits (`/files/<sha>`,
+  `/changes/<from>..<to>`): the TwinCAT tab reads that commit's or range's diff, not the pull request's. When the page
+  does not name the commits it compares, those of its URL are taken (public repositories), not the pull request's.
+- A click on an object in the TwinCAT tab, when its file's view is on already, scrolls straight to the object, no
+  longer to the top of the file first.
+
+### Changed
+- The TwinCAT tab puts the folders and files in the order of the page's diffs: on GitLab a folder before the files
+  beside it, names compared case by case (`ModuleTests` before `Modules`); on GitHub git's order of the whole paths.
+  The objects in a file keep XAE's order.
+
 ## 0.1.1 - 2026-10-21
 
 ### Fixed

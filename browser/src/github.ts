@@ -4,17 +4,23 @@
 
 import { ReviewThread, Side, ThreadPosition } from './comments';
 import { Commits } from './params';
+import { DiffStyle } from './protocol';
 
 export interface PullRequest {
   owner: string;
   repo: string;
   number: number;
+  /** The page shows one commit (`<sha>`) or a range of them (`<from>..<to>`), not the whole pull request. */
+  commits?: string;
 }
 
-/** The pull request of a "Files changed" page (`/o/r/pull/7/files`, `/changes`, or a commit range of them). */
+/** The pull request of a "Files changed" page (`/o/r/pull/7/files`, `/changes`, or a commit or a range of them). */
 export function filesPage(pathname: string): PullRequest | undefined {
-  const m = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/(?:files|changes)(?:\/|$)/.exec(pathname);
-  return m ? { owner: m[1], repo: m[2], number: Number(m[3]) } : undefined;
+  const m = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/(?:files|changes)(?:\/|$)([0-9a-f]{7,64}(?:\.\.[0-9a-f]{7,64})?(?=\/|$))?/.exec(pathname);
+  if (!m) return undefined;
+  const pr: PullRequest = { owner: m[1], repo: m[2], number: Number(m[3]) };
+  if (m[4]) pr.commits = m[4];
+  return pr;
 }
 
 /** A file as github.com serves it with the user's session (it redirects to raw.githubusercontent.com), as a template. */
@@ -22,9 +28,16 @@ export function githubRawTemplate(pr: PullRequest): string {
   return `https://github.com/${pr.owner}/${pr.repo}/raw/{sha}/{path}`;
 }
 
-/** The pull request's diff as github.com serves it with the session: what the page shows, merge base to head. */
+/**
+ * The diff of what the page shows as github.com serves it with the session: the pull request's (merge base to head),
+ * a commit's (its parent to it), or a range's (`from` is an ancestor of `to`: the comparison from their merge base is
+ * the same).
+ */
 export function pullDiffUrl(pr: PullRequest): string {
-  return `https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}.diff`;
+  const repo = `https://github.com/${pr.owner}/${pr.repo}`;
+  if (!pr.commits) return `${repo}/pull/${pr.number}.diff`;
+  const [from, to] = pr.commits.split('..');
+  return to ? `${repo}/compare/${from}...${to}.diff` : `${repo}/commit/${from}.diff`;
 }
 
 /** A page of the pull request's review comments, from the REST API (a public repository needs no token). */
@@ -157,6 +170,11 @@ export function filesInDiff(diff: string): DiffFile[] {
   return out;
 }
 
+/** The order of the files of GitHub's diff, git's: by their whole paths, as bytes (`Z` before `a`, `a.TcPOU` before `a/`). */
+export function compareGithubPaths(a: string, b: string): number {
+  return a === b ? 0 : a < b ? -1 : 1;
+}
+
 const SHA = '[0-9a-f]{40}';
 
 /**
@@ -209,4 +227,17 @@ export function shaKeys(text: string): [string, string][] {
     from = re.lastIndex;
   }
   return out;
+}
+
+/**
+ * The layout of GitHub's diffs, as its *Layout* setting shows them: from a row of the page's diff with a line on both
+ * sides, given what each of its cells holds (`L`: the base's line number, `R`: the head's, `-`: other), the two numbers
+ * side by side before the code (unified) or each before its side's code (split); else the URL's `diff` (`?diff=split`).
+ */
+export function githubDiffStyle(search: string, cells?: readonly string[]): DiffStyle | undefined {
+  const left = cells?.indexOf('L') ?? -1;
+  const right = cells?.indexOf('R') ?? -1;
+  if (left >= 0 && right > left) return right === left + 1 ? 'unified' : 'split';
+  const diff = new URLSearchParams(search).get('diff');
+  return diff === 'split' || diff === 'unified' ? diff : undefined;
 }

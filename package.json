@@ -1254,7 +1254,7 @@
     "watch": "tsc -w -p .",
     "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
     "test": "npm run compile && npm run test:unit",
-    "package": "vsce package --no-dependencies",
+    "package": "node scripts/marketplace-readme.js && vsce package --no-dependencies --readme-path out/README.marketplace.md",
     "vscode:prepublish": "npm run compile",
     "install:local": "node scripts/install.js",
     "build:webview": "node scripts/build-webview.js",

@@ -6,7 +6,15 @@ Implementation**, and brings Structured Text language features and git views tha
 The code stays in the `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` XML files, and saving writes back only
 the sections you edited.
 
+![The TwinCAT tree beside the split editor of a function block: the Declaration above the Implementation](docs/images/vscode-overview.png)
+
+<!-- browser-only:start -->
+A companion [browser extension](#browser-extension) shows the TwinCAT files of a GitHub pull request or a
+GitLab merge request the same way, as objects instead of XML.
+<!-- browser-only:end -->
+
 - [Features](#features)
+- [Browser extension](#browser-extension) <!-- browser-only -->
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Getting started](#getting-started)
@@ -302,6 +310,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 These work in both panes and in notebook cells. They come from a parser of the TwinCAT dialect
 (`EXTENDS`, `IMPLEMENTS`, `THIS^`, `SUPER^`, properties, `REFERENCE TO`, ...).
 
+![Completion after fbConveyor. lists the methods of FB_Conveyor, and the call with its arguments](docs/images/vscode-language.png)
+
 - **Go to Definition** (F12, Ctrl+click), including members reached through variable types and
   inheritance. `fbValve.Open()` opens the `Open` method of `FB_Valve`, or of the function block it
   extends, at the method name; a local variable moves the cursor to the declaration pane.
@@ -364,6 +374,8 @@ These work in both panes and in notebook cells. They come from a parser of the T
 
 Three views in the Source Control sidebar.
 
+![TwinCAT Changes lists the changed methods and accessors; a click shows the change of FB_Valve.Close against HEAD](docs/images/vscode-changes.png)
+
 **TwinCAT Changes** lists the objects that differ (POU, methods, properties, accessors), grouped by POU
 and marked `M`, `A` or `D`.
 
@@ -402,6 +414,8 @@ and marked `M`, `A` or `D`.
 - **`Project files`** holds the other `.tsproj`/`.plcproj`/`.xti` changes; a click shows their XML diff.
 
 **TwinCAT Commits** works like the commits view of GitLens.
+
+![A commit of TwinCAT Commits expanded to the objects it changed, and its change of FB_FillSequence in the commit diff panel](docs/images/vscode-commits.png)
 
 - **The list:**
   - Every commit of `HEAD`, newest first, as `git log` lists them, 30 at a time
@@ -459,6 +473,35 @@ and marked `M`, `A` or `D`.
   `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` hides the top toolbar and the insert buttons
   for every notebook. It changes `notebook.globalToolbar` and `notebook.insertToolbarLocation` in the
   user settings, and the same command shows them again.
+
+<!-- browser-only:start -->
+## Browser extension
+
+A read-only extension for Chrome and Edge, in [`browser/`](browser), for code review: on a GitHub pull
+request's *Files changed* tab or a GitLab merge request's *Changes* tab, a changed `.TcPOU`, `.TcDUT`,
+`.TcGVL` or `.TcIO` file shows as TwinCAT objects instead of XML, in the layout of the commit diff panel.
+
+- **TwinCAT view:** a toggle in the header of each TwinCAT file replaces the host's XML diff with the
+  objects the change touched (POU, methods, properties, accessors, actions, transitions), each marked
+  `M`, `A` or `D`, its Declaration diff above its Implementation diff. Unchanged objects and lines are
+  folded.
+- **Review threads** show under the lines they are on, and every line links to its XML line in the
+  host's own diff, where comments are written.
+- **Unified or Split**, following the host's own diff setting, with Structured Text highlighting and
+  word-level changes.
+- **TwinCAT tab:** above the host's file tree, the change as XAE's Solution Explorer shows a project,
+  with the number of threads on each object. A click opens that object's view.
+
+![The TwinCAT tree of a pull request beside the TwinCAT view of FB_Conveyor: a new method with its review thread, and a changed Set accessor](docs/images/browser-object-view.png)
+
+![The TwinCAT view of FB_FillSequence in Split layout, dark theme](docs/images/browser-split-view.png)
+
+It is released apart from the VS Code extension, as a zip attached to the `browser-v*`
+[GitHub releases](https://github.com/ddt313/TwinCAT-Explorer/releases), and loaded unpacked
+(`chrome://extensions` or `edge://extensions`, developer mode, *Load unpacked*). How to build it, use it
+on a self-managed GitLab instance and what it reads is in [`browser/SPIKE.md`](browser/SPIKE.md); its
+changes are in [`browser/CHANGELOG.md`](browser/CHANGELOG.md).
+<!-- browser-only:end -->
 
 ## Requirements
 
@@ -744,6 +787,15 @@ npm run package
   oniguruma) with esbuild into `out/webview`.
 - `npm run package` builds `explorer-for-twincat-<version>.vsix`. `npm run install:local -- <profile>`
   installs it into that VS Code profile (`default` for the Default profile).
+- The `.vsix` carries this README without the parts about the browser extension, so the Marketplace
+  page shows the VS Code extension only: `npm run package` runs `scripts/marketplace-readme.js`, which
+  leaves out the lines between `<!-- browser-only:start -->` and `<!-- browser-only:end -->`, and the
+  lines that end with `<!-- browser-only -->` (for an item of a list), and writes
+  `out/README.marketplace.md` for vsce's `--readme-path`. Mark new text about the browser extension
+  the same way.
+- The screenshots are in `docs/images`, outside the `.vsix`: vsce turns their relative links into
+  links to the repository on GitHub, so a new image must be pushed before the version that shows it is
+  published.
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser
   and the resolver on a whole TwinCAT repository.
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the

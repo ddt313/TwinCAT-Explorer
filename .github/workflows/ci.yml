@@ -85,7 +85,7 @@ jobs:
             echo "::error::The .vsix would hold files of browser/: see .vscodeignore."
             exit 1
           fi
-          npx vsce package --no-dependencies --out explorer-for-twincat.vsix
+          npm run package -- --out explorer-for-twincat.vsix
 
       - uses: actions/upload-artifact@v7
         with:

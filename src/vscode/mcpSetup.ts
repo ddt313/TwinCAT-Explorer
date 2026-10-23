@@ -1,14 +1,17 @@
 // `TwinCAT: Set Up MCP Server for Claude Code`: registers the MCP server of this version of the extension with
-// Claude Code for a workspace folder (scope local, in ~/.claude.json), and, after an update of the extension,
-// offers to do it again, since the path of out/mcp/server.js changes with each version.
+// Claude Code for a workspace folder (scope local, in ~/.claude.json), gives the folder's Claude Code settings the
+// permission rules the user picks, and, after an update of the extension, offers to do it again, since the path of
+// out/mcp/server.js changes with each version.
 
 import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { findOnPath } from '../core/paths';
 import {
-  MCP_SERVER_NAME, claudeAddArgs, claudeRemoveArgs, commandLine, findClaude, serverLaunch,
+  MCP_READ_TOOLS, MCP_SERVER_NAME, PermissionRules, TWINCAT_SOURCE_EXTENSIONS, addFolderPermissions, claudeAddArgs,
+  claudeRemoveArgs, commandLine, findClaude, permissionRules, serverLaunch,
 } from '../core/mcpSetup';
+import { runGit } from './git';
 
 /** globalState: the server path each folder was set up with (fsPath -> path of server.js). */
 const STATE_KEY = 'twincatExplorer.mcpSetup';
@@ -33,6 +36,27 @@ async function pickFolder(): Promise<vscode.WorkspaceFolder | undefined> {
   return picked?.folder;
 }
 
+/** The permission rules the user picks for the folder's Claude Code settings (both by default); undefined: cancelled. */
+async function pickRules(folder: string): Promise<PermissionRules | undefined> {
+  const files = TWINCAT_SOURCE_EXTENSIONS.map(e => `.${e}`).join(', ');
+  const items = [
+    { label: 'Run the reading tools without asking', detail: MCP_READ_TOOLS.join(', '), picked: true, reads: true },
+    {
+      label: 'Keep Claude Code\'s Edit and Write tools off the TwinCAT XML',
+      detail: `They refuse ${files} files, so that code changes go through the server`, picked: true, reads: false,
+    },
+  ];
+  const picked = await vscode.window.showQuickPick(items, {
+    title: `Claude Code permission rules for ${folder}`, canPickMany: true,
+    placeHolder: 'Rules for the folder\'s .claude/settings.local.json (which git ignores); none: leave it as it is',
+  });
+  return picked && permissionRules({ reads: picked.some(p => p.reads), xml: picked.some(p => !p.reads) });
+}
+
+/**
+ * Registers the server for a folder: the one given (again, after an update: its permission rules stay as they
+ * are), or one the user picks, with the permission rules they pick.
+ */
 export async function setUpMcpServer(context: vscode.ExtensionContext, folderPath?: string): Promise<void> {
   const serverJs = context.asAbsolutePath('out/mcp/server.js');
   if (!fs.existsSync(serverJs)) {
@@ -54,6 +78,8 @@ export async function setUpMcpServer(context: vscode.ExtensionContext, folderPat
       `TwinCAT: Claude Code (claude) is not on PATH. The command to run in ${folder} is on the clipboard: ${line}`);
     return;
   }
+  const rules = folderPath ? permissionRules({ reads: false, xml: false }) : await pickRules(folder);
+  if (!rules) return;
   const result = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Registering the TwinCAT MCP server with Claude Code' },
     async () => {
@@ -67,9 +93,10 @@ export async function setUpMcpServer(context: vscode.ExtensionContext, folderPat
   }
   const state = context.globalState.get<Record<string, string>>(STATE_KEY) ?? {};
   await context.globalState.update(STATE_KEY, { ...state, [folder]: serverJs });
+  const permissions = await addFolderPermissions(runGit, folder, rules);
   void vscode.window.showInformationMessage(
     `TwinCAT: the MCP server "${MCP_SERVER_NAME}" is set up for ${folder}, for you only (Claude Code's local scope, in ~/.claude.json; `
-    + 'nothing is written to the repository). Claude Code sessions started in that folder from now on have its tools.');
+    + `nothing is written to the repository). Claude Code sessions started in that folder from now on have its tools.${permissions ? ` ${permissions}` : ''}`);
 }
 
 /** After an update of the extension, offers to set the server up again for the open folders that had it. */

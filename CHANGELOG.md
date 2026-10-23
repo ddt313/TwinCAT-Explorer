@@ -16,7 +16,9 @@ All notable changes to Explorer for TwinCAT. The format follows
   Check all objects.
 - `TwinCAT: Set Up MCP Server for Claude Code` registers that server with Claude Code for a workspace
   folder (`claude mcp add`, local scope: in `~/.claude.json`, not in the repository), and offers to do it
-  again after an update of the extension.
+  again after an update of the extension. It also offers the folder's `.claude/settings.local.json`, which
+  git ignores, the rules that let Claude Code run the server's reading tools without asking and keep its
+  Edit and Write tools off `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` files.
 
 ## 0.14.2 - 2026-10-23
 

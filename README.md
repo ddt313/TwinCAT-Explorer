@@ -629,6 +629,18 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
   - Without `claude` on PATH, the command puts the command line on the clipboard instead. By hand, in the
     folder: `claude mcp add twincat -- node "<extension folder>/out/mcp/server.js"` (or
     `out/mcp/server.js` of a build of this repository).
+  - It then asks which permission rules the folder's own Claude Code settings,
+    `.claude/settings.local.json`, get (both are picked; none leaves the file as it is):
+    - The reading tools (`mcp__twincat__read`, `mcp__twincat__references`, ...) run without asking.
+    - Claude Code's Edit and Write tools refuse `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` files
+      (`Edit(**/*.TcPOU)`, ... in `deny`), so that code changes go through the server. A workflow that
+      edits these files some other way, such as a script run through Bash, may be refused too: leave this
+      rule out for it.
+    - Git ignores that file: Claude Code's own global ignore usually has it, and else the command adds it
+      to the clone's `.git/info/exclude`, never to a file of the repository.
+    - Rules already there stay. A `settings.local.json` that the repository tracks, or one with comments,
+      is left as it is, and the message lists the rules to add by hand. Delete the rules from the file to
+      take them back. Setting the server up again after an update leaves the rules as they are.
 - **Folder:** the server works on the folder it is started in (`--root <folder>` names another one).
 - **Names:** objects are named like the split editor's tabs: `FB_Valve`, `FB_Valve.Open`,
   `FB_Valve.Speed.Get`; with several PLC projects, `Machine:FB_Valve`. Code is read and written per
@@ -746,7 +758,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Toggle Line Blame` | Turn the current line blame of the split editor on or off. |
 | `TwinCAT: Check All Structured Text` | Analyse every section of every project and report the problems. |
 | `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` | Hide (or show again) the notebook toolbars in the user settings. |
-| `TwinCAT: Set Up MCP Server for Claude Code` | Register the extension's MCP server with Claude Code for a workspace folder, in your `~/.claude.json` (see [MCP server for AI agents](#mcp-server-for-ai-agents)). |
+| `TwinCAT: Set Up MCP Server for Claude Code` | Register the extension's MCP server with Claude Code for a workspace folder, in your `~/.claude.json`, and give the folder's `.claude/settings.local.json` its permission rules (see [MCP server for AI agents](#mcp-server-for-ai-agents)). |
 | `TwinCAT Changes: Show Uncommitted Changes (vs HEAD)` | Changes view scope: uncommitted changes. |
 | `TwinCAT Changes: Show Branch Changes (vs Merge Base)` | Changes view scope: what the branch changed since it left another one. |
 | `TwinCAT Changes: Compare Branch With...` | Pick the branch the branch changes are compared with. |

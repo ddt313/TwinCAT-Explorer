@@ -8,7 +8,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Accessor } from '../core/objectText';
 import { MemberSpec, addMember, isSpecialMethod, removeMember } from '../core/splice';
-import { TcObject, TcSourceFile, encodeText, parseTcFile, parseTcText } from '../core/tcfile';
+import { rewriteSourceFile } from '../core/operations';
+import { TcObject, TcSourceFile, encodeText, parseTcText } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
 import { interfaceStubs, newMemberNameProblem, typeProblem } from '../lang/members';
@@ -264,9 +265,7 @@ export class MemberCommands {
     if (this.refuseUnsaved(fsPath)) return undefined;
     let file: TcSourceFile;
     try {
-      const read = parseTcFile(fsPath, fs.readFileSync(fsPath));
-      file = parseTcText(fsPath, change(read), read.bom);
-      fs.writeFileSync(fsPath, encodeText(file.text, read.bom));
+      file = rewriteSourceFile(fsPath, change);
     } catch (e) {
       void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
       return undefined;

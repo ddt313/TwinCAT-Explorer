@@ -8,11 +8,11 @@
 import * as vscode from 'vscode';
 import { LanguageIndex, SectionContext } from '../lang/index';
 import { Analysis, Analyzer, Occurrence, analyze } from '../lang/analyzer';
+import { SectionFeatures, describeOwner } from '../lang/features';
 import { Loc, Sym, Ty, tyToString } from '../lang/symbols';
 import { completionContext, expressionBeforeDot } from '../lang/completion';
 import { CallParam, Callable, callArguments, callSnippet, callableOfSymbol, returnsValue, signatureAt } from '../lang/calls';
 import { snippetsAt } from '../lang/snippets';
-import { implementations } from '../lang/hierarchy';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { positionIn } from '../core/objectText';
 import { TcSourceFile, sectionOffsetToFileOffset } from '../core/tcfile';
@@ -158,44 +158,20 @@ function symbolKind(s: Sym): vscode.SymbolKind {
   }
 }
 
-/** Where a symbol is declared, for hovers. */
-export function describeOwner(s: Sym): string {
-  if (s.scope.isLibrary) return s.kind === 'builtin' ? 'Built-in' : `Library ${s.scope.name}`;
-  switch (s.kind) {
-    case 'var': {
-      const owner = s.owner.kind === 'method' || s.owner.kind === 'property' || s.owner.kind === 'action' || s.owner.kind === 'transition'
-        ? `${s.owner.owner.name}.${s.owner.name}${s.accessor ? '.' + s.accessor : ''}` : s.owner.name;
-      return `${s.section} of ${owner}`;
-    }
-    case 'method': return `Method of ${s.owner.name}`;
-    case 'property': return `Property of ${s.owner.name}`;
-    case 'action': return `Action of ${s.owner.name}`;
-    case 'transition': return `Transition of ${s.owner.name}`;
-    case 'pou': return `${{ FB: 'Function block', PRG: 'Program', FUN: 'Function', ITF: 'Interface' }[s.pouKind]} in ${s.scope.name}`;
-    case 'type': return `${s.dutKind === 'enum' ? 'Enumeration' : s.dutKind === 'alias' ? 'Alias' : s.dutKind === 'union' ? 'Union' : 'Structure'} in ${s.scope.name}`;
-    case 'enumValue': return `Value of ${s.owner.name}`;
-    case 'gvl': return `Global variable list in ${s.scope.name}`;
-    case 'namespace': return 'Library namespace';
-    case 'builtin': return 'Built-in';
-  }
-}
-
-interface CachedAnalysis {
-  text: string;
-  analysis: Analysis;
-}
+export { describeOwner };
 
 export class LanguageFeatures implements
   vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.SignatureHelpProvider, vscode.ReferenceProvider,
   vscode.ImplementationProvider, vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
-  /** Analyses per section, of the index version `cacheVersion`. */
-  private readonly cache = new Map<string, CachedAnalysis>();
-  private cacheVersion = -1;
+  /** The section-level features this class adapts to VS Code. */
+  readonly sections: SectionFeatures;
   private readonly symbolLocs = new WeakMap<vscode.SymbolInformation, Loc>();
   /** Set by the extension: where locations point when TwinCAT objects open in the split editor. */
   splitLocator?: SplitLocator;
 
-  constructor(private readonly index: LanguageIndex, private readonly ws: TcWorkspace) {}
+  constructor(private readonly index: LanguageIndex, private readonly ws: TcWorkspace) {
+    this.sections = new SectionFeatures(index, () => this.ignoreSet());
+  }
 
   private ignoreSet(): Set<string> {
     const list = vscode.workspace.getConfiguration('twincatExplorer').get<string[]>('diagnostics.ignore', []);
@@ -204,21 +180,11 @@ export class LanguageFeatures implements
 
   /** Drops cached analyses, e.g. after the diagnostics settings changed. */
   clearAnalysisCache(): void {
-    this.cache.clear();
+    this.sections.clear();
   }
 
   analysisOf(ctx: SectionContext, text: string): Analysis {
-    // Analyses of an older build are never used again, and they keep its symbols in memory.
-    if (this.cacheVersion !== this.index.version) {
-      this.cache.clear();
-      this.cacheVersion = this.index.version;
-    }
-    const key = `${ctx.fileKey}|${ctx.sectionKey}`;
-    const cached = this.cache.get(key);
-    if (cached?.text === text) return cached.analysis;
-    const analysis = analyze(this.index, ctx, text, { ignore: this.ignoreSet() });
-    this.cache.set(key, { text, analysis });
-    return analysis;
+    return this.sections.analysisOf(ctx, text);
   }
 
   analysisForDocument(doc: vscode.TextDocument): { info: CellInfo; ctx: SectionContext; analysis: Analysis } | undefined {
@@ -230,7 +196,7 @@ export class LanguageFeatures implements
   }
 
   private occurrenceAt(analysis: Analysis, offset: number): Occurrence | undefined {
-    return analysis.occurrences.find(o => o.start <= offset && offset <= o.end);
+    return this.sections.occurrenceAt(analysis, offset);
   }
 
   /** Location of a symbol: in the split editor, or in its object notebook (opened in the background if needed). */
@@ -252,10 +218,7 @@ export class LanguageFeatures implements
 
   /** Where the symbol at an offset is declared (itself when the offset is on a declaration). */
   definitionAt(ctx: SectionContext, text: string, offset: number): Loc | undefined {
-    const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
-    if (!o?.sym.loc) return undefined;
-    if (o.decl) return { fileKey: ctx.fileKey, sectionKey: ctx.sectionKey, start: o.start, end: o.end };
-    return o.sym.loc;
+    return this.sections.definitionAt(ctx, text, offset);
   }
 
   hoverAt(ctx: SectionContext, text: string, offset: number): HoverResult | undefined {
@@ -319,32 +282,16 @@ export class LanguageFeatures implements
 
   /** References of the symbol at an offset, across all sections (unsaved edits included). */
   referencesAt(ctx: SectionContext, text: string, offset: number, includeDeclaration: boolean): Loc[] {
-    const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
-    return o ? this.referenceLocs(o.sym, includeDeclaration) : [];
+    return this.sections.referencesAt(ctx, text, offset, includeDeclaration);
   }
 
   referenceLocs(target: Sym, includeDeclaration: boolean): Loc[] {
-    const out: Loc[] = [];
-    for (const ctx of this.index.allContexts()) {
-      const text = this.index.sectionText(ctx.fileKey, ctx.sectionKey);
-      if (text === undefined) continue;
-      const a = this.analysisOf(ctx, text);
-      for (const occ of a.occurrences) {
-        if (occ.sym.id === target.id && (includeDeclaration || !occ.decl)) {
-          out.push({ fileKey: ctx.fileKey, sectionKey: ctx.sectionKey, start: occ.start, end: occ.end });
-        }
-      }
-    }
-    return out;
+    return this.sections.referenceLocs(target, includeDeclaration);
   }
 
-  /**
-   * Where the implementations of the symbol at an offset are declared (see implementations): the function blocks
-   * that implement an interface or extend a function block, the methods and properties that implement or override one.
-   */
+  /** Where the implementations of the symbol at an offset are declared (see SectionFeatures.implementationsAt). */
   implementationsAt(ctx: SectionContext, text: string, offset: number): Loc[] {
-    const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
-    return o ? implementations(this.index, o.sym).flatMap(s => (s.loc ? [s.loc] : [])) : [];
+    return this.sections.implementationsAt(ctx, text, offset);
   }
 
   /** Problems of a section with the given text. */

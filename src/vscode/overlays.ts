@@ -14,7 +14,7 @@ import { parseObjectText } from '../core/objectText';
 import { cellMeta } from './serializers';
 import { FILE_NOTEBOOK, OBJECT_NOTEBOOK, OBJECT_SCHEME, parseObjectUri } from './uris';
 import { anyTabShows, shownInTab, tabKinds } from './openDocs';
-import { textHash } from './objectFs';
+import { textHash } from '../core/objectText';
 
 interface Candidate {
   text: string;

@@ -15,6 +15,22 @@ test('recognizes paths inside hidden folders with either separator', async () =>
   assert.equal(isInHiddenFolder(['..', 'other', 'A.tsproj'].join(bs)), false);
 });
 
+test('finds the .tsproj files outside excluded and hidden folders', async () => {
+  const { findTsProjects } = await import('../../src/core/paths');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-find-'));
+  try {
+    for (const rel of ['Machine/Machine.tsproj', 'Lines/Line1/Line1.TSPROJ', '_Boot/Old.tsproj', 'node_modules/x/X.tsproj',
+      '.claude/worktrees/w/Machine/Machine.tsproj', 'Machine/Machine.plcproj']) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), '');
+    }
+    assert.deepEqual(findTsProjects(dir).map(p => path.relative(dir, p).split(path.sep).join('/')),
+      ['Lines/Line1/Line1.TSPROJ', 'Machine/Machine.tsproj']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a file that cannot be read gives the version read before, or a file with the error', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-read-'));
   const p = path.join(dir, 'FB_A.TcPOU');

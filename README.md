@@ -610,19 +610,26 @@ changes are in [`browser/CHANGELOG.md`](browser/CHANGELOG.md).
 
 An [MCP](https://modelcontextprotocol.io) server gives an AI agent (Claude Code, or another MCP client)
 the TwinCAT projects of a folder the way the split editor shows them, so that it never reads or edits the
-`.TcPOU` XML as text. It runs on its own, without VS Code. Run it with Claude Code from the folder of a
-TwinCAT repository, once (the path is that of the installed extension, or `out/mcp/server.js` of a
-build of this repository):
-
-```bash
-claude mcp add twincat -- node "<extension folder>/out/mcp/server.js"
-```
+`.TcPOU` XML as text. It runs on its own, without VS Code. To give it to Claude Code, run
+`TwinCAT: Set Up MCP Server for Claude Code` in the folder of a TwinCAT repository, once.
 
 <details>
 <summary>Details</summary>
 
-- **Folder and scope:** the server works on the folder it is started in (`--root <folder>` names another
-  one). `--scope local`, the default, keeps the setting out of the repository.
+- **Set Up MCP Server for Claude Code** runs Claude Code's `claude mcp add twincat --scope local` in the
+  workspace folder (it asks which one when there are several), with the `out/mcp/server.js` of the
+  installed version:
+  - Local scope: the setting is in your `~/.claude.json`, for that folder and for you only; nothing is
+    written to the repository. Claude Code sessions started in that folder from then on have the tools
+    (`mcp__twincat__*`).
+  - The server runs with `node` when it is on PATH, else with VS Code's own Electron as Node, so Node
+    need not be installed.
+  - The path changes with every version of the extension: after an update, a message offers to set the
+    server up again for the folders that had it.
+  - Without `claude` on PATH, the command puts the command line on the clipboard instead. By hand, in the
+    folder: `claude mcp add twincat -- node "<extension folder>/out/mcp/server.js"` (or
+    `out/mcp/server.js` of a build of this repository).
+- **Folder:** the server works on the folder it is started in (`--root <folder>` names another one).
 - **Names:** objects are named like the split editor's tabs: `FB_Valve`, `FB_Valve.Open`,
   `FB_Valve.Speed.Get`; with several PLC projects, `Machine:FB_Valve`. Code is read and written per
   declaration (`decl`) and implementation (`impl`), with line numbers within the section.
@@ -738,6 +745,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Toggle Line Blame` | Turn the current line blame of the split editor on or off. |
 | `TwinCAT: Check All Structured Text` | Analyse every section of every project and report the problems. |
 | `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` | Hide (or show again) the notebook toolbars in the user settings. |
+| `TwinCAT: Set Up MCP Server for Claude Code` | Register the extension's MCP server with Claude Code for a workspace folder, in your `~/.claude.json` (see [MCP server for AI agents](#mcp-server-for-ai-agents)). |
 | `TwinCAT Changes: Show Uncommitted Changes (vs HEAD)` | Changes view scope: uncommitted changes. |
 | `TwinCAT Changes: Show Branch Changes (vs Merge Base)` | Changes view scope: what the branch changed since it left another one. |
 | `TwinCAT Changes: Compare Branch With...` | Pick the branch the branch changes are compared with. |

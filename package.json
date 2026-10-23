@@ -511,6 +511,11 @@
         "command": "twincatExplorer.hideNotebookToolbars",
         "title": "Hide Notebook Toolbars (XAE-like Layout)",
         "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.setUpMcpServer",
+        "title": "Set Up MCP Server for Claude Code",
+        "category": "TwinCAT"
       }
     ],
     "menus": {

@@ -13,6 +13,9 @@ All notable changes to Explorer for TwinCAT. The format follows
   back with `undo_last_edit`. When TwinCAT XAE has the project open, the server reads and writes the code
   in XAE itself, which shows each change and saves it at once; `check` with `compiler: true` runs XAE's
   Check all objects.
+- `TwinCAT: Set Up MCP Server for Claude Code` registers that server with Claude Code for a workspace
+  folder (`claude mcp add`, local scope: in `~/.claude.json`, not in the repository), and offers to do it
+  again after an update of the extension.
 
 ## 0.14.2 - 2026-10-23
 

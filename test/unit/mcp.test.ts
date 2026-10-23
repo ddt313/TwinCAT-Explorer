@@ -291,3 +291,31 @@ test('with XAE open, members are made and deleted by CreateChild and DeleteChild
   T.deleteMember(t, { object: 'FB_Valve.M_Close', confirm: true });
   assert.deepEqual(calls, ['delete POUs^FB_Valve^M_Close', 'save FB_Valve.TcPOU']);
 }));
+
+test('the Claude Code command line of the setup: scope local, node when on PATH, else the editor as Node', async () => {
+  const { claudeAddArgs, claudeRemoveArgs, commandLine, serverLaunch } = await import('../../src/core/mcpSetup');
+  // Paths with forward slashes: a quoted path loses its backslashes through claude.cmd.
+  const js = 'C:/Users/me/.vscode/extensions/thanhdang.explorer-for-twincat-0.15.0/out/mcp/server.js';
+  const code = 'C:/Program Files/Microsoft VS Code/Code.exe';
+  assert.deepEqual(claudeAddArgs(serverLaunch(js.replace(/\//g, '\\'), true, code)), ['mcp', 'add', 'twincat', '--scope', 'local', '--', 'node', js]);
+  const electron = claudeAddArgs(serverLaunch(js, false, code.replace(/\//g, '\\')));
+  assert.deepEqual(electron, ['mcp', 'add', 'twincat', '--scope', 'local', '-e', 'ELECTRON_RUN_AS_NODE=1', '--', code, js]);
+  assert.equal(commandLine('claude', electron), `claude mcp add twincat --scope local -e ELECTRON_RUN_AS_NODE=1 -- "${code}" ${js}`);
+  assert.deepEqual(claudeRemoveArgs(), ['mcp', 'remove', 'twincat', '--scope', 'local']);
+});
+
+test('finds claude.exe or claude.cmd on a Windows PATH, full folders only', async () => {
+  const { findClaude } = await import('../../src/core/mcpSetup');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-claude-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'claude.cmd'), '');
+    if (process.platform === 'win32') {
+      assert.equal(findClaude(`relative;${dir}`, 'win32')?.toLowerCase(), path.join(dir, 'claude.cmd').toLowerCase());
+      fs.writeFileSync(path.join(dir, 'claude.exe'), '');
+      assert.equal(findClaude(`"${dir}"`, 'win32')?.toLowerCase(), path.join(dir, 'claude.exe').toLowerCase(), 'the native one first');
+    }
+    assert.equal(findClaude('relative', 'win32'), undefined);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

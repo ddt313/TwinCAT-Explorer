@@ -8,14 +8,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { FileStyle, NewObjectKind, NewObjectSpec, XAE_FILE_STYLE, fileStyleOf, newObjectText, objectExtension } from '../core/newObjects';
+import { NewObjectKind, NewObjectSpec } from '../core/newObjects';
+import { newObjectFile, newObjectFileText, projectFileStyle } from '../core/operations';
 import {
   LibraryRef, PlcProject, addCompileItem, addFolderItem, addPlaceholderReference, itemOrder, referenceTo, removeItem, renameCompileItem,
   renameFolderItems, renameTaskCalls, taskCalls,
 } from '../core/project';
 import { ChosenFile, ExistingPlan, objectIds, planExistingFiles } from '../core/existing';
 import { InstalledLibrary, libraryReference, placeholderName, readRepositories, systemRepositories } from '../core/libraries';
-import { addMember, newGuid } from '../core/splice';
+import { MemberSpec, newGuid } from '../core/splice';
 import { TcObject, decodeBytes, encodeText, fileKindFromPath, parseTcText } from '../core/tcfile';
 import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
@@ -125,20 +126,7 @@ export class ObjectCommands {
   }
 
   private fileOf(project: PlcProject, target: ObjectTarget, name: string, kind: NewObjectKind): { fsPath: string; include: string } {
-    const file = `${name}${objectExtension(kind)}`;
-    const include = target.folder ? `${target.folder}\\${file}` : file;
-    return { fsPath: path.join(project.dir, ...include.split('\\')), include };
-  }
-
-  /** The XML header, line breaks and BOM of the first readable source file of the project, else XAE 4026's. */
-  private styleOf(project: PlcProject): FileStyle {
-    for (const e of this.ws.sourceEntries) {
-      if (e.project !== project || !['pou', 'dut', 'gvl', 'itf'].includes(fileKindFromPath(e.path))) continue;
-      const file = this.ws.getFile(e.path);
-      const style = file && fileStyleOf(file);
-      if (style) return style;
-    }
-    return XAE_FILE_STYLE;
+    return newObjectFile(project, target.folder, name, kind);
   }
 
   private async askName(title: string, kind: NewObjectKind, project: PlcProject, target: ObjectTarget): Promise<string | undefined> {
@@ -756,19 +744,18 @@ export class ObjectCommands {
    */
   private async create(project: PlcProject, target: ObjectTarget, spec: NewObjectSpec): Promise<void> {
     const { fsPath, include } = this.fileOf(project, target, spec.name, spec.kind);
-    const style = this.styleOf(project);
+    const style = projectFileStyle(this.ws, project);
     let text: string;
     try {
-      text = newObjectText(spec, style);
+      let members: MemberSpec[] = [];
       if (spec.kind === 'fb' && spec.implements) {
         const found = newObjectStubs(this.index, project, spec);
         if (found.missing.length) {
           void vscode.window.showWarningMessage(`${spec.name}: not found in the workspace or the library stubs: ${found.missing.join(', ')}. Their methods and properties are not added.`);
         }
-        let file = parseTcText(fsPath, text, style.bom);
-        for (const stub of found.stubs) file = parseTcText(fsPath, addMember(file, file.root!.id, stub.spec), style.bom);
-        text = file.text;
+        members = found.stubs.map(s => s.spec);
       }
+      text = newObjectFileText(spec, style, fsPath, members);
     } catch (e) {
       void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
       return;

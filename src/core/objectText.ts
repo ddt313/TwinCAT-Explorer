@@ -4,7 +4,8 @@
 // the split editor and the notebook. Marker lines start with a private-use
 // character, so they cannot clash with Structured Text.
 
-import { Section, TcObject } from './tcfile';
+import * as crypto from 'crypto';
+import { Section, TcObject, normalizeEol } from './tcfile';
 
 export const HEADER_PREFIX = 'twincat-object ';
 export const SECTION_PREFIX = 'section ';
@@ -51,6 +52,11 @@ export interface ParsedObjectText {
 }
 
 export class ObjectTextError extends Error {}
+
+/** Hash of a section text, line breaks aside: tells an edited section from one as it was loaded. */
+export function textHash(text: string): string {
+  return crypto.createHash('sha1').update(normalizeEol(text)).digest('hex');
+}
 
 /**
  * The sections shown together, like one XAE editor: the declaration and implementation of a

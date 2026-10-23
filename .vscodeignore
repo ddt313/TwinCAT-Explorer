@@ -1,6 +1,7 @@
 **
 !package.json
-!README.md
+# README.md is not packaged as it is: npm run package gives vsce the README without the browser extension
+# (scripts/marketplace-readme.js, --readme-path), which vsce packages as the extension's README.
 !CHANGELOG.md
 !LICENSE*
 !ThirdPartyNotices.txt

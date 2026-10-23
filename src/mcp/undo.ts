@@ -40,7 +40,7 @@ export type UndoEntry = {
   undone?: boolean;
 } & (
   | { kind: 'section'; path: string; key: string; object: string; part: 'decl' | 'impl'; before: string; after: string }
-  | { kind: 'files'; files: FileChange[]; live?: LiveUndo }
+  | { kind: 'files'; files: FileChange[]; live?: LiveUndo; folders?: string[] }
 );
 
 /** An entry as `add` takes it: Omit on each kind of the union, not on their common part. */

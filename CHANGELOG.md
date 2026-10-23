@@ -7,15 +7,18 @@ All notable changes to Explorer for TwinCAT. The format follows
 
 ### Added
 - An MCP server for AI agents such as Claude Code (`out/mcp/server.js`): the TwinCAT objects of a folder
-  by their XAE names, their declaration and implementation with line numbers, definitions, references,
-  type hierarchies and the Structured Text check; edits per section, new members and objects, and
-  deletes, written as the split editor saves, refused when the code changed since it was read, and taken
-  back with `undo_last_edit`. When TwinCAT XAE has the project open, the server reads and writes the code
+  by their XAE names, their declaration and implementation with line numbers, the object and line of code
+  at a line of `git diff` or `git blame`, definitions, references, type hierarchies and the Structured
+  Text check; edits per section, new members and objects, and deletes, written as the split editor saves,
+  refused when the code changed since it was read, and taken back with `undo_last_edit` (with the folders
+  a new object made). When TwinCAT XAE has the project open, the server reads and writes the code
   in XAE itself, which shows each change and saves it at once; `check` with `compiler: true` runs XAE's
   Check all objects.
 - `TwinCAT: Set Up MCP Server for Claude Code` registers that server with Claude Code for a workspace
   folder (`claude mcp add`, local scope: in `~/.claude.json`, not in the repository), and offers to do it
-  again after an update of the extension.
+  again after an update of the extension. It also offers the folder's `.claude/settings.local.json`, which
+  git ignores, the rules that let Claude Code run the server's reading tools without asking and keep its
+  Edit and Write tools off `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` files.
 
 ## 0.14.2 - 2026-10-23
 

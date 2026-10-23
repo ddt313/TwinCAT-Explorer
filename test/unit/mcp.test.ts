@@ -102,6 +102,37 @@ test('finds definitions and references by name and by a word of a line', () => w
   assert.match(T.findSymbol(t, { query: 'fbv' }), /^FB_Valve  — Function block in Plc/m);
 }));
 
+test('locate: the object, part and line of code at lines of the XML file, as git numbers them', () => withTools(t => {
+  const file = 'A/Plc/POUs/FB_Valve.TcPOU';
+  assert.equal(T.locate(t, { file, line: 14 }), 'POUs\\FB_Valve.TcPOU (Plc)\n14: FB_Valve impl:2  nCount := nCount + 1;');
+  assert.match(T.locate(t, { file, line: 4 }), /^4: FB_Valve decl:1  FUNCTION_BLOCK FB_Valve$/m);
+  assert.equal(T.locate(t, { file, line: 1, to: 3 }).split('\n').slice(1).join('\n'),
+    '1-2: XML outside the objects\n3: XML of FB_Valve, not code');
+  // A diff hunk: the method's code, then the XML that closes it.
+  assert.equal(T.locate(t, { file, line: 22, to: 24 }).split('\n').slice(1).join('\n'),
+    '22-23: FB_Valve.M_Close impl:1-2\n24: XML of FB_Valve.M_Close, not code');
+  assert.match(T.locate(t, { file, line: 28, to: 30 }), /^28: XML outside the objects\n29-30: after the end of the file \(28 lines\)$/m);
+  assert.throws(() => T.locate(t, { file: 'A/A.tsproj', line: 1 }), /not a source file of the PLC projects/);
+}));
+
+test('the language index checks the files once per call, not once per section a tool asks for', () => withTools(t => {
+  const ws = t.session.ws;
+  const getFile = ws.getFile.bind(ws);
+  let reads = 0;
+  ws.getFile = p => {
+    reads++;
+    return getFile(p);
+  };
+  // Before every call: each file once, for changes made outside.
+  t.session.refresh();
+  assert.equal(reads, ws.sourceEntries.length);
+  reads = 0;
+  T.references(t, { symbol: 'FB_Valve.M_Close' });
+  T.check(t, {});
+  T.findSymbol(t, { query: 'fb' });
+  assert.equal(reads, 0);
+}));
+
 test('edit_section saves only that section, keeps CRLF, reports problems, and undo takes it back', () => withTools((t, root) => {
   const file = path.join(root, 'A/Plc/POUs/FB_Valve.TcPOU');
   const before = fs.readFileSync(file, 'utf8');
@@ -145,7 +176,8 @@ test('add_member, add_object and delete_member change the files, and undo restor
   assert.match(fs.readFileSync(plcproj, 'utf8'), /<Compile Include="POUs\\Pumps\\FB_Pump\.TcPOU">/);
   assert.throws(() => T.addObject(t, { kind: 'FB', name: 'fb_pump' }), /already has/);
   for (let i = 0; i < 3; i++) T.undoLastEdit(t, {});
-  assert.equal(fs.existsSync(path.join(root, 'A/Plc/POUs/Pumps/FB_Pump.TcPOU')), false);
+  assert.equal(fs.existsSync(path.join(root, 'A/Plc/POUs/Pumps')), false, 'the folder the new object made goes too');
+  assert.ok(fs.existsSync(path.join(root, 'A/Plc/POUs')));
   assert.equal(fs.readFileSync(plcproj, 'utf8'), plcBefore);
   assert.equal(fs.readFileSync(fb, 'utf8'), fbBefore);
 }));
@@ -244,6 +276,17 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = []) {
       texts.set(key(item, part), text);
       return live(text);
     },
+    texts: (item: { path: string[] }) => {
+      const base = item.path.join('^');
+      const out = new Map<string, Record<string, string>>();
+      for (const [k, text] of texts) {
+        const [p, part] = k.split('|');
+        if (p !== base && !p.startsWith(base + '^')) continue;
+        const rel = p.slice(base.length + 1);
+        out.set(rel, { ...out.get(rel), path: rel, [part]: text });
+      }
+      return [...out.values()];
+    },
     dirty: () => dirtyFiles,
     save: (_: unknown, file: string) => calls.push(`save ${path.basename(file)}`),
     children: () => [],
@@ -261,8 +304,13 @@ test('with XAE open, edits go through XAE: its text, its hash, undo there too, a
   texts.set('POUs^FB_Valve^M_Close|impl', 'nCount := 0;\nM_Close := TRUE; // unsaved in XAE\n');
   const out = T.read(t, { object: 'FB_Valve.M_Close', part: 'impl' });
   assert.match(out, /live in TwinCAT XAE \(process 4242\)/);
-  assert.match(out, /2  M_Close := TRUE; \/\/ unsaved in XAE/);
-  const done = T.editSection(t, { object: 'FB_Valve.M_Close', part: 'impl', oldText: 'nCount := 0;', newText: 'nCount := -1;', hash: hashOf(out, 'impl') });
+  assert.match(out, /── impl · hash \w+ · 2 lines · has unsaved edits in XAE\n[\s\S]*2  M_Close := TRUE; \/\/ unsaved in XAE/);
+  const edit = { object: 'FB_Valve.M_Close', part: 'impl' as const, oldText: 'nCount := 0;', newText: 'nCount := -1;', hash: hashOf(out, 'impl') };
+  // XAE's DTE does not see its PLC editors as unsaved: told by the text, which differs from the file.
+  assert.throws(() => T.editSection(t, edit), /FB_Valve\.M_Close has unsaved changes in TwinCAT XAE[\s\S]*saveUserEdits: true/);
+  assert.throws(() => T.editSection(t, { ...edit, object: 'FB_Valve', part: 'decl', oldText: 'nCount : INT;', newText: 'nCount : DINT;', hash: undefined }),
+    /FB_Valve\.M_Close has unsaved/, 'unsaved edits of another object of the file count too');
+  const done = T.editSection(t, { ...edit, saveUserEdits: true });
   assert.match(done, /Written in TwinCAT XAE \(process 4242\)/);
   assert.equal(texts.get('POUs^FB_Valve^M_Close|impl'), 'nCount := -1;\nM_Close := TRUE; // unsaved in XAE\n');
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file is XAE\'s to save');
@@ -302,6 +350,79 @@ test('the Claude Code command line of the setup: scope local, node when on PATH,
   assert.deepEqual(electron, ['mcp', 'add', 'twincat', '--scope', 'local', '-e', 'ELECTRON_RUN_AS_NODE=1', '--', code, js]);
   assert.equal(commandLine('claude', electron), `claude mcp add twincat --scope local -e ELECTRON_RUN_AS_NODE=1 -- "${code}" ${js}`);
   assert.deepEqual(claudeRemoveArgs(), ['mcp', 'remove', 'twincat', '--scope', 'local']);
+});
+
+test('the permission rules of the setup: reading tools allowed, the XML of source files never edited, added once', async () => {
+  const { addPermissionRules, permissionRules } = await import('../../src/core/mcpSetup');
+  const rules = permissionRules();
+  assert.ok(rules.allow.includes('mcp__twincat__read') && rules.allow.includes('mcp__twincat__locate'));
+  assert.ok(!rules.allow.some(r => /edit_section|write_section|add_|delete_|undo_/.test(r)), 'no tool that writes');
+  assert.deepEqual(rules.deny, ['Edit(**/*.TcPOU)', 'Edit(**/*.TcDUT)', 'Edit(**/*.TcGVL)', 'Edit(**/*.TcIO)']);
+  assert.deepEqual(permissionRules({ reads: true, xml: false }), { allow: rules.allow, deny: [] });
+  assert.deepEqual(permissionRules({ reads: false, xml: true }), { allow: [], deny: rules.deny });
+  // A new file.
+  const fresh = addPermissionRules(undefined, rules);
+  assert.deepEqual(JSON.parse(fresh.text), { permissions: { allow: rules.allow, deny: rules.deny } });
+  assert.equal(fresh.added.length, rules.allow.length + rules.deny.length);
+  // The user's settings and rules stay, in their order; only the missing rules are added.
+  const own = JSON.stringify({ model: 'opus', permissions: { allow: ['Bash(npm test)', 'mcp__twincat__read'], ask: ['Bash(git push:*)'] } }, null, 2);
+  const merged = addPermissionRules(own, rules);
+  const settings = JSON.parse(merged.text);
+  assert.equal(settings.model, 'opus');
+  assert.deepEqual(settings.permissions.ask, ['Bash(git push:*)']);
+  assert.deepEqual(settings.permissions.allow.slice(0, 2), ['Bash(npm test)', 'mcp__twincat__read']);
+  assert.equal(settings.permissions.allow.filter((r: string) => r === 'mcp__twincat__read').length, 1);
+  assert.ok(!merged.added.includes('mcp__twincat__read'));
+  // Again: nothing to add, the text as it was.
+  assert.deepEqual(addPermissionRules(merged.text, rules), { text: merged.text, added: [] });
+  // Comments would be lost: such a file is left alone.
+  assert.throws(() => addPermissionRules('{\n  // mine\n  "model": "opus"\n}', rules), /not plain JSON/);
+  assert.throws(() => addPermissionRules('{"permissions": {"deny": "Edit"}}', rules), /permissions\.deny is not a list/);
+});
+
+test('the setup gives a folder\'s settings.local.json the rules and keeps it out of git, never a tracked one', async () => {
+  const { LOCAL_SETTINGS, addFolderPermissions: add, permissionRules } = await import('../../src/core/mcpSetup');
+  const cp = await import('child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-perms-'));
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-perms-plain-'));
+  const git = async (args: string[], cwd: string) => cp.execFileSync('git', args, { cwd, stdio: 'pipe' });
+  const addFolderPermissions = (g: typeof git, folder: string) => add(g, folder, permissionRules());
+  const run = (...args: string[]) => cp.execFileSync('git', args, { cwd: root, stdio: 'pipe' }).toString('utf8');
+  try {
+    run('init', '-q');
+    // No ignore file of the user's here (Claude Code's global one usually has the settings file).
+    fs.writeFileSync(path.join(root, 'none.ignore'), '');
+    run('config', 'core.excludesFile', path.join(root, 'none.ignore').replace(/\\/g, '/'));
+    const folder = path.join(root, 'sub');
+    fs.mkdirSync(folder);
+    // No rule picked: the folder is left as it is.
+    assert.equal(await add(git, folder, permissionRules({ reads: false, xml: false })), '');
+    assert.equal(fs.existsSync(path.join(folder, LOCAL_SETTINGS)), false);
+    assert.match(await addFolderPermissions(git, folder),
+      /reading tools without asking, and Claude Code's Edit and Write tools never change \.TcPOU, \.TcDUT, \.TcGVL, \.TcIO files .*which git ignores/);
+    assert.ok(JSON.parse(fs.readFileSync(path.join(folder, LOCAL_SETTINGS), 'utf8')).permissions.deny.includes('Edit(**/*.TcPOU)'));
+    const exclude = fs.readFileSync(path.join(root, '.git/info/exclude'), 'utf8');
+    assert.match(exclude, /^\/sub\/\.claude\/settings\.local\.json$/m);
+    assert.ok(!run('status', '--porcelain', '--untracked-files=all').includes('settings.local.json'), 'git ignores it');
+    // Again: nothing added twice.
+    const settings = fs.readFileSync(path.join(folder, LOCAL_SETTINGS), 'utf8');
+    await addFolderPermissions(git, folder);
+    assert.equal(fs.readFileSync(path.join(root, '.git/info/exclude'), 'utf8'), exclude);
+    assert.equal(fs.readFileSync(path.join(folder, LOCAL_SETTINGS), 'utf8'), settings);
+    // A settings file that the repository tracks is the team's: left as it is.
+    const tracked = path.join(root, 'tracked');
+    fs.mkdirSync(path.join(tracked, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(tracked, LOCAL_SETTINGS), '{}\n');
+    run('add', '-f', 'tracked/.claude/settings.local.json');
+    assert.match(await addFolderPermissions(git, tracked), /is committed in the repository.*Add them by hand/);
+    assert.equal(fs.readFileSync(path.join(tracked, LOCAL_SETTINGS), 'utf8'), '{}\n');
+    // Outside a repository: the settings file only.
+    assert.doesNotMatch(await addFolderPermissions(git, plain), /git ignores/);
+    assert.ok(fs.existsSync(path.join(plain, LOCAL_SETTINGS)));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(plain, { recursive: true, force: true });
+  }
 });
 
 test('finds claude.exe or claude.cmd on a Windows PATH, full folders only', async () => {

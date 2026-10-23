@@ -197,7 +197,12 @@ export class LanguageIndex {
         }
       }
     }
-    if (!this.allDirty && this.dirty.size === 0) return;
+    if (!this.allDirty && this.dirty.size === 0) {
+      // Nothing changed: the files are not checked again until the workspace changes (every context or section
+      // text asked for would otherwise read the modification time of every file).
+      this.builtWorkspaceVersion = this.ws.version;
+      return;
+    }
     if (this.allDirty) {
       this.buildLibraries();
       this.projectScopes.clear();

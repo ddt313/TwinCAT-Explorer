@@ -651,8 +651,8 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
     `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler).
   - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
     `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
-    the edited section, or the elements XAE writes for a new member or object; everything else stays as it
-    was. A section changed since it was read (its hash) is refused, and so is a rename through the
+    the edited section, or the elements XAE writes for a new member or object (in the `.plcproj`, its
+    `<Compile>` item and a `<Folder>` item for each folder it makes); everything else stays as it was. A section changed since it was read (its hash) is refused, and so is a rename through the
     declaration header. Each answer ends with the problems the object has now.
   - Undo: `undo_last_edit` and `edit_history`. Every write is logged (in
     `%LOCALAPPDATA%\twincat-explorer\mcp-undo.jsonl`), and taken back only when the code was not changed

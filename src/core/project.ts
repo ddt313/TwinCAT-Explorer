@@ -171,6 +171,23 @@ export function sameName(a: string, b: string): boolean {
   return itemOrder(a, b) === 0;
 }
 
+/**
+ * The folders of the PLC project (`POUs`, `POUs\Valves`): those of its <Folder> items and the folders of its files,
+ * once each (case aside), in XAE's order of items.
+ */
+export function projectFolderList(project: PlcProject): string[] {
+  const out = new Map<string, string>();
+  const add = (folder: string) => {
+    if (folder && !out.has(folder.toLowerCase())) out.set(folder.toLowerCase(), folder);
+  };
+  project.folders.forEach(add);
+  for (const include of project.compile) {
+    const parts = include.split('\\').slice(0, -1);
+    for (let i = 1; i <= parts.length; i++) add(parts.slice(0, i).join('\\'));
+  }
+  return [...out.values()].sort(itemOrder);
+}
+
 export class PlcProjectEditError extends Error {}
 
 /** Makes an element for the indentation of its line and the step of one level, its first line without the indentation. */

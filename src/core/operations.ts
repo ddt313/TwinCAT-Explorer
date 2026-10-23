@@ -1,14 +1,14 @@
 // Changes of TwinCAT files on disk that the VS Code commands and the MCP server share: a source file read, changed
-// and written back with its BOM; members added and removed; a new object's file and its <Compile> item. They throw
-// an Error with the message to show; asking the user and handling editors stay with the caller. Independent of the
-// VS Code API.
+// and written back with its BOM; members added and removed; a new object's file and its items in the .plcproj. They
+// throw an Error with the message to show; asking the user and handling editors stay with the caller. Independent of
+// the VS Code API.
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { TcSourceFile, decodeBytes, encodeText, fileKindFromPath, parseTcFile, parseTcText } from './tcfile';
 import { MemberSpec, addMember, removeMember } from './splice';
 import { FileStyle, NewObjectKind, NewObjectSpec, XAE_FILE_STYLE, fileStyleOf, newObjectText, objectExtension } from './newObjects';
-import { PlcProject, addCompileItem } from './project';
+import { PlcProject, addCompileItem, addFolderItem, parsePlcProject, projectFolderList } from './project';
 import { TcWorkspace } from './workspace';
 
 /** Changes a source file as it is on disk and writes it back with its BOM; returns the file as written. */
@@ -66,11 +66,26 @@ export function newObjectFileText(spec: NewObjectSpec, style: FileStyle, fsPath:
 }
 
 /**
- * Writes the file of a new object and its <Compile> item in the .plcproj. The new .plcproj text is made first, so
- * nothing is written when it cannot be; a file already on disk is refused.
+ * The .plcproj with a <Folder> item for each folder on the way to a file (`POUs`, `POUs\Valves`) that the project has
+ * neither as an item nor as the folder of a file: XAE writes one for every folder it makes.
+ */
+function withFolderItems(text: string, plcprojPath: string, include: string): string {
+  const known = new Set(projectFolderList(parsePlcProject(plcprojPath, text)).map(f => f.toUpperCase()));
+  const parts = include.split('\\').slice(0, -1);
+  let out = text;
+  for (let i = 1; i <= parts.length; i++) {
+    const folder = parts.slice(0, i).join('\\');
+    if (!known.has(folder.toUpperCase())) out = addFolderItem(out, folder);
+  }
+  return out;
+}
+
+/**
+ * Writes the file of a new object, its <Compile> item in the .plcproj and the <Folder> items of the folders it makes.
+ * The new .plcproj text is made first, so nothing is written when it cannot be; a file already on disk is refused.
  */
 export function writeNewObject(project: PlcProject, fsPath: string, include: string, text: string, bom: boolean): void {
-  changePlcProject(project, plcproj => addCompileItem(plcproj, include), () => {
+  changePlcProject(project, plcproj => addCompileItem(withFolderItems(plcproj, project.path, include), include), () => {
     if (fs.existsSync(fsPath)) throw new Error(`${path.basename(fsPath)} is already on disk in ${path.dirname(fsPath)}`);
     fs.mkdirSync(path.dirname(fsPath), { recursive: true });
     fs.writeFileSync(fsPath, encodeText(text, bom));

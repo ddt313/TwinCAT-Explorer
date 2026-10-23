@@ -182,6 +182,24 @@ test('add_member, add_object and delete_member change the files, and undo restor
   assert.equal(fs.readFileSync(fb, 'utf8'), fbBefore);
 }));
 
+test('add_object without XAE writes a <Folder> item for each folder it makes, where XAE puts it', () => withTools((t, root) => {
+  const plcproj = path.join(root, 'A/Plc/Plc.plcproj');
+  const before = fs.readFileSync(plcproj, 'utf8');
+  const folderItems = () => [...fs.readFileSync(plcproj, 'utf8').matchAll(/<Folder Include="([^"]+)" \/>/g)].map(m => m[1]);
+  // POUs is the folder of the project's files already: only the two new levels get an item.
+  T.addObject(t, { folder: 'POUs/Valves/Small', kind: 'FB', name: 'FB_SmallValve' });
+  assert.deepEqual(folderItems(), ['POUs\\Valves', 'POUs\\Valves\\Small']);
+  assert.match(fs.readFileSync(plcproj, 'utf8'), /<Compile Include="POUs\\Valves\\Small\\FB_SmallValve\.TcPOU">/);
+  // A folder the project has now gets no second item; a new one goes before the items that follow it.
+  T.addObject(t, { folder: 'POUs/Valves', kind: 'FB', name: 'FB_BigValve' });
+  T.addObject(t, { folder: 'DUTs', kind: 'ENUM', name: 'E_ValveState' });
+  assert.deepEqual(folderItems(), ['DUTs', 'POUs\\Valves', 'POUs\\Valves\\Small']);
+  for (let i = 0; i < 3; i++) T.undoLastEdit(t, {});
+  assert.equal(fs.readFileSync(plcproj, 'utf8'), before);
+  assert.equal(fs.existsSync(path.join(root, 'A/Plc/POUs/Valves')), false);
+  assert.equal(fs.existsSync(path.join(root, 'A/Plc/DUTs')), false);
+}));
+
 test('the undo log survives a restart of the server', () => withTools((t, root) => {
   T.editSection(t, { object: 'MAIN', part: 'impl', oldText: 'TRUE', newText: 'FALSE' });
   const again: T.Tools = { session: new Session(root), undo: new UndoLog(root, path.join(root, 'undo.jsonl')) };

@@ -7,7 +7,7 @@ import { InterfaceStubs, nameProblem, stubsFor } from './members';
 import { parseDeclaration } from './parser';
 import { PouSym } from './symbols';
 import { NewObjectSpec, objectDeclaration } from '../core/newObjects';
-import { PlcProject, itemOrder } from '../core/project';
+import { PlcProject, projectFolderList } from '../core/project';
 import { TcFileKind, fileKindFromPath } from '../core/tcfile';
 import { TcWorkspace } from '../core/workspace';
 
@@ -34,23 +34,6 @@ export function objectNameProblem(ws: TcWorkspace, project: PlcProject, name: st
   names: Map<string, string> = projectObjectNames(ws, project)): string | undefined {
   const taken = names.get(name.toUpperCase());
   return nameProblem(name) ?? (taken ? `${project.name} already has ${taken}` : undefined);
-}
-
-/**
- * The folders of the PLC project (`POUs`, `POUs\Valves`): those of its <Folder> items and the folders of its files,
- * once each (case aside), in XAE's order of items.
- */
-export function projectFolderList(project: PlcProject): string[] {
-  const out = new Map<string, string>();
-  const add = (folder: string) => {
-    if (folder && !out.has(folder.toLowerCase())) out.set(folder.toLowerCase(), folder);
-  };
-  project.folders.forEach(add);
-  for (const include of project.compile) {
-    const parts = include.split('\\').slice(0, -1);
-    for (let i = 1; i <= parts.length; i++) add(parts.slice(0, i).join('\\'));
-  }
-  return [...out.values()].sort(itemOrder);
 }
 
 /** The folders of the PLC project, lower case (see projectFolderList). */

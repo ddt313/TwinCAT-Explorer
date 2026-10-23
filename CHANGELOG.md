@@ -10,6 +10,8 @@ All notable changes to Explorer for TwinCAT. The format follows
   `claude mcp add` in the folder as VS Code spells it, with a lower case drive letter (`c:\repo`), and Claude Code
   keeps the server under exactly that folder, so sessions started there (`C:\repo`) did not get its tools. Setting
   up again removes that registration.
+- The MCP server's `add_object`, when TwinCAT XAE does not have the project open, gives the `.plcproj` a `<Folder>`
+  item for each folder it makes, where XAE puts it, as XAE does. It wrote only the file's `<Compile>` item.
 
 ## 0.15.0 - 2026-10-23
 

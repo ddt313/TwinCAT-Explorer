@@ -4,8 +4,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { TcObject, normalizeEol, decodeBytes, encodeText, parseTcFile, parseTcText } from '../core/tcfile';
-import { Accessor, offsetIn, positionIn, textHash, viewSections } from '../core/objectText';
+import {
+  Section, TcObject, normalizeEol, decodeBytes, encodeText, objectAtOffset, parseTcFile, parseTcText, sectionFileLines,
+} from '../core/tcfile';
+import { Accessor, offsetIn, positionIn, textHash, viewLabel, viewSections } from '../core/objectText';
 import { MemberSpec, SpliceError, addMember as addMemberText, applySectionEdits, checkRename, isSpecialMethod, memberNameProblem } from '../core/splice';
 import { addMembersToFile, newObjectFile, newObjectFileText, projectFileStyle, removeMemberFromFile, writeNewObject } from '../core/operations';
 import { NewObjectKind } from '../core/newObjects';
@@ -59,8 +61,10 @@ export function objects(t: Tools, a: { project?: string; filter?: string; offset
   const s = t.session;
   const filter = a.filter?.toUpperCase();
   const project = a.project?.toUpperCase();
-  const roots = s.views().filter(v => !v.obj.parent && !v.accessor && (!project || v.entry.project.name.toUpperCase() === project));
-  const members = (v: View) => s.views().filter(m => m.file === v.file && m.obj !== v.obj);
+  // Once: views() checks every file on disk.
+  const views = s.views();
+  const roots = views.filter(v => !v.obj.parent && !v.accessor && (!project || v.entry.project.name.toUpperCase() === project));
+  const members = (v: View) => views.filter(m => m.file === v.file && m.obj !== v.obj);
   const matching = roots.filter(v => !filter || v.label.toUpperCase().includes(filter) || members(v).some(m => m.label.toUpperCase().includes(filter)));
   const offset = a.offset ?? 0;
   const limit = a.limit ?? 100;
@@ -95,6 +99,62 @@ export function read(t: Tools, a: { object: string; part?: Part; from?: number; 
     if (text) out.push(numbered(text, a.from, a.to));
   }
   return out.join('\n');
+}
+
+/**
+ * What lines of a source file hold, as git diff and git blame number them (the file as it is now): for each run of
+ * lines, the object, part and lines of its code, or the object whose XML (not code) they are.
+ */
+export function locate(t: Tools, a: { file: string; line: number; to?: number }): string {
+  const s = t.session;
+  const full = path.resolve(s.root, a.file);
+  const entry = s.ws.entry(full);
+  if (!entry) throw new ToolError(`${a.file} is not a source file of the PLC projects under ${s.root}`);
+  const file = s.ws.getFile(full);
+  if (!file || file.error) throw new ToolError(`${a.file} cannot be read${file?.error ? `: ${file.error}` : ''}`);
+  const last = Math.max(a.line, a.to ?? a.line);
+  const label = (sec: Section) => s.qualified({ entry, file, obj: sec.owner, accessor: sec.accessor, label: viewLabel(sec.owner, sec.accessor) });
+  // The line of code on each line of the file (the first one, when lone CRs put several on it).
+  const code = new Map<number, { sec: Section; line: number }>();
+  for (const sec of file.sections.values()) {
+    if (!sec.editable) continue;
+    const lines = sectionFileLines(file, sec);
+    // After a final line break, the last "line" is the XML that closes the section.
+    const n = sec.text.endsWith('\n') ? lines.length - 1 : lines.length;
+    for (let i = 0; i < n; i++) if (lines[i] >= a.line && lines[i] <= last && !code.has(lines[i])) code.set(lines[i], { sec, line: i + 1 });
+  }
+  const starts = [0];
+  for (let i = file.text.indexOf('\n'); i >= 0; i = file.text.indexOf('\n', i + 1)) starts.push(i + 1);
+  // A final line break ends the last line, as git counts them.
+  if (starts.length > 1 && starts[starts.length - 1] === file.text.length) starts.pop();
+  // Runs of lines with the same place: [first line of the file, last line, place, first and last line of code].
+  const runs: { from: number; to: number; place: string; code?: { sec: Section; from: number; to: number } }[] = [];
+  for (let l = a.line; l <= last && l <= starts.length; l++) {
+    const c = code.get(l);
+    const prev = runs[runs.length - 1];
+    if (c) {
+      if (prev?.code && prev.to === l - 1 && prev.code.sec === c.sec && prev.code.to === c.line - 1) {
+        prev.to = l;
+        prev.code.to = c.line;
+      } else {
+        runs.push({ from: l, to: l, place: `${label(c.sec)} ${c.sec.role}`, code: { sec: c.sec, from: c.line, to: c.line } });
+      }
+      continue;
+    }
+    const text = file.text.slice(starts[l - 1], starts[l] ?? file.text.length);
+    const obj = objectAtOffset(file, starts[l - 1] + (text.length - text.trimStart().length));
+    const place = obj ? `XML of ${s.qualified({ entry, file, obj, label: viewLabel(obj) })}, not code` : 'XML outside the objects';
+    if (prev && !prev.code && prev.to === l - 1 && prev.place === place) prev.to = l;
+    else runs.push({ from: l, to: l, place });
+  }
+  const span = (from: number, to: number) => (to > from ? `${from}-${to}` : `${from}`);
+  const out = runs.map(r => {
+    if (!r.code) return `${span(r.from, r.to)}: ${r.place}`;
+    const first = r.code.sec.text.split('\n')[r.code.from - 1].trim();
+    return `${span(r.from, r.to)}: ${r.place}:${span(r.code.from, r.code.to)}${r.code.to === r.code.from ? `  ${first}` : ''}`;
+  });
+  if (last > starts.length) out.push(`${span(Math.max(a.line, starts.length + 1), last)}: after the end of the file (${starts.length} lines)`);
+  return [`${entry.include} (${entry.project.name})`, ...out].join('\n');
 }
 
 /** Subsequence match, as Ctrl+T does: `fbv` finds `FB_Valve`. */
@@ -390,12 +450,34 @@ function bomOf(p: string): boolean {
   }
 }
 
+/** The folders of the paths that are not on disk, deepest first. */
+function missingFolders(paths: string[]): string[] {
+  const out = new Set<string>();
+  for (const p of paths) {
+    for (let dir = path.dirname(p); !fs.existsSync(dir) && path.dirname(dir) !== dir; dir = path.dirname(dir)) out.add(dir);
+  }
+  return [...out].sort((a, b) => b.length - a.length);
+}
+
 /** Records a change of whole files, done by `change`, for undo; `live` says how to undo it in XAE. */
 function changeFiles(t: Tools, paths: string[], what: string, change: () => void, live?: LiveUndo): UndoEntry {
   const before = paths.map(p => ({ path: p, before: readText(p), bom: bomOf(p) }));
+  const missing = missingFolders(paths);
   change();
   const files: FileChange[] = before.map(f => ({ ...f, after: readText(f.path), bom: f.before === null ? bomOf(f.path) : f.bom }));
-  return t.undo.add({ kind: 'files', what, files, live });
+  const folders = missing.filter(d => fs.existsSync(d));
+  return t.undo.add({ kind: 'files', what, files, live, ...(folders.length ? { folders } : {}) });
+}
+
+/** Removes the folders an undone change made, when they are empty again. */
+function removeFolders(folders: string[] | undefined): void {
+  for (const d of folders ?? []) {
+    try {
+      fs.rmdirSync(d);
+    } catch {
+      // not empty (something else is there now), or gone already
+    }
+  }
 }
 
 /** The folders below an XAE item, made where they are missing. */
@@ -609,12 +691,14 @@ export function undoLastEdit(t: Tools, a: { id?: number }): string {
       });
       // A deleted object's file can stay on disk: it was not there before.
       for (const f of e.files) if (f.before === null && fs.existsSync(f.path)) fs.rmSync(f.path, { force: true });
+      removeFolders(e.folders);
       how = `in TwinCAT XAE (process ${live.pid})`;
     } else {
       for (const f of e.files) {
         if (f.before === null) fs.rmSync(f.path, { force: true });
         else fs.writeFileSync(f.path, encodeText(f.before, f.bom));
       }
+      removeFolders(e.folders);
     }
   }
   t.undo.markUndone(e);

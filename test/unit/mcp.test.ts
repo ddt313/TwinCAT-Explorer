@@ -102,6 +102,37 @@ test('finds definitions and references by name and by a word of a line', () => w
   assert.match(T.findSymbol(t, { query: 'fbv' }), /^FB_Valve  — Function block in Plc/m);
 }));
 
+test('locate: the object, part and line of code at lines of the XML file, as git numbers them', () => withTools(t => {
+  const file = 'A/Plc/POUs/FB_Valve.TcPOU';
+  assert.equal(T.locate(t, { file, line: 14 }), 'POUs\\FB_Valve.TcPOU (Plc)\n14: FB_Valve impl:2  nCount := nCount + 1;');
+  assert.match(T.locate(t, { file, line: 4 }), /^4: FB_Valve decl:1  FUNCTION_BLOCK FB_Valve$/m);
+  assert.equal(T.locate(t, { file, line: 1, to: 3 }).split('\n').slice(1).join('\n'),
+    '1-2: XML outside the objects\n3: XML of FB_Valve, not code');
+  // A diff hunk: the method's code, then the XML that closes it.
+  assert.equal(T.locate(t, { file, line: 22, to: 24 }).split('\n').slice(1).join('\n'),
+    '22-23: FB_Valve.M_Close impl:1-2\n24: XML of FB_Valve.M_Close, not code');
+  assert.match(T.locate(t, { file, line: 28, to: 30 }), /^28: XML outside the objects\n29-30: after the end of the file \(28 lines\)$/m);
+  assert.throws(() => T.locate(t, { file: 'A/A.tsproj', line: 1 }), /not a source file of the PLC projects/);
+}));
+
+test('the language index checks the files once per call, not once per section a tool asks for', () => withTools(t => {
+  const ws = t.session.ws;
+  const getFile = ws.getFile.bind(ws);
+  let reads = 0;
+  ws.getFile = p => {
+    reads++;
+    return getFile(p);
+  };
+  // Before every call: each file once, for changes made outside.
+  t.session.refresh();
+  assert.equal(reads, ws.sourceEntries.length);
+  reads = 0;
+  T.references(t, { symbol: 'FB_Valve.M_Close' });
+  T.check(t, {});
+  T.findSymbol(t, { query: 'fb' });
+  assert.equal(reads, 0);
+}));
+
 test('edit_section saves only that section, keeps CRLF, reports problems, and undo takes it back', () => withTools((t, root) => {
   const file = path.join(root, 'A/Plc/POUs/FB_Valve.TcPOU');
   const before = fs.readFileSync(file, 'utf8');
@@ -145,7 +176,8 @@ test('add_member, add_object and delete_member change the files, and undo restor
   assert.match(fs.readFileSync(plcproj, 'utf8'), /<Compile Include="POUs\\Pumps\\FB_Pump\.TcPOU">/);
   assert.throws(() => T.addObject(t, { kind: 'FB', name: 'fb_pump' }), /already has/);
   for (let i = 0; i < 3; i++) T.undoLastEdit(t, {});
-  assert.equal(fs.existsSync(path.join(root, 'A/Plc/POUs/Pumps/FB_Pump.TcPOU')), false);
+  assert.equal(fs.existsSync(path.join(root, 'A/Plc/POUs/Pumps')), false, 'the folder the new object made goes too');
+  assert.ok(fs.existsSync(path.join(root, 'A/Plc/POUs')));
   assert.equal(fs.readFileSync(plcproj, 'utf8'), plcBefore);
   assert.equal(fs.readFileSync(fb, 'utf8'), fbBefore);
 }));

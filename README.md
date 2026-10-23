@@ -634,7 +634,8 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
   `FB_Valve.Speed.Get`; with several PLC projects, `Machine:FB_Valve`. Code is read and written per
   declaration (`decl`) and implementation (`impl`), with line numbers within the section.
 - **Tools:**
-  - Reading: `status`, `objects` (the tree), `read`, `find_symbol`, `definition`, `references`,
+  - Reading: `status`, `objects` (the tree), `read`, `locate` (the object and line of code at lines of
+    a file as `git diff` and `git blame` number them), `find_symbol`, `definition`, `references`,
     `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler).
   - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
     `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of

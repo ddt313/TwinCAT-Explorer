@@ -3,6 +3,15 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- An MCP server for AI agents such as Claude Code (`out/mcp/server.js`): the TwinCAT objects of a folder
+  by their XAE names, their declaration and implementation with line numbers, definitions, references,
+  type hierarchies and the Structured Text check; edits per section, new members and objects, and
+  deletes, written as the split editor saves, refused when the code changed since it was read, and taken
+  back with `undo_last_edit`.
+
 ## 0.14.2 - 2026-10-23
 
 ### Fixed

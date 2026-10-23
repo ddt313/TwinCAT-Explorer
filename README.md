@@ -15,6 +15,7 @@ GitLab merge request the same way, as objects instead of XML.
 
 - [Features](#features)
 - [Browser extension](#browser-extension) <!-- browser-only -->
+- [MCP server for AI agents](#mcp-server-for-ai-agents)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Getting started](#getting-started)
@@ -605,6 +606,42 @@ on a self-managed GitLab instance and what it reads is in [`browser/SPIKE.md`](b
 changes are in [`browser/CHANGELOG.md`](browser/CHANGELOG.md).
 <!-- browser-only:end -->
 
+## MCP server for AI agents
+
+An [MCP](https://modelcontextprotocol.io) server gives an AI agent (Claude Code, or another MCP client)
+the TwinCAT projects of a folder the way the split editor shows them, so that it never reads or edits the
+`.TcPOU` XML as text. It runs on its own, without VS Code. Run it with Claude Code from the folder of a
+TwinCAT repository, once (the path is that of the installed extension, or `out/mcp/server.js` of a
+build of this repository):
+
+```bash
+claude mcp add twincat -- node "<extension folder>/out/mcp/server.js"
+```
+
+<details>
+<summary>Details</summary>
+
+- **Folder and scope:** the server works on the folder it is started in (`--root <folder>` names another
+  one). `--scope local`, the default, keeps the setting out of the repository.
+- **Names:** objects are named like the split editor's tabs: `FB_Valve`, `FB_Valve.Open`,
+  `FB_Valve.Speed.Get`; with several PLC projects, `Machine:FB_Valve`. Code is read and written per
+  declaration (`decl`) and implementation (`impl`), with line numbers within the section.
+- **Tools:**
+  - Reading: `status`, `objects` (the tree), `read`, `find_symbol`, `definition`, `references`,
+    `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler).
+  - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
+    `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
+    the edited section, or the elements XAE writes for a new member or object; everything else stays as it
+    was. A section changed since it was read (its hash) is refused, and so is a rename through the
+    declaration header. Each answer ends with the problems the object has now.
+  - Undo: `undo_last_edit` and `edit_history`. Every write is logged (in
+    `%LOCALAPPDATA%\twincat-explorer\mcp-undo.jsonl`), and taken back only when the code was not changed
+    since.
+- **With TwinCAT XAE open on the same solution**, the files change under XAE, which reloads them or asks
+  to, as after a save in the split editor (see the limitations). Writing through XAE itself is planned.
+
+</details>
+
 ## Requirements
 
 - **VS Code** 1.95 or later.
@@ -898,6 +935,8 @@ npm run package
 - The screenshots are in `docs/images`, outside the `.vsix`: vsce turns their relative links into
   links to the repository on GitHub, so a new image must be pushed before the version that shows it is
   published.
+- `npm run compile` also bundles the MCP server (`src/mcp`, with the MCP SDK and zod) into
+  `out/mcp/server.js`; `node out/mcp/server.js --root <repoDir>` runs it on a TwinCAT repository.
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser
   and the resolver on a whole TwinCAT repository.
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
@@ -923,7 +962,8 @@ npm run package
 
 Explorer for TwinCAT is released under the [MIT License](LICENSE).
 
-The split editor bundles Monaco Editor, vscode-textmate and vscode-oniguruma. Their licenses are in
+The split editor bundles Monaco Editor, vscode-textmate and vscode-oniguruma, and the MCP server the
+MCP TypeScript SDK and zod with their dependencies. Their licenses are in
 [ThirdPartyNotices.txt](ThirdPartyNotices.txt).
 
 ## Trademarks

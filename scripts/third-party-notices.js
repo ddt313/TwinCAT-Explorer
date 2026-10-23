@@ -1,5 +1,5 @@
-// Writes ThirdPartyNotices.txt: the licenses of the code bundled into out/webview, whose license comments
-// scripts/build-webview.js leaves out. Run it again after updating these packages.
+// Writes ThirdPartyNotices.txt: the licenses of the code bundled into out/webview and out/mcp, whose license
+// comments scripts/build-webview.js and scripts/build-mcp.js leave out. Run it again after updating these packages.
 // Usage: node scripts/third-party-notices.js
 const fs = require('fs');
 const path = require('path');
@@ -21,6 +21,18 @@ const components = [
     files: ['vscode-oniguruma/LICENSE.txt', 'vscode-oniguruma/NOTICES.txt'] },
 ];
 
+// The MCP server (out/mcp/server.js): the MCP SDK and what it bundles of its dependencies.
+const mcpComponents = [
+  { pkg: '@modelcontextprotocol/sdk', url: 'https://github.com/modelcontextprotocol/typescript-sdk', license: 'MIT' },
+  { pkg: 'zod', url: 'https://github.com/colinhacks/zod', license: 'MIT' },
+  { pkg: 'zod-to-json-schema', url: 'https://github.com/StefanTerdell/zod-to-json-schema', license: 'ISC' },
+  { pkg: 'ajv', url: 'https://github.com/ajv-validator/ajv', license: 'MIT' },
+  { pkg: 'ajv-formats', url: 'https://github.com/ajv-validator/ajv-formats', license: 'MIT' },
+  { pkg: 'fast-uri', url: 'https://github.com/fastify/fast-uri', license: 'BSD-3-Clause' },
+  { pkg: 'fast-deep-equal', url: 'https://github.com/epoberezkin/fast-deep-equal', license: 'MIT' },
+  { pkg: 'json-schema-traverse', url: 'https://github.com/epoberezkin/json-schema-traverse', license: 'MIT' },
+].map(c => ({ ...c, files: [`${c.pkg}/LICENSE`] }));
+
 const rule = '='.repeat(78);
 const lines = [
   'Explorer for TwinCAT: third-party software notices',
@@ -29,10 +41,14 @@ const lines = [
   'licenses follow.',
   '',
   ...components.map(c => `- ${c.pkg} ${version(c.pkg)} (${c.license}${c.note ? `; ${c.note}` : ''}): ${c.url}`),
+  '',
+  'The MCP server (out/mcp/server.js) includes these:',
+  '',
+  ...mcpComponents.map(c => `- ${c.pkg} ${version(c.pkg)} (${c.license}): ${c.url}`),
 ];
-for (const c of components) {
+for (const c of [...components, ...mcpComponents]) {
   lines.push('', '', rule, `${c.pkg} ${version(c.pkg)}`, rule);
   for (const file of c.files) lines.push('', read(file));
 }
 fs.writeFileSync(path.join(root, 'ThirdPartyNotices.txt'), lines.join('\n') + '\n');
-console.log(`ThirdPartyNotices.txt: ${components.map(c => c.pkg).join(', ')}`);
+console.log(`ThirdPartyNotices.txt: ${[...components, ...mcpComponents].map(c => c.pkg).join(', ')}`);

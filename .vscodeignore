@@ -10,8 +10,11 @@
 !media/icon.png
 !media/twincat.svg
 !media/icons/**
-!out/src/**/*.js
+!out/src/extension.js
+!out/src/{core,lang,shared,vscode}/**/*.js
 !out/webview/**
+# The MCP server ships bundled: its modules in out/src/mcp would need node_modules.
+!out/mcp/**
 # The browser extension (browser/) is built and loaded on its own; the unit tests compile its model to out/browser.
 browser/**
 out/browser/**

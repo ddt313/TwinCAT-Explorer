@@ -637,8 +637,19 @@ claude mcp add twincat -- node "<extension folder>/out/mcp/server.js"
   - Undo: `undo_last_edit` and `edit_history`. Every write is logged (in
     `%LOCALAPPDATA%\twincat-explorer\mcp-undo.jsonl`), and taken back only when the code was not changed
     since.
-- **With TwinCAT XAE open on the same solution**, the files change under XAE, which reloads them or asks
-  to, as after a save in the split editor (see the limitations). Writing through XAE itself is planned.
+- **With TwinCAT XAE open on the project**, the code is read and written in XAE itself, through its
+  Automation Interface (Windows; checked with XAE 3.1.4026 and its TcXaeShell):
+  - `read` shows XAE's text, unsaved edits included. A write changes it there: XAE shows the change at
+    once, never asks to reload, and saves the object (a new member or object too) right away. Only that
+    file is saved; when it has unsaved edits in XAE, the write is refused unless the user agrees
+    (`saveUserEdits: true`), since saving would take them along.
+  - XAE's own Ctrl+Z does not undo such a change; `undo_last_edit` does, in XAE.
+  - `check` with `compiler: true` runs XAE's *Check all objects* and gives the compiler's messages.
+  - The server finds the XAE instances on the desktop (TcXaeShell, or Visual Studio with TwinCAT), never
+    starts one, never brings one to the front and never answers its dialogs. A call that a dialog of XAE
+    blocks fails after its timeout with the dialog's text. Its link to XAE, `XaeBridge.exe`, is compiled
+    on first use with the .NET Framework's `csc.exe` against the installed XAE's assemblies, into
+    `%LOCALAPPDATA%\twincat-explorer`. `--no-xae` writes the files even with XAE open.
 
 </details>
 

@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { ItemCopy } from './live';
 
 /** A whole file before and after a change; null: the file did not exist. Texts as on disk, decoded, BOM aside. */
 export interface FileChange {
@@ -13,6 +14,19 @@ export interface FileChange {
   before: string | null;
   after: string | null;
   bom: boolean;
+}
+
+/**
+ * How a change made through TwinCAT XAE is undone there: the item made (added) is deleted, the item deleted is made
+ * again from its copy. `parent` is the path below the PLC project's nested project; `files` are saved after.
+ */
+export interface LiveUndo {
+  project: string;
+  parent: string[];
+  name: string;
+  op: 'added' | 'deleted';
+  copy?: ItemCopy;
+  files: string[];
 }
 
 export type UndoEntry = {
@@ -26,7 +40,7 @@ export type UndoEntry = {
   undone?: boolean;
 } & (
   | { kind: 'section'; path: string; key: string; object: string; part: 'decl' | 'impl'; before: string; after: string }
-  | { kind: 'files'; files: FileChange[] }
+  | { kind: 'files'; files: FileChange[]; live?: LiveUndo }
 );
 
 /** An entry as `add` takes it: Omit on each kind of the union, not on their common part. */

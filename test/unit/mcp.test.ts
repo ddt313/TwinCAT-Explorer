@@ -113,7 +113,7 @@ test('edit_section saves only that section, keeps CRLF, reports problems, and un
   assert.equal(after, before.replace('nCount + 1', 'nCount + nStep'), 'only the edited text changes, CRLF kept');
   // The old hash no longer fits.
   assert.throws(() => T.writeSection(t, { object: 'FB_Valve', part: 'impl', text: 'x', hash }), /changed since it was read/);
-  assert.match(T.undoLastEdit(t, {}), /Undid edit 1: edit_section FB_Valve impl/);
+  assert.match(T.undoLastEdit(t, {}), /Undid edit 1 in the files: edit_section FB_Valve impl/);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
   assert.match(T.editHistory(t, {}), /^1 .* edit_section FB_Valve impl  \(undone\)$/m);
 }));
@@ -171,7 +171,7 @@ test('the bundled server answers over stdio: initialize, tools/list, a tool call
   write('A/Plc/Plc.plcproj', '<?xml version="1.0" encoding="utf-8"?>\n<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><PropertyGroup><Name>Plc</Name></PropertyGroup><ItemGroup><Compile Include="POUs\\MAIN.TcPOU" /></ItemGroup></Project>');
   write('A/Plc/POUs/MAIN.TcPOU', FILES['POUs/MAIN.TcPOU']);
   const { spawn } = await import('child_process');
-  const child = spawn(process.execPath, [BUNDLE, '--root', root], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LOCALAPPDATA: root } });
+  const child = spawn(process.execPath, [BUNDLE, '--root', root, '--no-xae'], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LOCALAPPDATA: root } });
   const answers = new Map<number, Record<string, unknown>>();
   let buffer = '';
   child.stdout.on('data', (d: Buffer) => {
@@ -211,4 +211,83 @@ test('check reports problems of one object or of all code', () => withTools(t =>
   assert.match(T.check(t, {}), /no problems/);
   T.editSection(t, { object: 'MAIN', part: 'impl', oldText: 'fbValve.M_Close();', newText: 'fbValve.M_Missing();' });
   assert.match(T.check(t, { object: 'MAIN' }), /MAIN impl:2  error: .*M_Missing/);
+}));
+
+/**
+ * A stand-in for the running TwinCAT XAE, with the project open: its texts by tree path, with each text's editor
+ * state; calls are recorded.
+ */
+function fakeXae(t: T.Tools, dirtyFiles: string[] = []) {
+  const { textHash } = require('../../src/core/objectText') as typeof import('../../src/core/objectText');
+  const s = t.session;
+  const texts = new Map<string, string>();
+  for (const v of s.views()) {
+    for (const sec of v.obj.sections.filter(x => x.accessor === v.accessor)) {
+      const { viewPath } = require('../../src/mcp/live') as typeof import('../../src/mcp/live');
+      texts.set(`${viewPath(v).join('^')}|${sec.role}`, sec.text);
+    }
+  }
+  const calls: string[] = [];
+  const key = (item: { path: string[] }, part: string) => `${item.path.join('^')}|${part}`;
+  const live = (text: string, file?: string) => ({ text, hash: textHash(text), open: false, dirty: !!file && dirtyFiles.includes(file) });
+  const xae = {
+    instances: () => [{ pid: 4242, progId: 'TcXaeShell.DTE.15.0', solution: 'A.sln', projects: s.ws.tsProjects.map(p => p.path) }],
+    instanceFor: () => xae.instances()[0],
+    get: (item: { path: string[]; file?: string }, part: string) => {
+      calls.push(`get ${key(item, part)}`);
+      return live(texts.get(key(item, part)) ?? '', item.file);
+    },
+    set: (item: { path: string[]; file?: string }, part: string, text: string, expected: string) => {
+      const now = texts.get(key(item, part)) ?? '';
+      if (textHash(now) !== expected) return { ...live(now), conflict: true };
+      calls.push(`set ${key(item, part)}`);
+      texts.set(key(item, part), text);
+      return live(text);
+    },
+    dirty: () => dirtyFiles,
+    save: (_: unknown, file: string) => calls.push(`save ${path.basename(file)}`),
+    children: () => [],
+    create: (parent: { path: string[] }, name: string, subType: number) => calls.push(`create ${[...parent.path, name].join('^')} ${subType}`),
+    delete: (parent: { path: string[] }, name: string) => calls.push(`delete ${[...parent.path, name].join('^')}`),
+  };
+  t.xae = xae as unknown as T.Tools['xae'];
+  return { texts, calls };
+}
+
+test('with XAE open, edits go through XAE: its text, its hash, undo there too, and the file is left to XAE', () => withTools((t, root) => {
+  const file = path.join(root, 'A/Plc/POUs/FB_Valve.TcPOU');
+  const before = fs.readFileSync(file, 'utf8');
+  const { texts, calls } = fakeXae(t);
+  texts.set('POUs^FB_Valve^M_Close|impl', 'nCount := 0;\nM_Close := TRUE; // unsaved in XAE\n');
+  const out = T.read(t, { object: 'FB_Valve.M_Close', part: 'impl' });
+  assert.match(out, /live in TwinCAT XAE \(process 4242\)/);
+  assert.match(out, /2  M_Close := TRUE; \/\/ unsaved in XAE/);
+  const done = T.editSection(t, { object: 'FB_Valve.M_Close', part: 'impl', oldText: 'nCount := 0;', newText: 'nCount := -1;', hash: hashOf(out, 'impl') });
+  assert.match(done, /Written in TwinCAT XAE \(process 4242\)/);
+  assert.equal(texts.get('POUs^FB_Valve^M_Close|impl'), 'nCount := -1;\nM_Close := TRUE; // unsaved in XAE\n');
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file is XAE\'s to save');
+  assert.match(T.undoLastEdit(t, {}), /Undid edit 1 in TwinCAT XAE/);
+  assert.equal(texts.get('POUs^FB_Valve^M_Close|impl'), 'nCount := 0;\nM_Close := TRUE; // unsaved in XAE\n');
+  assert.ok(calls.filter(c => c.startsWith('set')).length === 2);
+}));
+
+test('with XAE open, a file with unsaved edits there is refused unless the user agreed, and a changed text too', () => withTools((t, root) => {
+  const file = path.join(root, 'A/Plc/POUs/MAIN.TcPOU');
+  const { texts } = fakeXae(t, [file]);
+  assert.throws(() => T.editSection(t, { object: 'MAIN', part: 'impl', oldText: 'TRUE', newText: 'FALSE' }), /unsaved changes in TwinCAT XAE[\s\S]*saveUserEdits: true/);
+  T.editSection(t, { object: 'MAIN', part: 'impl', oldText: 'TRUE', newText: 'FALSE', saveUserEdits: true });
+  assert.match(texts.get('POUs^MAIN|impl')!, /bOpen := FALSE/);
+  assert.throws(() => T.addMember(t, { owner: 'MAIN', kind: 'action', name: 'A_Reset' }), /unsaved changes in TwinCAT XAE/);
+  assert.throws(() => T.writeSection(t, { object: 'MAIN', part: 'impl', text: 'x', hash: 'deadbeef', saveUserEdits: true }), /changed since it was read/);
+}));
+
+test('with XAE open, members are made and deleted by CreateChild and DeleteChild, as the extension writes them', () => withTools(t => {
+  const { calls } = fakeXae(t);
+  T.addMember(t, { owner: 'FB_Valve', kind: 'property', name: 'P_Speed', type: 'LREAL', accessors: ['Get'] });
+  assert.deepEqual(calls.filter(c => !c.startsWith('get')), [
+    'create POUs^FB_Valve^P_Speed 611', 'create POUs^FB_Valve^P_Speed^Get 613', 'save FB_Valve.TcPOU',
+  ]);
+  calls.length = 0;
+  T.deleteMember(t, { object: 'FB_Valve.M_Close', confirm: true });
+  assert.deepEqual(calls, ['delete POUs^FB_Valve^M_Close', 'save FB_Valve.TcPOU']);
 }));

@@ -1,5 +1,6 @@
 // Bundles the MCP server (src/mcp/server.ts with the MCP SDK and zod) into one file, out/mcp/server.js, so the
-// .vsix needs no node_modules. Usage: node scripts/build-mcp.js [--dev]
+// .vsix needs no node_modules, and copies the source of its XAE bridge (compiled on the user's machine) to
+// out/xae. Usage: node scripts/build-mcp.js [--dev]
 const fs = require('fs');
 const path = require('path');
 const esbuild = require('esbuild');
@@ -22,6 +23,8 @@ const dev = process.argv.includes('--dev');
     logLevel: 'warning',
     legalComments: 'none',
   });
+  fs.mkdirSync(path.join(root, 'out', 'xae'), { recursive: true });
+  fs.copyFileSync(path.join(root, 'xae', 'XaeBridge.cs'), path.join(root, 'out', 'xae', 'XaeBridge.cs'));
   console.log(`mcp: server.js ${(fs.statSync(path.join(out, 'server.js')).size / 1024).toFixed(0)} KB`);
 })().catch(e => {
   console.error(e);

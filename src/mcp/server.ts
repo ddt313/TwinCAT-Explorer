@@ -2,21 +2,23 @@
 // clients), over stdio. Objects are named as the split editor's tabs (`FB_Valve.Open`), code is read and written per
 // declaration and implementation, and the .TcPOU XML is never handed out or edited as text.
 //
-//   node out/mcp/server.js [--root <folder>]      (root: the current folder by default)
+//   node out/mcp/server.js [--root <folder>] [--no-xae]   (root: the current folder by default)
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { Session, ToolError } from './session';
 import { UndoLog, defaultUndoFile } from './undo';
+import { Xae } from './xae';
 import * as T from './tools';
 
 const INSTRUCTIONS = `TwinCAT 3 PLC code under this folder. .TcPOU, .TcDUT, .TcGVL and .TcIO files are XML: never read or edit them as text; use these tools.
 - Objects are named like TwinCAT XAE's tabs: FB_Valve, FB_Valve.Open (method), FB_Valve.Speed.Get (property accessor). With several PLC projects: Machine:FB_Valve.
 - Code is per section: part "decl" (declaration) or "impl" (implementation); lines count from 1 within the section.
 - Read before editing; pass the hash from the read to write_section (edit_section takes it optionally). A changed section is refused: read it again.
-- Every write is saved to the file at once and can be taken back with undo_last_edit; TwinCAT XAE's own Ctrl+Z does not undo it.
-- check is the extension's syntax and name check, not the TwinCAT compiler.`;
+- When TwinCAT XAE has the project open, code is read and written in XAE itself: XAE shows the change and saves that object at once. A file with unsaved edits in XAE is refused unless the user agrees (saveUserEdits: true), as the change would save them too.
+- Every write is saved at once and can be taken back with undo_last_edit; TwinCAT XAE's own Ctrl+Z does not undo it.
+- check is the extension's syntax and name check; check with compiler: true runs TwinCAT XAE's Check all objects when XAE has the project open.`;
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -24,7 +26,7 @@ function arg(name: string): string | undefined {
 }
 
 const root = arg('--root') ?? process.cwd();
-const tools: T.Tools = { session: new Session(root), undo: new UndoLog(root, defaultUndoFile()) };
+const tools: T.Tools = { session: new Session(root), undo: new UndoLog(root, defaultUndoFile()), xae: process.argv.includes('--no-xae') ? undefined : new Xae() };
 
 /** Runs a tool on fresh projects; a ToolError (or any error) comes back as the tool's error text. */
 function run<A>(fn: (t: T.Tools, a: A) => string) {
@@ -102,19 +104,19 @@ register('hierarchy', {
 }, run(T.hierarchy));
 
 register('check', {
-  description: 'Syntax errors and unknown names of one object, or of all code when no object is given. Not the TwinCAT compiler.',
-  inputSchema: { object: object.optional(), limit: z.number().int().positive().optional() }, annotations: readOnly,
+  description: "Syntax errors and unknown names of one object, or of all code when no object is given; with compiler: true, TwinCAT XAE's Check all objects (needs XAE open on the project).",
+  inputSchema: { object: object.optional(), limit: z.number().int().positive().optional(), compiler: z.boolean().optional() }, annotations: readOnly,
 }, run(T.check));
 
 register('edit_section', {
   description: 'Replaces oldText (exactly once in the section) with newText in an object\'s declaration or implementation, and saves the file. Renaming the object through its header is refused.',
-  inputSchema: { object, part, oldText: z.string(), newText: z.string(), hash: z.string().optional().describe('Hash from read; refused if the section changed since') },
+  inputSchema: { object, part, oldText: z.string(), newText: z.string(), hash: z.string().optional().describe('Hash from read; refused if the section changed since'), saveUserEdits: z.boolean().optional().describe("With TwinCAT XAE open: also save the user's unsaved edits of the file, when they agreed"), },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 }, run(T.editSection));
 
 register('write_section', {
   description: 'Replaces the whole declaration or implementation of an object and saves the file.',
-  inputSchema: { object, part, text: z.string(), hash: z.string().describe('Hash from read; refused if the section changed since') },
+  inputSchema: { object, part, text: z.string(), hash: z.string().describe('Hash from read; refused if the section changed since'), saveUserEdits: z.boolean().optional().describe("With TwinCAT XAE open: also save the user's unsaved edits of the file, when they agreed"), },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 }, run(T.writeSection));
 
@@ -123,7 +125,7 @@ register('add_member', {
   inputSchema: {
     owner: object.describe('The POU or interface'), kind: z.enum(['method', 'property', 'action']), name: z.string(),
     type: z.string().optional().describe('Return type of a method, type of a property'),
-    accessors: z.array(z.enum(['Get', 'Set'])).optional(), folder: z.string().optional().describe('Folder inside the POU'),
+    accessors: z.array(z.enum(['Get', 'Set'])).optional(), folder: z.string().optional().describe('Folder inside the POU'), saveUserEdits: z.boolean().optional().describe("With TwinCAT XAE open: also save the user's unsaved edits of the file, when they agreed"),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 }, run(T.addMember));
@@ -133,14 +135,14 @@ register('add_object', {
   inputSchema: {
     project: z.string().optional(), folder: z.string().optional().describe('POUs, POUs/Valves, ...'),
     kind: z.enum(['FB', 'PRG', 'FUN', 'ITF', 'STRUCT', 'ENUM', 'UNION', 'ALIAS', 'GVL']), name: z.string(),
-    extends: z.string().optional(), implements: z.string().optional(), type: z.string().optional().describe('Return type of a function, type of an alias'),
+    extends: z.string().optional(), implements: z.string().optional(), type: z.string().optional().describe('Return type of a function, type of an alias'), saveUserEdits: z.boolean().optional().describe("With TwinCAT XAE open: also save the user's unsaved edits of the file, when they agreed"),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 }, run(T.addObject));
 
 register('delete_member', {
   description: 'Deletes a method, property, accessor, action or transition. What uses it is not changed.',
-  inputSchema: { object, confirm: z.boolean() },
+  inputSchema: { object, confirm: z.boolean(), saveUserEdits: z.boolean().optional().describe("With TwinCAT XAE open: also save the user's unsaved edits of the file, when they agreed"), },
   annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
 }, run(T.deleteMember));
 

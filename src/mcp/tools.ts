@@ -4,28 +4,31 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { normalizeEol, decodeBytes, encodeText, parseTcFile } from '../core/tcfile';
-import { offsetIn, positionIn, textHash, viewSections } from '../core/objectText';
-import { MemberSpec, SpliceError, applySectionEdits, isSpecialMethod, memberNameProblem } from '../core/splice';
+import { TcObject, normalizeEol, decodeBytes, encodeText, parseTcFile, parseTcText } from '../core/tcfile';
+import { Accessor, offsetIn, positionIn, textHash, viewSections } from '../core/objectText';
+import { MemberSpec, SpliceError, addMember as addMemberText, applySectionEdits, checkRename, isSpecialMethod, memberNameProblem } from '../core/splice';
 import { addMembersToFile, newObjectFile, newObjectFileText, projectFileStyle, removeMemberFromFile, writeNewObject } from '../core/operations';
 import { NewObjectKind } from '../core/newObjects';
 import { objectTreeLabel } from '../core/treeLabels';
 import { PlcProject } from '../core/project';
+import { fileKey } from '../core/workspace';
 import { describeOwner } from '../lang/features';
 import { implementations, typeTree, TypeTree } from '../lang/hierarchy';
 import { newObjectStubs, objectNameProblem } from '../lang/objects';
 import { PouSym, Sym } from '../lang/symbols';
 import { Session, ToolError, View, numbered, shortHash } from './session';
-import { FileChange, UndoEntry, UndoLog } from './undo';
+import { FileChange, LiveUndo, UndoEntry, UndoLog } from './undo';
+import { ItemCopy, Live, ST, SUBTYPE, inXae, liveProject, liveView, propertyType, recreate } from './live';
+import { Xae } from './xae';
 
 export interface Tools {
   session: Session;
   undo: UndoLog;
+  /** The running TwinCAT XAEs; none in tests, where the files are written. */
+  xae?: Xae;
 }
 
 type Part = 'decl' | 'impl';
-
-const PART_WORD: Record<Part, string> = { decl: 'Declaration', impl: 'Implementation' };
 
 // ------------------------------------------------------------------ reading
 
@@ -39,7 +42,16 @@ export function status(t: Tools): string {
   for (const e of s.ws.loadErrors) lines.push(`Not loaded: ${e}`);
   const open = t.undo.list().filter(e => !e.undone).length;
   lines.push(`Edits that undo_last_edit can take back: ${open}`);
-  lines.push('Writes go to the files (TwinCAT XAE, when it has the solution open, reloads them or asks to).');
+  let instances: string[] = [];
+  try {
+    instances = (t.xae?.instances() ?? []).map(i => `TwinCAT XAE process ${i.pid}: ${i.solution || 'no solution'}`);
+  } catch (e) {
+    instances = [`TwinCAT XAE: ${(e as Error).message}`];
+  }
+  lines.push(...instances);
+  lines.push(instances.length
+    ? 'Code of a project open in TwinCAT XAE is read and written there; XAE saves each change at once.'
+    : 'No TwinCAT XAE has these projects open: the files are written.');
   return lines.join('\n');
 }
 
@@ -66,16 +78,21 @@ export function objects(t: Tools, a: { project?: string; filter?: string; offset
 export function read(t: Tools, a: { object: string; part?: Part; from?: number; to?: number }): string {
   const s = t.session;
   const v = s.resolve(a.object);
-  const out = [`${s.qualified(v)} (${v.accessor ? 'accessor' : v.obj.kind}) · ${v.entry.project.name} · ${v.entry.include}`];
+  const live = liveView(s, t.xae, v);
+  const out = [`${s.qualified(v)} (${v.accessor ? 'accessor' : v.obj.kind}) · ${v.entry.project.name} · ${v.entry.include}`
+    + (live ? ` · live in TwinCAT XAE (process ${live.pid})` : '')];
   for (const sec of viewSections(v.obj, v.accessor)) {
     if (a.part && sec.role !== a.part) continue;
     if (!sec.editable) {
       out.push(`── ${sec.role} · not Structured Text: read-only here, edit it in TwinCAT XAE`);
       continue;
     }
-    const lines = sec.text.split('\n').length - (sec.text.endsWith('\n') ? 1 : 0);
-    out.push(`── ${sec.role} · hash ${shortHash(sec.text)} · ${lines} lines`);
-    out.push(numbered(sec.text, a.from, a.to));
+    // With XAE open, its text: it has the user's unsaved edits, and it is what a write changes.
+    const r = live && inXae(() => live.xae.get(live.item, sec.role));
+    const text = r ? r.text : sec.text;
+    const lines = text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0;
+    out.push(`── ${sec.role} · hash ${shortHash(text)} · ${lines} lines${r?.dirty ? ' · has unsaved edits in XAE' : ''}`);
+    if (text) out.push(numbered(text, a.from, a.to));
   }
   return out.join('\n');
 }
@@ -196,8 +213,27 @@ function problemsOfView(t: Tools, v: View): string[] {
   return out;
 }
 
-export function check(t: Tools, a: { object?: string; limit?: number }): string {
+/** TwinCAT XAE's own Check all objects of the PLC projects an XAE has open: the compiler's messages. */
+function compilerCheck(t: Tools, limit: number): string {
   const s = t.session;
+  const out: string[] = [];
+  for (const project of s.projects) {
+    const live = liveProject(s, t.xae, project, []);
+    if (!live) {
+      out.push(`${project.name}: not open in TwinCAT XAE, so not compiled`);
+      continue;
+    }
+    const text = inXae(() => live.xae.check(live.item));
+    const messages = text.split(/\r?\n/).filter(l => /\b(error|warning)\b/i.test(l) || /Compile complete/.test(l))
+      .map(l => l.replace(project.dir + path.sep, '').trim());
+    out.push(`${project.name} (TwinCAT XAE process ${live.pid}):`, ...messages.slice(0, limit));
+  }
+  return out.join('\n');
+}
+
+export function check(t: Tools, a: { object?: string; limit?: number; compiler?: boolean }): string {
+  const s = t.session;
+  if (a.compiler) return compilerCheck(t, a.limit ?? 200);
   let problems: string[];
   if (a.object) {
     problems = problemsOfView(t, s.resolve(a.object));
@@ -236,6 +272,7 @@ function diffSummary(before: string, after: string, max = 30): string {
   return lines.length > max + 1 ? [...lines.slice(0, max), `… ${lines.length - max} more lines`].join('\n') : lines.join('\n');
 }
 
+
 function readText(p: string): string | null {
   try {
     return decodeBytes(fs.readFileSync(p)).text;
@@ -244,7 +281,7 @@ function readText(p: string): string | null {
   }
 }
 
-function afterWrite(t: Tools, v: View, entry: UndoEntry, detail: string): string {
+function afterWrite(t: Tools, v: View, entry: UndoEntry, detail: string, how: string): string {
   t.session.refresh();
   let problems: string[] = [];
   try {
@@ -252,16 +289,64 @@ function afterWrite(t: Tools, v: View, entry: UndoEntry, detail: string): string
   } catch {
     // the object is gone (deleted): no problems to show
   }
-  return [detail, `Saved to ${path.relative(t.session.root, v.entry.path)}. undo_last_edit id=${entry.id} takes it back.`,
+  return [detail, `${how} undo_last_edit id=${entry.id} takes it back.`,
     problems.length ? `Problems now:\n${problems.join('\n')}` : 'Problems now: none (syntax and name check).'].join('\n');
 }
 
-function writeSectionText(t: Tools, a: { object: string; part: Part; hash?: string }, change: (current: string) => string, what: string): string {
+const savedTo = (t: Tools, file: string) => `Saved to ${path.relative(t.session.root, file)}.`;
+const savedByXae = (t: Tools, live: Live, file: string) =>
+  `Written in TwinCAT XAE (process ${live.pid}), which shows it and saved ${path.relative(t.session.root, file)}.`;
+
+/**
+ * Refuses a change through XAE that would save the user's unsaved edits in it (a change through XAE saves the
+ * file): the files given, or every file of the folder given.
+ */
+function refuseDirty(t: Tools, live: Live, files: string[], folder: string | undefined, allow: boolean | undefined): void {
+  if (allow) return;
+  const dirty = inXae(() => live.xae.dirty(live.pid));
+  const keys = new Set(files.map(fileKey));
+  const hit = dirty.filter(d => keys.has(fileKey(d)) || (folder && fileKey(d).startsWith(fileKey(folder) + path.sep)));
+  if (hit.length) {
+    throw new ToolError(`${hit.map(h => path.relative(t.session.root, h)).join(', ')} has unsaved changes in TwinCAT XAE, and this change would save them `
+      + 'too. Ask the user to save or undo them in XAE, or pass saveUserEdits: true if they agree.');
+  }
+}
+
+interface WriteArgs {
+  object: string;
+  part: Part;
+  hash?: string;
+  saveUserEdits?: boolean;
+}
+
+function writeSectionText(t: Tools, a: WriteArgs, change: (current: string) => string, what: string): string {
   const s = t.session;
   s.refresh();
   const v = s.resolve(a.object);
   const sec = s.section(v, a.part);
   if (!sec.editable) throw new ToolError(`${v.label} ${a.part} is not Structured Text; edit it in TwinCAT XAE`);
+  const live = liveView(s, t.xae, v);
+  if (live) {
+    // XAE has the project open: its text (with any unsaved edits) is the one to change.
+    const r = inXae(() => live.xae.get(live.item, a.part));
+    if (r.dirty && !a.saveUserEdits) refuseDirty(t, live, [v.entry.path], undefined, false);
+    if (a.hash && !r.hash.startsWith(a.hash.toLowerCase())) {
+      throw new ToolError(`${v.label} ${a.part} changed since it was read (hash now ${r.hash.slice(0, 12)}). Read it again.`);
+    }
+    const next = normalizeEol(change(r.text));
+    if (next === r.text) return 'No change: the text is already like that.';
+    try {
+      checkRename(sec, next);
+    } catch (e) {
+      if (e instanceof SpliceError) throw new ToolError(e.message);
+      throw e;
+    }
+    const res = inXae(() => live.xae.set(live.item, a.part, next, r.hash));
+    if (res.conflict) throw new ToolError(`${v.label} ${a.part} changed in TwinCAT XAE meanwhile. Read it again.`);
+    if (res.dirty) inXae(() => live.xae.save(live.item, v.entry.path));
+    const entry = t.undo.add({ kind: 'section', what: `${what} ${s.qualified(v)} ${a.part}`, path: v.entry.path, key: sec.key, object: s.qualified(v), part: a.part, before: r.text, after: next });
+    return afterWrite(t, v, entry, `${s.qualified(v)} ${a.part}: hash ${shortHash(next)}\n${diffSummary(r.text, next)}`, savedByXae(t, live, v.entry.path));
+  }
   const file = parseTcFile(v.entry.path, fs.readFileSync(v.entry.path));
   const onDisk = file.sections.get(sec.key);
   if (!onDisk) throw new ToolError(`${v.label} ${a.part} is no longer in ${v.entry.path}`);
@@ -279,10 +364,10 @@ function writeSectionText(t: Tools, a: { object: string; part: Part; hash?: stri
   if (!result.changedKeys.length) return 'No change: the text is already like that.';
   fs.writeFileSync(v.entry.path, encodeText(result.text, file.bom));
   const entry = t.undo.add({ kind: 'section', what: `${what} ${s.qualified(v)} ${a.part}`, path: v.entry.path, key: sec.key, object: s.qualified(v), part: a.part, before: onDisk.text, after: next });
-  return afterWrite(t, v, entry, `${s.qualified(v)} ${a.part}: hash ${shortHash(next)}\n${diffSummary(onDisk.text, next)}`);
+  return afterWrite(t, v, entry, `${s.qualified(v)} ${a.part}: hash ${shortHash(next)}\n${diffSummary(onDisk.text, next)}`, savedTo(t, v.entry.path));
 }
 
-export function editSection(t: Tools, a: { object: string; part: Part; oldText: string; newText: string; hash?: string }): string {
+export function editSection(t: Tools, a: WriteArgs & { oldText: string; newText: string }): string {
   return writeSectionText(t, a, current => {
     const old = normalizeEol(a.oldText);
     const first = current.indexOf(old);
@@ -292,27 +377,53 @@ export function editSection(t: Tools, a: { object: string; part: Part; oldText: 
   }, 'edit_section');
 }
 
-export function writeSection(t: Tools, a: { object: string; part: Part; text: string; hash: string }): string {
+export function writeSection(t: Tools, a: WriteArgs & { text: string; hash: string }): string {
   return writeSectionText(t, a, () => a.text, 'write_section');
 }
 
-/** Records a change of whole files, done by `change`, for undo. */
-function changeFiles(t: Tools, paths: string[], what: string, change: () => void): UndoEntry {
-  const bom = (p: string) => {
-    try {
-      const b = fs.readFileSync(p);
-      return b.length >= 3 && b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf;
-    } catch {
-      return false;
-    }
-  };
-  const before = paths.map(p => ({ path: p, before: readText(p), bom: bom(p) }));
-  change();
-  const files: FileChange[] = before.map(f => ({ ...f, after: readText(f.path), bom: f.before === null ? bom(f.path) : f.bom }));
-  return t.undo.add({ kind: 'files', what, files });
+function bomOf(p: string): boolean {
+  try {
+    const b = fs.readFileSync(p);
+    return b.length >= 3 && b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf;
+  } catch {
+    return false;
+  }
 }
 
-export function addMember(t: Tools, a: { owner: string; kind: 'method' | 'property' | 'action'; name: string; type?: string; accessors?: ('Get' | 'Set')[]; folder?: string }): string {
+/** Records a change of whole files, done by `change`, for undo; `live` says how to undo it in XAE. */
+function changeFiles(t: Tools, paths: string[], what: string, change: () => void, live?: LiveUndo): UndoEntry {
+  const before = paths.map(p => ({ path: p, before: readText(p), bom: bomOf(p) }));
+  change();
+  const files: FileChange[] = before.map(f => ({ ...f, after: readText(f.path), bom: f.before === null ? bomOf(f.path) : f.bom }));
+  return t.undo.add({ kind: 'files', what, files, live });
+}
+
+/** The folders below an XAE item, made where they are missing. */
+function ensureFolders(live: Live, base: string[], folders: string[]): void {
+  for (let i = 0; i < folders.length; i++) {
+    const parent = [...base, ...folders.slice(0, i)];
+    const names = inXae(() => live.xae.children({ ...live.item, path: parent })).map(c => c.name.toUpperCase());
+    if (!names.includes(folders[i].toUpperCase())) inXae(() => live.xae.create({ ...live.item, path: parent }, folders[i], SUBTYPE.folder, undefined));
+  }
+}
+
+/** A member of a parsed file as CreateChild makes it again: sub-type, vInfo and code, with its accessors. */
+function memberCopy(obj: TcObject, itf: boolean): ItemCopy {
+  const text = (accessor: Accessor | undefined, role: Part) => obj.sections.find(x => x.accessor === accessor && x.role === role)?.text;
+  const decl = text(undefined, 'decl');
+  const sub = obj.kind === 'method' ? (itf ? SUBTYPE.itfMethod : SUBTYPE.method)
+    : obj.kind === 'property' ? (itf ? SUBTYPE.itfProperty : SUBTYPE.property)
+      : obj.kind === 'action' ? SUBTYPE.action : SUBTYPE.transition;
+  return {
+    name: obj.name, subType: sub, info: obj.kind === 'property' ? [ST, propertyType(decl ?? '')] : undefined, decl, impl: text(undefined, 'impl') || undefined,
+    children: obj.accessors.map(acc => ({
+      name: acc.kind, subType: acc.kind === 'Get' ? (itf ? SUBTYPE.itfGet : SUBTYPE.get) : (itf ? SUBTYPE.itfSet : SUBTYPE.set),
+      decl: text(acc.kind, 'decl'), impl: text(acc.kind, 'impl') || undefined, children: [],
+    })),
+  };
+}
+
+export function addMember(t: Tools, a: { owner: string; kind: 'method' | 'property' | 'action'; name: string; type?: string; accessors?: ('Get' | 'Set')[]; folder?: string; saveUserEdits?: boolean }): string {
   const s = t.session;
   s.refresh();
   const v = s.resolve(a.owner);
@@ -320,7 +431,33 @@ export function addMember(t: Tools, a: { owner: string; kind: 'method' | 'proper
   if (a.kind === 'action' && (v.obj.kind === 'itf' || v.obj.pouKind === 'FUN')) throw new ToolError('Actions are for function blocks and programs');
   const problem = memberNameProblem(v.obj, a.name);
   if (problem) throw new ToolError(problem);
-  const spec: MemberSpec = { kind: a.kind, name: a.name, type: a.type, accessors: a.accessors, folderPath: a.folder ? a.folder.split(/[\\/]/) : undefined };
+  const folders = a.folder ? a.folder.split(/[\\/]/).filter(Boolean) : [];
+  const spec: MemberSpec = { kind: a.kind, name: a.name, type: a.type, accessors: a.accessors, folderPath: folders.length ? folders : undefined };
+  const special = a.kind === 'method' && isSpecialMethod(v.obj, a.name) ? ' with the inputs TwinCAT requires' : '';
+  const done = `Added ${a.kind} ${v.label}.${a.name}${special}. Read ${v.label}.${a.name} to fill it in.`;
+  const live = liveView(s, t.xae, v);
+  if (live) {
+    refuseDirty(t, live, [v.entry.path], undefined, a.saveUserEdits);
+    // The member as the extension writes it, made in XAE: XAE shows it at once and gives it its GUID.
+    const disk = parseTcFile(v.entry.path, fs.readFileSync(v.entry.path));
+    let made;
+    try {
+      made = parseTcText(v.entry.path, addMemberText(disk, v.obj.id, spec), disk.bom);
+    } catch (e) {
+      if (e instanceof SpliceError) throw new ToolError(e.message);
+      throw e;
+    }
+    const obj = made.ordered.find(o => o.parent?.id === v.obj.id && o.name.toUpperCase() === a.name.toUpperCase());
+    if (!obj) throw new ToolError(`${a.name} could not be made`);
+    const copy = memberCopy(obj, v.obj.kind === 'itf');
+    const parent = [...live.item.path, ...folders];
+    const entry = changeFiles(t, [v.entry.path], `add_member ${v.label}.${a.name}`, () => inXae(() => {
+      ensureFolders(live, live.item.path, folders);
+      recreate(live, { ...live.item, path: parent }, copy);
+      live.xae.save(live.item, v.entry.path);
+    }), { project: v.entry.project.name, parent, name: a.name, op: 'added', files: [v.entry.path] });
+    return afterWrite(t, v, entry, done, savedByXae(t, live, v.entry.path));
+  }
   const entry = changeFiles(t, [v.entry.path], `add_member ${v.label}.${a.name}`, () => {
     try {
       addMembersToFile(v.entry.path, v.obj.id, [spec]);
@@ -329,25 +466,38 @@ export function addMember(t: Tools, a: { owner: string; kind: 'method' | 'proper
       throw e;
     }
   });
-  const special = a.kind === 'method' && isSpecialMethod(v.obj, a.name) ? ' with the inputs TwinCAT requires' : '';
-  return afterWrite(t, v, entry, `Added ${a.kind} ${v.label}.${a.name}${special}. Read ${v.label}.${a.name} to fill it in.`);
+  return afterWrite(t, v, entry, done, savedTo(t, v.entry.path));
 }
 
-export function deleteMember(t: Tools, a: { object: string; confirm: boolean }): string {
+export function deleteMember(t: Tools, a: { object: string; confirm: boolean; saveUserEdits?: boolean }): string {
   const s = t.session;
   s.refresh();
   const v = s.resolve(a.object);
   if (!v.obj.parent && !v.accessor) throw new ToolError(`${v.label} is not a method, property, accessor, action or transition. Whole objects are deleted in the TwinCAT tree or XAE.`);
   if (!a.confirm) throw new ToolError(`Deleting ${v.label} needs confirm: true. What uses it is not changed.`);
+  const live = liveView(s, t.xae, v);
+  if (live) {
+    refuseDirty(t, live, [v.entry.path], undefined, a.saveUserEdits);
+    const itf = (v.obj.parent ?? v.obj).kind === 'itf';
+    const whole = memberCopy(v.obj, itf);
+    const copy = v.accessor ? whole.children.find(c => c.name === v.accessor)! : whole;
+    const parent = live.item.path.slice(0, -1);
+    const name = live.item.path[live.item.path.length - 1];
+    const entry = changeFiles(t, [v.entry.path], `delete_member ${v.label}`, () => inXae(() => {
+      live.xae.delete({ ...live.item, path: parent }, name);
+      live.xae.save(live.item, v.entry.path);
+    }), { project: v.entry.project.name, parent, name, op: 'deleted', copy, files: [v.entry.path] });
+    return afterWrite(t, v, entry, `Deleted ${v.label}.`, savedByXae(t, live, v.entry.path));
+  }
   const entry = changeFiles(t, [v.entry.path], `delete_member ${v.label}`, () => removeMemberFromFile(v.entry.path, v.obj.id, v.accessor));
-  return afterWrite(t, v, entry, `Deleted ${v.label}.`);
+  return afterWrite(t, v, entry, `Deleted ${v.label}.`, savedTo(t, v.entry.path));
 }
 
 const KINDS: Record<string, NewObjectKind> = {
   FB: 'fb', PRG: 'prg', FUN: 'fun', ITF: 'itf', STRUCT: 'struct', ENUM: 'enum', UNION: 'union', ALIAS: 'alias', GVL: 'gvl',
 };
 
-export function addObject(t: Tools, a: { project?: string; folder?: string; kind: string; name: string; extends?: string; implements?: string; type?: string }): string {
+export function addObject(t: Tools, a: { project?: string; folder?: string; kind: string; name: string; extends?: string; implements?: string; type?: string; saveUserEdits?: boolean }): string {
   const s = t.session;
   s.refresh();
   const kind = KINDS[a.kind.toUpperCase()];
@@ -367,38 +517,109 @@ export function addObject(t: Tools, a: { project?: string; folder?: string; kind
   const found = kind === 'fb' && a.implements ? newObjectStubs(s.index, project, spec) : { stubs: [], missing: [] as string[] };
   const text = newObjectFileText(spec, style, fsPath, found.stubs.map(x => x.spec));
   const target = project;
-  const entry = changeFiles(t, [fsPath, project.path], `add_object ${a.name}`, () => writeNewObject(target, fsPath, include, text, style.bom));
+  const folders = folder ? folder.split('\\') : [];
+  const live = liveProject(s, t.xae, project, folders);
+  let entry: UndoEntry;
+  let how: string;
+  if (live) {
+    refuseDirty(t, live, [project.path], project.dir, a.saveUserEdits);
+    // The object as the extension writes it, made in XAE, which writes its file and its <Compile> item.
+    const made = parseTcText(fsPath, text, style.bom);
+    const root = made.root!;
+    const sub = { fb: SUBTYPE.fb, prg: SUBTYPE.prg, fun: SUBTYPE.fun, itf: SUBTYPE.itf, struct: SUBTYPE.struct, enum: SUBTYPE.enum, union: SUBTYPE.union, alias: SUBTYPE.alias, gvl: SUBTYPE.gvl }[kind];
+    const info = kind === 'fun' ? [ST, a.type!] : kind === 'fb' || kind === 'prg' ? [ST] : undefined;
+    const copy: ItemCopy = {
+      name: a.name, subType: sub, info,
+      decl: root.sections.find(x => x.role === 'decl')?.text, impl: root.sections.find(x => x.role === 'impl')?.text || undefined,
+      children: made.ordered.filter(o => o.parent === root).map(o => memberCopy(o, kind === 'itf')),
+    };
+    entry = changeFiles(t, [fsPath, project.path], `add_object ${a.name}`, () => inXae(() => {
+      ensureFolders(live, [], folders);
+      recreate(live, live.item, copy);
+      live.xae.save(live.item, fsPath);
+      live.xae.save(live.item, target.path);
+    }), { project: project.name, parent: folders, name: a.name, op: 'added', files: [fsPath, project.path] });
+    if (!fs.existsSync(fsPath)) throw new ToolError(`TwinCAT XAE made ${a.name} but did not save ${path.basename(fsPath)} yet: save the project in XAE.`);
+    how = savedByXae(t, live, fsPath);
+  } else {
+    entry = changeFiles(t, [fsPath, project.path], `add_object ${a.name}`, () => writeNewObject(target, fsPath, include, text, style.bom));
+    how = savedTo(t, fsPath);
+  }
   s.refresh();
   const v = s.resolve(`${project.name}:${a.name}`);
   const missing = found.missing.length ? `\nNot found, so their members were not added: ${found.missing.join(', ')}` : '';
-  return afterWrite(t, v, entry, `Added ${objectTreeLabel(v.obj)} as ${path.relative(s.root, fsPath)} and in ${path.basename(project.path)}.${missing}`);
+  return afterWrite(t, v, entry, `Added ${objectTreeLabel(v.obj)} as ${path.relative(s.root, fsPath)} and in ${path.basename(project.path)}.${missing}`, how);
+}
+
+/** The XAE to undo an edit in, when one has the project open. */
+function liveFor(t: Tools, projectName: string, itemPath: string[], file?: string): Live | undefined {
+  const project = t.session.projects.find(p => p.name === projectName);
+  return project ? liveProject(t.session, t.xae, project, itemPath, file) : undefined;
 }
 
 export function undoLastEdit(t: Tools, a: { id?: number }): string {
+  const s = t.session;
+  s.refresh();
   const e = t.undo.get(a.id);
   if (!e) return a.id !== undefined ? `No edit ${a.id}.` : 'Nothing to undo.';
   if (e.undone) throw new ToolError(`Edit ${e.id} (${e.what}) is undone already.`);
+  let how = 'in the files';
   if (e.kind === 'section') {
-    const file = parseTcFile(e.path, fs.readFileSync(e.path));
-    const sec = file.sections.get(e.key);
-    if (!sec) throw new ToolError(`${e.object} ${e.part} is no longer in ${e.path}`);
-    if (sec.text !== e.after) {
-      throw new ToolError(`${e.object} ${e.part} changed after edit ${e.id}; undoing it would lose that. Now:\n${diffSummary(e.after, sec.text)}`);
+    let v: View | undefined;
+    try {
+      v = s.resolve(e.object);
+    } catch {
+      // the object is gone from the projects: the file below says so
     }
-    const result = applySectionEdits(file, [{ key: sec.key, text: e.before }]);
-    fs.writeFileSync(e.path, encodeText(result.text, file.bom));
+    const live = v && liveView(s, t.xae, v);
+    if (v && live) {
+      const r = inXae(() => live.xae.get(live.item, e.part));
+      if (r.text !== e.after) throw new ToolError(`${e.object} ${e.part} changed after edit ${e.id}; undoing it would lose that. Now:\n${diffSummary(e.after, r.text)}`);
+      const res = inXae(() => live.xae.set(live.item, e.part, e.before, r.hash));
+      if (res.dirty) inXae(() => live.xae.save(live.item, v!.entry.path));
+      how = `in TwinCAT XAE (process ${live.pid})`;
+    } else {
+      const file = parseTcFile(e.path, fs.readFileSync(e.path));
+      const sec = file.sections.get(e.key);
+      if (!sec) throw new ToolError(`${e.object} ${e.part} is no longer in ${e.path}`);
+      if (sec.text !== e.after) {
+        throw new ToolError(`${e.object} ${e.part} changed after edit ${e.id}; undoing it would lose that. Now:\n${diffSummary(e.after, sec.text)}`);
+      }
+      const result = applySectionEdits(file, [{ key: sec.key, text: e.before }]);
+      fs.writeFileSync(e.path, encodeText(result.text, file.bom));
+    }
   } else {
-    for (const f of e.files) {
-      if (readText(f.path) !== f.after) throw new ToolError(`${path.basename(f.path)} changed after edit ${e.id}; undo it by hand.`);
+    const live = e.live && liveFor(t, e.live.project, e.live.parent, e.live.files[0]);
+    if (!live) {
+      for (const f of e.files) {
+        if (readText(f.path) !== f.after) throw new ToolError(`${path.basename(f.path)} changed after edit ${e.id}; undo it by hand.`);
+      }
     }
-    for (const f of e.files) {
-      if (f.before === null) fs.rmSync(f.path, { force: true });
-      else fs.writeFileSync(f.path, encodeText(f.before, f.bom));
+    if (e.live && live) {
+      // In XAE only the item counts, not the rest of its file (other edits, made since, stay).
+      const u = e.live;
+      const names = inXae(() => live.xae.children({ ...live.item, path: u.parent })).map(c => c.name.toUpperCase());
+      if (u.op === 'added' && !names.includes(u.name.toUpperCase())) throw new ToolError(`${u.name} is no longer there; nothing to undo.`);
+      if (u.op === 'deleted' && names.includes(u.name.toUpperCase())) throw new ToolError(`There is a ${u.name} again; undo it by hand.`);
+      inXae(() => {
+        const parent = { ...live.item, path: u.parent };
+        if (u.op === 'added') live.xae.delete(parent, u.name);
+        else recreate(live, parent, u.copy!);
+        for (const f of u.files) if (fs.existsSync(f)) live.xae.save(live.item, f);
+      });
+      // A deleted object's file can stay on disk: it was not there before.
+      for (const f of e.files) if (f.before === null && fs.existsSync(f.path)) fs.rmSync(f.path, { force: true });
+      how = `in TwinCAT XAE (process ${live.pid})`;
+    } else {
+      for (const f of e.files) {
+        if (f.before === null) fs.rmSync(f.path, { force: true });
+        else fs.writeFileSync(f.path, encodeText(f.before, f.bom));
+      }
     }
   }
   t.undo.markUndone(e);
-  t.session.refresh();
-  return `Undid edit ${e.id}: ${e.what}.`;
+  s.refresh();
+  return `Undid edit ${e.id} ${how}: ${e.what}.`;
 }
 
 export function editHistory(t: Tools, a: { limit?: number }): string {
@@ -406,4 +627,3 @@ export function editHistory(t: Tools, a: { limit?: number }): string {
   if (!list.length) return 'No edits yet.';
   return list.map(e => `${e.id}  ${e.time.slice(0, 19).replace('T', ' ')}  ${e.what}${e.undone ? '  (undone)' : ''}`).join('\n');
 }
-

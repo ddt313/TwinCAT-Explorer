@@ -352,6 +352,30 @@ test('the Claude Code command line of the setup: scope local, node when on PATH,
   assert.deepEqual(claudeRemoveArgs(), ['mcp', 'remove', 'twincat', '--scope', 'local']);
 });
 
+test('the setup runs claude in the folder as Claude Code spells it (C:), and removes a registration under VS Code\'s c:', async () => {
+  const { claudeFolder, registerServer, serverLaunch } = await import('../../src/core/mcpSetup');
+  assert.equal(claudeFolder('c:\\Users\\me\\repo'), 'C:\\Users\\me\\repo');
+  assert.equal(claudeFolder('C:\\Users\\me\\repo'), 'C:\\Users\\me\\repo');
+  assert.equal(claudeFolder('\\\\server\\share\\repo'), '\\\\server\\share\\repo');
+  assert.equal(claudeFolder('/home/me/c:repo'), '/home/me/c:repo');
+  const calls: string[] = [];
+  // Nothing to remove: claude fails, which changes nothing.
+  const run = async (args: string[], cwd: string) => {
+    calls.push(`${args.slice(0, 2).join(' ')} in ${cwd}`);
+    return { ok: args[1] === 'add', output: '' };
+  };
+  const launch = serverLaunch('C:/Users/me/out/mcp/server.js', true, 'C:/Code.exe');
+  // VS Code's fsPath, and a folder given as Claude Code spells it: the same three runs.
+  for (const folder of ['c:\\Users\\me\\repo', 'C:\\Users\\me\\repo']) {
+    calls.length = 0;
+    assert.deepEqual(await registerServer(run, folder, launch), { ok: true, output: '' });
+    assert.deepEqual(calls, ['mcp remove in c:\\Users\\me\\repo', 'mcp remove in C:\\Users\\me\\repo', 'mcp add in C:\\Users\\me\\repo']);
+  }
+  calls.length = 0;
+  await registerServer(run, '/home/me/repo', launch);
+  assert.deepEqual(calls, ['mcp remove in /home/me/repo', 'mcp add in /home/me/repo']);
+});
+
 test('the permission rules of the setup: reading tools allowed, the XML of source files never edited, added once', async () => {
   const { addPermissionRules, permissionRules } = await import('../../src/core/mcpSetup');
   const rules = permissionRules();

@@ -39,6 +39,30 @@ export function claudeRemoveArgs(): string[] {
   return ['mcp', 'remove', MCP_SERVER_NAME, '--scope', 'local'];
 }
 
+/**
+ * The folder as Claude Code's sessions and terminals give it, a Windows drive letter in upper case. Claude Code files a
+ * local-scope server under the exact folder that `claude mcp add` runs in, and VS Code's fsPath has the drive letter
+ * in lower case (`c:\repo`): a server added from there is never found by a session.
+ */
+export function claudeFolder(folder: string): string {
+  return folder.replace(/^[a-z](?=:)/, d => d.toUpperCase());
+}
+
+/** Runs Claude Code's `claude` with these arguments in a folder. */
+export type RunClaude = (args: string[], cwd: string) => Promise<{ ok: boolean; output: string }>;
+
+/**
+ * Registers the server for a folder from Claude Code's spelling of it, in place of an earlier registration (add
+ * refuses a name already there): the one in that spelling, and one made in VS Code's (a lower case drive letter),
+ * where no session looks.
+ */
+export async function registerServer(run: RunClaude, folder: string, launch: ServerLaunch): Promise<{ ok: boolean; output: string }> {
+  const cwd = claudeFolder(folder);
+  const lower = folder.replace(/^[A-Z](?=:)/, d => d.toLowerCase());
+  for (const f of new Set([lower, cwd])) await run(claudeRemoveArgs(), f);
+  return run(claudeAddArgs(launch), cwd);
+}
+
 /** The server's tools that only read (check with compiler: true runs XAE's Check all objects, which saves nothing). */
 export const MCP_READ_TOOLS = ['status', 'objects', 'read', 'locate', 'find_symbol', 'definition', 'references', 'hierarchy', 'check', 'edit_history'];
 

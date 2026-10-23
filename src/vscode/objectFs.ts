@@ -7,15 +7,13 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { Section, TcObject, TcSourceFile, decodeBytes, encodeText, normalizeEol, parseTcFile } from '../core/tcfile';
-import { ObjectTextError, duplicateKeys, formatObjectText, headerOf, parseObjectText, viewLabel, viewSections } from '../core/objectText';
+import {
+  ObjectTextError, duplicateKeys, formatObjectText, headerOf, parseObjectText, textHash, viewLabel, viewSections,
+} from '../core/objectText';
 import { SpliceError, applySectionEdits } from '../core/splice';
 import { fileKey } from '../core/workspace';
 import { OBJECT_NOTEBOOK, OBJECT_SCHEME, parseObjectUri } from './uris';
 import { debugLog } from '../core/debugLog';
-
-export function textHash(text: string): string {
-  return crypto.createHash('sha1').update(normalizeEol(text)).digest('hex');
-}
 
 /** A new load id: fixed length, so the size VS Code gets from stat() matches what readFile() returns. */
 export function newLoadId(): string {

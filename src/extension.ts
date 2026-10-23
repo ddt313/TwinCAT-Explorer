@@ -36,6 +36,7 @@ import { BlameService } from './vscode/blame';
 import { AutoDeclare } from './vscode/autoDeclare';
 import { CompareBase, ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
+import { checkMcpSetup, setUpMcpServer } from './vscode/mcpSetup';
 import {
   DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME,
   ST_LANGUAGE, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf, viewKey,
@@ -1225,7 +1226,9 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     vscode.commands.registerCommand('twincatExplorer.copyName', async (node?: TreeNode) => {
       if (node?.name) await vscode.env.clipboard.writeText(node.name);
     }),
+    vscode.commands.registerCommand('twincatExplorer.setUpMcpServer', () => setUpMcpServer(context)),
   );
+  checkMcpSetup(context);
 
   void vscode.commands.executeCommand('setContext', 'twincatExplorer.historyPinned', false);
   const ready = loadProjects();

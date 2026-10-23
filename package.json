@@ -2,7 +2,7 @@
   "name": "explorer-for-twincat",
   "displayName": "Explorer for TwinCAT",
   "description": "XAE-like TwinCAT PLC project tree, an XAE-like declaration/implementation split editor and Structured Text language features",
-  "version": "0.14.2",
+  "version": "0.15.0",
   "publisher": "thanhdang",
   "private": true,
   "license": "MIT",
@@ -510,6 +510,11 @@
       {
         "command": "twincatExplorer.hideNotebookToolbars",
         "title": "Hide Notebook Toolbars (XAE-like Layout)",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.setUpMcpServer",
+        "title": "Set Up MCP Server for Claude Code",
         "category": "TwinCAT"
       }
     ],
@@ -1250,7 +1255,7 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p . && tsc -p src/webview && node scripts/build-webview.js",
+    "compile": "tsc -p . && tsc -p src/webview && node scripts/build-webview.js && node scripts/build-mcp.js",
     "watch": "tsc -w -p .",
     "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
     "test": "npm run compile && npm run test:unit",
@@ -1258,9 +1263,11 @@
     "vscode:prepublish": "npm run compile",
     "install:local": "node scripts/install.js",
     "build:webview": "node scripts/build-webview.js",
-    "build:browser": "tsc -p browser && node browser/build.js"
+    "build:browser": "tsc -p browser && node browser/build.js",
+    "build:mcp": "node scripts/build-mcp.js"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.95.0",
     "@vscode/test-electron": "^2.4.1",
@@ -1269,6 +1276,7 @@
     "monaco-editor": "0.55.1",
     "typescript": "^5.6.3",
     "vscode-oniguruma": "2.0.1",
-    "vscode-textmate": "9.3.2"
+    "vscode-textmate": "9.3.2",
+    "zod": "3.25.76"
   }
 }

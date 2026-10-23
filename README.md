@@ -15,6 +15,7 @@ GitLab merge request the same way, as objects instead of XML.
 
 - [Features](#features)
 - [Browser extension](#browser-extension) <!-- browser-only -->
+- [MCP server for AI agents](#mcp-server-for-ai-agents)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Getting started](#getting-started)
@@ -605,6 +606,73 @@ on a self-managed GitLab instance and what it reads is in [`browser/SPIKE.md`](b
 changes are in [`browser/CHANGELOG.md`](browser/CHANGELOG.md).
 <!-- browser-only:end -->
 
+## MCP server for AI agents
+
+An [MCP](https://modelcontextprotocol.io) server gives an AI agent (Claude Code, or another MCP client)
+the TwinCAT projects of a folder the way the split editor shows them, so that it never reads or edits the
+`.TcPOU` XML as text. It runs on its own, without VS Code. To give it to Claude Code, run
+`TwinCAT: Set Up MCP Server for Claude Code` in the folder of a TwinCAT repository, once.
+
+<details>
+<summary>Details</summary>
+
+- **Set Up MCP Server for Claude Code** runs Claude Code's `claude mcp add twincat --scope local` in the
+  workspace folder (it asks which one when there are several), with the `out/mcp/server.js` of the
+  installed version:
+  - Local scope: the setting is in your `~/.claude.json`, for that folder and for you only; nothing is
+    written to the repository. Claude Code sessions started in that folder from then on have the tools
+    (`mcp__twincat__*`).
+  - The server runs with `node` when it is on PATH, else with VS Code's own Electron as Node, so Node
+    need not be installed.
+  - The path changes with every version of the extension: after an update, a message offers to set the
+    server up again for the folders that had it.
+  - Without `claude` on PATH, the command puts the command line on the clipboard instead. By hand, in the
+    folder: `claude mcp add twincat -- node "<extension folder>/out/mcp/server.js"` (or
+    `out/mcp/server.js` of a build of this repository).
+  - It then asks which permission rules the folder's own Claude Code settings,
+    `.claude/settings.local.json`, get (both are picked; none leaves the file as it is):
+    - The reading tools (`mcp__twincat__read`, `mcp__twincat__references`, ...) run without asking.
+    - Claude Code's Edit and Write tools refuse `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` files
+      (`Edit(**/*.TcPOU)`, ... in `deny`), so that code changes go through the server. A workflow that
+      edits these files some other way, such as a script run through Bash, may be refused too: leave this
+      rule out for it.
+    - Git ignores that file: Claude Code's own global ignore usually has it, and else the command adds it
+      to the clone's `.git/info/exclude`, never to a file of the repository.
+    - Rules already there stay. A `settings.local.json` that the repository tracks, or one with comments,
+      is left as it is, and the message lists the rules to add by hand. Delete the rules from the file to
+      take them back. Setting the server up again after an update leaves the rules as they are.
+- **Folder:** the server works on the folder it is started in (`--root <folder>` names another one).
+- **Names:** objects are named like the split editor's tabs: `FB_Valve`, `FB_Valve.Open`,
+  `FB_Valve.Speed.Get`; with several PLC projects, `Machine:FB_Valve`. Code is read and written per
+  declaration (`decl`) and implementation (`impl`), with line numbers within the section.
+- **Tools:**
+  - Reading: `status`, `objects` (the tree), `read`, `locate` (the object and line of code at lines of
+    a file as `git diff` and `git blame` number them), `find_symbol`, `definition`, `references`,
+    `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler).
+  - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
+    `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
+    the edited section, or the elements XAE writes for a new member or object; everything else stays as it
+    was. A section changed since it was read (its hash) is refused, and so is a rename through the
+    declaration header. Each answer ends with the problems the object has now.
+  - Undo: `undo_last_edit` and `edit_history`. Every write is logged (in
+    `%LOCALAPPDATA%\twincat-explorer\mcp-undo.jsonl`), and taken back only when the code was not changed
+    since.
+- **With TwinCAT XAE open on the project**, the code is read and written in XAE itself, through its
+  Automation Interface (Windows; checked with XAE 3.1.4026 and its TcXaeShell):
+  - `read` shows XAE's text, unsaved edits included. A write changes it there: XAE shows the change at
+    once, never asks to reload, and saves the object (a new member or object too) right away. Only that
+    file is saved; when it has unsaved edits in XAE, the write is refused unless the user agrees
+    (`saveUserEdits: true`), since saving would take them along.
+  - XAE's own Ctrl+Z does not undo such a change; `undo_last_edit` does, in XAE.
+  - `check` with `compiler: true` runs XAE's *Check all objects* and gives the compiler's messages.
+  - The server finds the XAE instances on the desktop (TcXaeShell, or Visual Studio with TwinCAT), never
+    starts one, never brings one to the front and never answers its dialogs. A call that a dialog of XAE
+    blocks fails after its timeout with the dialog's text. Its link to XAE, `XaeBridge.exe`, is compiled
+    on first use with the .NET Framework's `csc.exe` against the installed XAE's assemblies, into
+    `%LOCALAPPDATA%\twincat-explorer`. `--no-xae` writes the files even with XAE open.
+
+</details>
+
 ## Requirements
 
 - **VS Code** 1.95 or later.
@@ -690,6 +758,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Toggle Line Blame` | Turn the current line blame of the split editor on or off. |
 | `TwinCAT: Check All Structured Text` | Analyse every section of every project and report the problems. |
 | `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` | Hide (or show again) the notebook toolbars in the user settings. |
+| `TwinCAT: Set Up MCP Server for Claude Code` | Register the extension's MCP server with Claude Code for a workspace folder, in your `~/.claude.json`, and give the folder's `.claude/settings.local.json` its permission rules (see [MCP server for AI agents](#mcp-server-for-ai-agents)). |
 | `TwinCAT Changes: Show Uncommitted Changes (vs HEAD)` | Changes view scope: uncommitted changes. |
 | `TwinCAT Changes: Show Branch Changes (vs Merge Base)` | Changes view scope: what the branch changed since it left another one. |
 | `TwinCAT Changes: Compare Branch With...` | Pick the branch the branch changes are compared with. |
@@ -898,6 +967,8 @@ npm run package
 - The screenshots are in `docs/images`, outside the `.vsix`: vsce turns their relative links into
   links to the repository on GitHub, so a new image must be pushed before the version that shows it is
   published.
+- `npm run compile` also bundles the MCP server (`src/mcp`, with the MCP SDK and zod) into
+  `out/mcp/server.js`; `node out/mcp/server.js --root <repoDir>` runs it on a TwinCAT repository.
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser
   and the resolver on a whole TwinCAT repository.
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
@@ -923,7 +994,8 @@ npm run package
 
 Explorer for TwinCAT is released under the [MIT License](LICENSE).
 
-The split editor bundles Monaco Editor, vscode-textmate and vscode-oniguruma. Their licenses are in
+The split editor bundles Monaco Editor, vscode-textmate and vscode-oniguruma, and the MCP server the
+MCP TypeScript SDK and zod with their dependencies. Their licenses are in
 [ThirdPartyNotices.txt](ThirdPartyNotices.txt).
 
 ## Trademarks

@@ -3,6 +3,14 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- `TwinCAT: Set Up MCP Server for Claude Code` registers the server where Claude Code looks for it. It ran
+  `claude mcp add` in the folder as VS Code spells it, with a lower case drive letter (`c:\repo`), and Claude Code
+  keeps the server under exactly that folder, so sessions started there (`C:\repo`) did not get its tools. Setting
+  up again removes that registration.
+
 ## 0.15.0 - 2026-10-23
 
 ### Added

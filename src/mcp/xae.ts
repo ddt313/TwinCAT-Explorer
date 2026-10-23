@@ -184,6 +184,14 @@ export class Xae {
     return this.request<LiveText & { conflict?: boolean }>({ cmd: 'set', ...item, part, text, expected });
   }
 
+  /**
+   * XAE's declarations and implementations of an item and everything below it (a POU and its members), unsaved edits
+   * included, by path below the item (`''`, `Open`, `Speed^Get`).
+   */
+  texts(item: XaeItem): { path: string; decl?: string; impl?: string }[] {
+    return this.request<{ path: string; decl?: string; impl?: string }[]>({ cmd: 'texts', ...item });
+  }
+
   doc(item: XaeItem): { open: boolean; dirty: boolean } {
     return this.request({ cmd: 'doc', ...item, path: [] });
   }

@@ -205,6 +205,22 @@ namespace TwinCatXaeBridge {
             return Normalize(i.ImplementationText);
         }
 
+        // The declarations and implementations of an item and of everything below it (a POU with its folders and
+        // members), by their path below it ("" for the item, "Speed^Get" for an accessor).
+        static void Texts(ITcSmTreeItem item, string path, List<object> list) {
+            Dictionary<string, object> e = new Dictionary<string, object>();
+            e["path"] = path;
+            ITcPlcDeclaration d = item as ITcPlcDeclaration;
+            if (d != null) { try { e["decl"] = Normalize(d.DeclarationText); } catch { } }
+            ITcPlcImplementation i = item as ITcPlcImplementation;
+            if (i != null) { try { e["impl"] = Normalize(i.ImplementationText); } catch { } }
+            list.Add(e);
+            for (int k = 1; k <= item.ChildCount; k++) {
+                ITcSmTreeItem c = item.get_Child(k);
+                Texts(c, path.Length == 0 ? c.Name : path + "^" + c.Name, list);
+            }
+        }
+
         static void SetText(ITcSmTreeItem item, string part, string text) {
             if (part == "decl") ((ITcPlcDeclaration)item).DeclarationText = text;
             else ((ITcPlcImplementation)item).ImplementationText = text;
@@ -299,6 +315,13 @@ namespace TwinCatXaeBridge {
                 }
                 case "doc":
                     return DocState(Dte(Int(r, "pid")), Str(r, "file"));
+                case "texts": {
+                    // XAE's code of a POU and its members, with any unsaved edits: DTE's documents do not show the
+                    // PLC editors, so their saved state is told by comparing these texts with the file.
+                    List<object> list = new List<object>();
+                    Texts(Item(r), "", list);
+                    return list;
+                }
                 case "save": {
                     // Saves the documents of one file only (a new member lives in memory until its file is saved).
                     DTE2 dte = Dte(Int(r, "pid"));

@@ -276,6 +276,17 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = []) {
       texts.set(key(item, part), text);
       return live(text);
     },
+    texts: (item: { path: string[] }) => {
+      const base = item.path.join('^');
+      const out = new Map<string, Record<string, string>>();
+      for (const [k, text] of texts) {
+        const [p, part] = k.split('|');
+        if (p !== base && !p.startsWith(base + '^')) continue;
+        const rel = p.slice(base.length + 1);
+        out.set(rel, { ...out.get(rel), path: rel, [part]: text });
+      }
+      return [...out.values()];
+    },
     dirty: () => dirtyFiles,
     save: (_: unknown, file: string) => calls.push(`save ${path.basename(file)}`),
     children: () => [],
@@ -293,8 +304,13 @@ test('with XAE open, edits go through XAE: its text, its hash, undo there too, a
   texts.set('POUs^FB_Valve^M_Close|impl', 'nCount := 0;\nM_Close := TRUE; // unsaved in XAE\n');
   const out = T.read(t, { object: 'FB_Valve.M_Close', part: 'impl' });
   assert.match(out, /live in TwinCAT XAE \(process 4242\)/);
-  assert.match(out, /2  M_Close := TRUE; \/\/ unsaved in XAE/);
-  const done = T.editSection(t, { object: 'FB_Valve.M_Close', part: 'impl', oldText: 'nCount := 0;', newText: 'nCount := -1;', hash: hashOf(out, 'impl') });
+  assert.match(out, /── impl · hash \w+ · 2 lines · has unsaved edits in XAE\n[\s\S]*2  M_Close := TRUE; \/\/ unsaved in XAE/);
+  const edit = { object: 'FB_Valve.M_Close', part: 'impl' as const, oldText: 'nCount := 0;', newText: 'nCount := -1;', hash: hashOf(out, 'impl') };
+  // XAE's DTE does not see its PLC editors as unsaved: told by the text, which differs from the file.
+  assert.throws(() => T.editSection(t, edit), /FB_Valve\.M_Close has unsaved changes in TwinCAT XAE[\s\S]*saveUserEdits: true/);
+  assert.throws(() => T.editSection(t, { ...edit, object: 'FB_Valve', part: 'decl', oldText: 'nCount : INT;', newText: 'nCount : DINT;', hash: undefined }),
+    /FB_Valve\.M_Close has unsaved/, 'unsaved edits of another object of the file count too');
+  const done = T.editSection(t, { ...edit, saveUserEdits: true });
   assert.match(done, /Written in TwinCAT XAE \(process 4242\)/);
   assert.equal(texts.get('POUs^FB_Valve^M_Close|impl'), 'nCount := -1;\nM_Close := TRUE; // unsaved in XAE\n');
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file is XAE\'s to save');

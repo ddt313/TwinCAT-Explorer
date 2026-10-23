@@ -20,7 +20,7 @@ import { newObjectStubs, objectNameProblem } from '../lang/objects';
 import { PouSym, Sym } from '../lang/symbols';
 import { Session, ToolError, View, numbered, shortHash } from './session';
 import { FileChange, LiveUndo, UndoEntry, UndoLog } from './undo';
-import { ItemCopy, Live, ST, SUBTYPE, inXae, liveProject, liveView, propertyType, recreate } from './live';
+import { ItemCopy, Live, ST, SUBTYPE, folderOf, inXae, liveProject, liveView, propertyType, recreate } from './live';
 import { Xae } from './xae';
 
 export interface Tools {
@@ -95,7 +95,7 @@ export function read(t: Tools, a: { object: string; part?: Part; from?: number; 
     const r = live && inXae(() => live.xae.get(live.item, sec.role));
     const text = r ? r.text : sec.text;
     const lines = text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0;
-    out.push(`── ${sec.role} · hash ${shortHash(text)} · ${lines} lines${r?.dirty ? ' · has unsaved edits in XAE' : ''}`);
+    out.push(`── ${sec.role} · hash ${shortHash(text)} · ${lines} lines${r && (r.dirty || r.text !== sec.text) ? ' · has unsaved edits in XAE' : ''}`);
     if (text) out.push(numbered(text, a.from, a.to));
   }
   return out.join('\n');
@@ -372,6 +372,35 @@ function refuseDirty(t: Tools, live: Live, files: string[], folder: string | und
   }
 }
 
+/**
+ * The objects of a view's file whose code in XAE is not the file's: edits not saved yet, which XAE saves along with
+ * a change through it. (XAE's DTE documents do not show its PLC editors, so their saved state cannot be asked.)
+ * `except`: a section key left out.
+ */
+function unsavedInXae(live: Live, v: View, except?: string): string[] {
+  const disk = parseTcFile(v.entry.path, fs.readFileSync(v.entry.path));
+  const rootPath = [...folderOf(v.entry.include), (v.obj.parent ?? v.obj).name];
+  const texts = new Map(inXae(() => live.xae.texts({ ...live.item, path: rootPath })).map(e => [e.path, e]));
+  const out = new Set<string>();
+  for (const sec of disk.sections.values()) {
+    if (!sec.editable || sec.key === except) continue;
+    const o = sec.owner;
+    const rel = [...(o.parent ? [...o.folderPath, o.name] : []), ...(sec.accessor ? [sec.accessor] : [])].join('^');
+    const text = texts.get(rel)?.[sec.role];
+    if (text !== undefined && text !== sec.text) out.add(viewLabel(o, sec.accessor));
+  }
+  return [...out];
+}
+
+/** Refuses a change through XAE that would save the user's unsaved edits of the view's file (see unsavedInXae). */
+function refuseUnsaved(live: Live, v: View, allow: boolean | undefined, except?: string): void {
+  if (allow) return;
+  const objects = unsavedInXae(live, v, except);
+  if (!objects.length) return;
+  throw new ToolError(`${objects.join(', ')} ${objects.length > 1 ? 'have' : 'has'} unsaved changes in TwinCAT XAE, and this change `
+    + `would save them too. Ask the user to save or undo them in XAE${except ? '' : ', or pass saveUserEdits: true if they agree'}.`);
+}
+
 interface WriteArgs {
   object: string;
   part: Part;
@@ -390,6 +419,7 @@ function writeSectionText(t: Tools, a: WriteArgs, change: (current: string) => s
     // XAE has the project open: its text (with any unsaved edits) is the one to change.
     const r = inXae(() => live.xae.get(live.item, a.part));
     if (r.dirty && !a.saveUserEdits) refuseDirty(t, live, [v.entry.path], undefined, false);
+    refuseUnsaved(live, v, a.saveUserEdits);
     if (a.hash && !r.hash.startsWith(a.hash.toLowerCase())) {
       throw new ToolError(`${v.label} ${a.part} changed since it was read (hash now ${r.hash.slice(0, 12)}). Read it again.`);
     }
@@ -520,6 +550,7 @@ export function addMember(t: Tools, a: { owner: string; kind: 'method' | 'proper
   const live = liveView(s, t.xae, v);
   if (live) {
     refuseDirty(t, live, [v.entry.path], undefined, a.saveUserEdits);
+    refuseUnsaved(live, v, a.saveUserEdits);
     // The member as the extension writes it, made in XAE: XAE shows it at once and gives it its GUID.
     const disk = parseTcFile(v.entry.path, fs.readFileSync(v.entry.path));
     let made;
@@ -560,6 +591,7 @@ export function deleteMember(t: Tools, a: { object: string; confirm: boolean; sa
   const live = liveView(s, t.xae, v);
   if (live) {
     refuseDirty(t, live, [v.entry.path], undefined, a.saveUserEdits);
+    refuseUnsaved(live, v, a.saveUserEdits);
     const itf = (v.obj.parent ?? v.obj).kind === 'itf';
     const whole = memberCopy(v.obj, itf);
     const copy = v.accessor ? whole.children.find(c => c.name === v.accessor)! : whole;
@@ -657,6 +689,7 @@ export function undoLastEdit(t: Tools, a: { id?: number }): string {
     if (v && live) {
       const r = inXae(() => live.xae.get(live.item, e.part));
       if (r.text !== e.after) throw new ToolError(`${e.object} ${e.part} changed after edit ${e.id}; undoing it would lose that. Now:\n${diffSummary(e.after, r.text)}`);
+      refuseUnsaved(live, v, false, e.key);
       const res = inXae(() => live.xae.set(live.item, e.part, e.before, r.hash));
       if (res.dirty) inXae(() => live.xae.save(live.item, v!.entry.path));
       how = `in TwinCAT XAE (process ${live.pid})`;

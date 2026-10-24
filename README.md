@@ -665,7 +665,10 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
     file is saved; when it has unsaved edits in XAE, the write is refused unless the user agrees
     (`saveUserEdits: true`), since saving would take them along.
   - The TwinCAT project is never saved, as that rewrites the `.tsproj`. XAE leaves the `.plcproj` of a
-    new object unsaved: the answer says so, and the tools see the object once the user saves it in XAE.
+    new object unsaved, so `add_object` and its undo save the `.plcproj` alone: not the `.tsproj`, and
+    not the unsaved edits in the PLC project's editors. A `.plcproj` that already has unsaved changes in
+    XAE is refused unless the user agrees (`saveUserEdits: true`). Where XAE does not save it, the answer
+    says so, and the tools see the object once the user saves it in XAE.
   - XAE's own Ctrl+Z does not undo such a change; `undo_last_edit` does, in XAE.
   - `check` with `compiler: true` runs XAE's *Check all objects* and gives the compiler's messages.
   - The server finds the XAE instances on the desktop (TcXaeShell, or Visual Studio with TwinCAT), never

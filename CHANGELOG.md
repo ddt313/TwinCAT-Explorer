@@ -18,6 +18,11 @@ All notable changes to Explorer for TwinCAT. The format follows
 - The MCP server no longer saves the TwinCAT project after `add_member`, `delete_member`, `add_object` and their
   undo through TwinCAT XAE, which rewrote the `.tsproj`, its process image included. XAE saves the POU's file
   itself; a file it leaves unsaved, such as the `.plcproj` of a new object, is now told in the answer.
+- The MCP server's `add_object` and its undo through TwinCAT XAE save the PLC project's `.plcproj` alone, through
+  XAE's running document table, so the tools see the new object at once. XAE left it unsaved after making or
+  deleting the object, without its `<Compile>` and `<Folder>` items. Neither the `.tsproj` nor the unsaved edits in
+  the PLC project's editors are saved with it, and a `.plcproj` that already has unsaved changes in XAE is refused
+  unless the user agrees (`saveUserEdits: true`).
 
 ## 0.15.0 - 2026-10-23
 

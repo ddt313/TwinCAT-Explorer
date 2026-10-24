@@ -269,7 +269,8 @@ test('check reports problems of one object or of all code', () => withTools(t =>
 
 /**
  * A stand-in for the running TwinCAT XAE, with the project open through the .tsproj files `open` (by default all):
- * its texts and tree items by tree path, with each text's editor state. It saves no file. Calls are recorded, and
+ * its texts and tree items by tree path, with each text's editor state. It saves no file: `projects.save`, when
+ * given, saves a .plcproj as XAE would, and `projects.dirty` has those with unsaved changes. Calls are recorded, and
  * in `at` the .tsproj and PLC project name of the items asked for.
  */
 function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
@@ -289,6 +290,7 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
   }
   const calls: string[] = [];
   const at = new Set<string>();
+  const projects: { dirty: Set<string>; save?: (file: string) => void } = { dirty: new Set() };
   type Item = { tsproj: string; plc: string; path: string[]; file?: string };
   const seen = (item: Item) => at.add(`${path.basename(item.tsproj)}:${item.plc}`);
   const key = (item: Item, part: string) => {
@@ -327,6 +329,12 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
       seen(item);
       calls.push(`save ${path.basename(file)}`);
     },
+    project: (item: Item, file: string, save?: boolean) => {
+      seen(item);
+      calls.push(`project ${path.basename(file)}${save ? ' save' : ''}`);
+      if (save) projects.save?.(file);
+      return { open: true, dirty: projects.dirty.has(fileKey(file)) };
+    },
     children: (item: Item) => {
       seen(item);
       const base = item.path.join('^');
@@ -346,7 +354,7 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
     },
   };
   t.xae = xae as unknown as T.Tools['xae'];
-  return { texts, calls, at };
+  return { texts, calls, at, projects };
 }
 
 test('with XAE open, edits go through XAE: its text, its hash, undo there too, and the file is left to XAE', () => withTools((t, root) => {
@@ -413,8 +421,8 @@ test('a PLC project in two .tsproj, with XAE open on the second one: read, write
 <TcSmProject><Project><Plc><Project Name="Machine" PrjFilePath="..\\A\\Plc\\Plc.plcproj"/></Plc></Project></TcSmProject>`,
 }));
 
-test('with XAE open, members and objects made or deleted save no project: a file XAE did not save is told', () => withTools((t, root) => {
-  // This stand-in saves no file, as XAE leaves the .plcproj of a new object unsaved.
+test('with XAE open, members and objects made or deleted save no TwinCAT project: a file XAE did not save is told', () => withTools((t, root) => {
+  // This stand-in saves no file, as an XAE without the .plcproj in its document table leaves it unsaved.
   const { calls } = fakeXae(t);
   const fb = 'A[\\\\/]Plc[\\\\/]POUs[\\\\/]FB_Valve\\.TcPOU';
   const told = (files: string) => new RegExp(`which shows it but did not save ${files}: the tools here read the files and see the change only once the user saves it in XAE\\. undo_last_edit`);
@@ -431,8 +439,52 @@ test('with XAE open, members and objects made or deleted save no project: a file
   const { removeMemberFromFile } = require('../../src/core/operations') as typeof import('../../src/core/operations');
   removeMemberFromFile(path.join(root, 'A/Plc/POUs/FB_Valve.TcPOU'), '11111111-0000-0000-0000-000000000002');
   assert.match(T.undoLastEdit(t, {}), new RegExp(`^Undid edit 2 in TwinCAT XAE \\(process 4242\\): delete_member FB_Valve\\.M_Close\\. TwinCAT XAE did not save ${fb}: `));
-  // Saved here: only the editor's document of a source file, when it still has changes; never a project file.
+  // Saved here: the editor's document of a source file, when it still has changes, and the .plcproj alone after
+  // add_object and its undo; never the .tsproj.
   assert.deepEqual(calls.filter(c => c.startsWith('save')), ['save FB_Valve.TcPOU', 'save FB_Valve.TcPOU', 'save FB_Pump.TcPOU', 'save FB_Valve.TcPOU']);
+  assert.deepEqual(calls.filter(c => c.startsWith('project')), ['project Plc.plcproj', 'project Plc.plcproj save', 'project Plc.plcproj', 'project Plc.plcproj save']);
+}));
+
+test('with XAE open, add_object and its undo save the .plcproj alone; one with unsaved changes in XAE is refused', () => withTools((t, root) => {
+  const { newObjectFile, newObjectFileText, projectFileStyle, writeNewObject } = require('../../src/core/operations') as typeof import('../../src/core/operations');
+  const { fileKey } = require('../../src/core/workspace') as typeof import('../../src/core/workspace');
+  const { calls, projects } = fakeXae(t);
+  const plcproj = path.join(root, 'A/Plc/Plc.plcproj');
+  const before = fs.readFileSync(plcproj, 'utf8');
+  const unsaved = String.raw`A[\\/]Plc[\\/]Plc\.plcproj has unsaved changes in TwinCAT XAE`;
+  projects.dirty.add(fileKey(plcproj));
+  assert.throws(() => T.addObject(t, { folder: 'POUs/Pumps', kind: 'FB', name: 'FB_Pump' }), new RegExp(String.raw`${unsaved}, and this change would save them too[\s\S]*saveUserEdits: true`));
+  assert.ok(!calls.some(c => c.startsWith('create')), 'nothing is made');
+  projects.dirty.clear();
+  calls.length = 0;
+  // XAE has written the new object's file at CreateChild; saving the .plcproj gives it its <Compile> and <Folder> items.
+  projects.save = file => {
+    const project = t.session.projects.find(p => fileKey(p.path) === fileKey(file))!;
+    const { fsPath, include } = newObjectFile(project, 'POUs\\Pumps', 'FB_Pump', 'fb');
+    writeNewObject(project, fsPath, include, newObjectFileText({ kind: 'fb', name: 'FB_Pump' }, projectFileStyle(t.session.ws, project), fsPath), false);
+  };
+  const added = T.addObject(t, { folder: 'POUs/Pumps', kind: 'FB', name: 'FB_Pump' });
+  assert.match(added, /as A[\\/]Plc[\\/]POUs[\\/]Pumps[\\/]FB_Pump\.TcPOU and in Plc\.plcproj\./);
+  assert.match(added, /Written in TwinCAT XAE \(process 4242\), which shows it and saved A[\\/]Plc[\\/]POUs[\\/]Pumps[\\/]FB_Pump\.TcPOU\. undo_last_edit id=1/);
+  assert.deepEqual(calls.filter(c => !c.startsWith('get')), [
+    'project Plc.plcproj', 'create POUs^Pumps 601', 'create POUs^Pumps^FB_Pump 604', 'save FB_Pump.TcPOU', 'project Plc.plcproj save',
+  ]);
+  assert.match(T.read(t, { object: 'FB_Pump', part: 'decl' }), /^FB_Pump \(pou\) · Plc · POUs\\Pumps\\FB_Pump\.TcPOU · live in TwinCAT XAE/, 'the tools see it at once');
+  // The undo: refused while the .plcproj has unsaved changes, then XAE deletes the object and saves the .plcproj.
+  projects.dirty.add(fileKey(plcproj));
+  assert.throws(() => T.undoLastEdit(t, {}), new RegExp(String.raw`${unsaved}, and undoing edit 1 would save them too\. Ask the user to save or undo them in XAE\.$`));
+  projects.dirty.clear();
+  calls.length = 0;
+  projects.save = () => fs.writeFileSync(plcproj, before);
+  assert.equal(T.undoLastEdit(t, {}), 'Undid edit 1 in TwinCAT XAE (process 4242): add_object FB_Pump.');
+  assert.deepEqual(calls.filter(c => /^(project|delete) /.test(c)), ['project Plc.plcproj', 'delete POUs^Pumps^FB_Pump', 'project Plc.plcproj save']);
+  assert.equal(fs.readFileSync(plcproj, 'utf8'), before);
+  assert.ok(!fs.existsSync(path.join(root, 'A/Plc/POUs/Pumps')), 'the file and the folder the object made are gone');
+  // The user agreed: the .plcproj is saved with their changes.
+  projects.dirty.add(fileKey(plcproj));
+  projects.save = undefined;
+  T.addObject(t, { kind: 'GVL', name: 'GVL_Pump', saveUserEdits: true });
+  assert.deepEqual(calls.slice(-3), ['create GVL_Pump 615', 'save GVL_Pump.TcGVL', 'project Plc.plcproj save']);
 }));
 
 test('the Claude Code command line of the setup: scope local, node when on PATH, else the editor as Node', async () => {

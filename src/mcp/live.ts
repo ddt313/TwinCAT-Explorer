@@ -17,14 +17,18 @@ export interface Live {
   pid: number;
 }
 
-/** The .tsproj that holds a PLC project, and the PLC project's name there (XAE's tree names it so). */
-export function plcOf(s: Session, project: PlcProject): { tsproj: string; plc: string } | undefined {
+/**
+ * The .tsproj files that hold a PLC project, each with the PLC project's name there (XAE's tree names it so): a
+ * simulation's .tsproj can list the machine's .plcproj too.
+ */
+export function plcsOf(s: Session, project: PlcProject): { tsproj: string; plc: string }[] {
   const key = fileKey(project.path);
+  const out: { tsproj: string; plc: string }[] = [];
   for (const ts of s.ws.tsProjects) {
     const ref = ts.plcProjects.find(r => fileKey(r.plcprojPath) === key);
-    if (ref) return { tsproj: ts.path, plc: ref.name };
+    if (ref) out.push({ tsproj: ts.path, plc: ref.name });
   }
-  return undefined;
+  return out;
 }
 
 /** The folders of a file in its PLC project (`POUs`, `Valves`), from its <Compile> include. */
@@ -43,20 +47,17 @@ export function viewPath(v: View): string[] {
   return out;
 }
 
-/** The XAE that has a PLC project open, with an item of it; undefined when none has (the files are written then). */
+/**
+ * The XAE that has a PLC project open, through any .tsproj that holds it, with an item of it; undefined when none
+ * has (the files are written then).
+ */
 export function liveProject(s: Session, xae: Xae | undefined, project: PlcProject, itemPath: string[], file?: string): Live | undefined {
   if (!xae) return undefined;
-  const at = plcOf(s, project);
-  if (!at) return undefined;
-  let inst;
-  try {
-    inst = xae.instanceFor(at.tsproj);
-  } catch (e) {
-    if (e instanceof XaeError) throw new ToolError(e.message);
-    throw e;
+  for (const at of plcsOf(s, project)) {
+    const inst = inXae(() => xae.instanceFor(at.tsproj));
+    if (inst) return { xae, pid: inst.pid, item: { pid: inst.pid, tsproj: at.tsproj, plc: at.plc, path: itemPath, file } };
   }
-  if (!inst) return undefined;
-  return { xae, pid: inst.pid, item: { pid: inst.pid, tsproj: at.tsproj, plc: at.plc, path: itemPath, file } };
+  return undefined;
 }
 
 export function liveView(s: Session, xae: Xae | undefined, v: View): Live | undefined {

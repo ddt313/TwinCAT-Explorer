@@ -243,26 +243,6 @@ namespace TwinCatXaeBridge {
             return state;
         }
 
-        // The project of a project file, at any depth (a PLC project is nested in the TwinCAT project).
-        static Project FindProject(IEnumerable projects, string full) {
-            foreach (object o in projects) {
-                Project p = o as Project;
-                if (p == null) {
-                    ProjectItem pi = o as ProjectItem;
-                    if (pi != null) { try { p = pi.SubProject; } catch { } }
-                }
-                if (p == null) continue;
-                try {
-                    if (string.Equals(Path.GetFullPath(p.FullName), full, StringComparison.OrdinalIgnoreCase)) return p;
-                } catch { }
-                try {
-                    Project inner = FindProject(p.ProjectItems, full);
-                    if (inner != null) return inner;
-                } catch { }
-            }
-            return null;
-        }
-
         static string BuildPane(DTE2 dte) {
             foreach (OutputWindowPane p in dte.ToolWindows.OutputWindow.OutputWindowPanes) {
                 if (!string.Equals(p.Guid, "{1BD8A850-02D1-11D1-BEE7-00A0C913D1F8}", StringComparison.OrdinalIgnoreCase)) continue;
@@ -323,7 +303,9 @@ namespace TwinCatXaeBridge {
                     return list;
                 }
                 case "save": {
-                    // Saves the documents of one file only (a new member lives in memory until its file is saved).
+                    // Saves the documents of one file that still have unsaved changes. XAE saves a POU's file itself
+                    // after CreateChild, DeleteChild and a set text; a project is never saved here: saving the
+                    // TwinCAT project rewrites the .tsproj, its process image included.
                     DTE2 dte = Dte(Int(r, "pid"));
                     string full = Path.GetFullPath(Str(r, "file"));
                     int saved = 0;
@@ -331,15 +313,11 @@ namespace TwinCatXaeBridge {
                         string name;
                         try { name = d.FullName; } catch { continue; }
                         if (!string.Equals(Path.GetFullPath(name), full, StringComparison.OrdinalIgnoreCase)) continue;
+                        bool dirty;
+                        try { dirty = !d.Saved; } catch { dirty = true; }
+                        if (!dirty) continue;
                         d.Save();
                         saved++;
-                    }
-                    if (saved == 0) {
-                        // Not open in an editor: a project file (.plcproj) is saved through its project.
-                        Project p = FindProject(dte.Solution.Projects, full);
-                        // A PLC project is not a project of its own to DTE: the TwinCAT project that holds it saves it.
-                        if (p == null && Str(r, "tsproj") != null) p = FindProject(dte.Solution.Projects, Path.GetFullPath(Str(r, "tsproj")));
-                        if (p != null) { p.Save(); saved++; }
                     }
                     Dictionary<string, object> a = DocState(dte, full);
                     a["saved"] = saved;

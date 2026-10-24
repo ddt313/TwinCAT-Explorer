@@ -358,6 +358,20 @@ const savedByXae = (t: Tools, live: Live, file: string) =>
   `Written in TwinCAT XAE (process ${live.pid}), which shows it and saved ${path.relative(t.session.root, file)}.`;
 
 /**
+ * For a change that XAE saves itself (a member or object made or deleted): the files it left as they were. They are
+ * told, not saved here: saving the TwinCAT project would rewrite the .tsproj.
+ */
+const notSavedByXae = (t: Tools, unsaved: string[]) => `did not save ${unsaved.map(f => path.relative(t.session.root, f)).join(' and ')}: `
+  + 'the tools here read the files and see the change only once the user saves it in XAE.';
+
+function savedOrNotByXae(t: Tools, live: Live, file: string, unsaved: string[]): string {
+  return unsaved.length ? `Written in TwinCAT XAE (process ${live.pid}), which shows it but ${notSavedByXae(t, unsaved)}` : savedByXae(t, live, file);
+}
+
+/** The files a change through XAE left as they were on disk. */
+const unsavedOf = (files: FileChange[]) => files.filter(f => f.after === f.before).map(f => f.path);
+
+/**
  * Refuses a change through XAE that would save the user's unsaved edits in it (a change through XAE saves the
  * file): the files given, or every file of the folder given.
  */
@@ -489,14 +503,16 @@ function missingFolders(paths: string[]): string[] {
   return [...out].sort((a, b) => b.length - a.length);
 }
 
+type FilesEntry = Extract<UndoEntry, { kind: 'files' }>;
+
 /** Records a change of whole files, done by `change`, for undo; `live` says how to undo it in XAE. */
-function changeFiles(t: Tools, paths: string[], what: string, change: () => void, live?: LiveUndo): UndoEntry {
+function changeFiles(t: Tools, paths: string[], what: string, change: () => void, live?: LiveUndo): FilesEntry {
   const before = paths.map(p => ({ path: p, before: readText(p), bom: bomOf(p) }));
   const missing = missingFolders(paths);
   change();
   const files: FileChange[] = before.map(f => ({ ...f, after: readText(f.path), bom: f.before === null ? bomOf(f.path) : f.bom }));
   const folders = missing.filter(d => fs.existsSync(d));
-  return t.undo.add({ kind: 'files', what, files, live, ...(folders.length ? { folders } : {}) });
+  return t.undo.add({ kind: 'files', what, files, live, ...(folders.length ? { folders } : {}) }) as FilesEntry;
 }
 
 /** Removes the folders an undone change made, when they are empty again. */
@@ -569,7 +585,7 @@ export function addMember(t: Tools, a: { owner: string; kind: 'method' | 'proper
       recreate(live, { ...live.item, path: parent }, copy);
       live.xae.save(live.item, v.entry.path);
     }), { project: v.entry.project.name, parent, name: a.name, op: 'added', files: [v.entry.path] });
-    return afterWrite(t, v, entry, done, savedByXae(t, live, v.entry.path));
+    return afterWrite(t, v, entry, done, savedOrNotByXae(t, live, v.entry.path, unsavedOf(entry.files)));
   }
   const entry = changeFiles(t, [v.entry.path], `add_member ${v.label}.${a.name}`, () => {
     try {
@@ -601,7 +617,7 @@ export function deleteMember(t: Tools, a: { object: string; confirm: boolean; sa
       live.xae.delete({ ...live.item, path: parent }, name);
       live.xae.save(live.item, v.entry.path);
     }), { project: v.entry.project.name, parent, name, op: 'deleted', copy, files: [v.entry.path] });
-    return afterWrite(t, v, entry, `Deleted ${v.label}.`, savedByXae(t, live, v.entry.path));
+    return afterWrite(t, v, entry, `Deleted ${v.label}.`, savedOrNotByXae(t, live, v.entry.path, unsavedOf(entry.files)));
   }
   const entry = changeFiles(t, [v.entry.path], `delete_member ${v.label}`, () => removeMemberFromFile(v.entry.path, v.obj.id, v.accessor));
   return afterWrite(t, v, entry, `Deleted ${v.label}.`, savedTo(t, v.entry.path));
@@ -633,6 +649,7 @@ export function addObject(t: Tools, a: { project?: string; folder?: string; kind
   const target = project;
   const folders = folder ? folder.split('\\') : [];
   const live = liveProject(s, t.xae, project, folders);
+  const missing = found.missing.length ? `\nNot found, so their members were not added: ${found.missing.join(', ')}` : '';
   let entry: UndoEntry;
   let how: string;
   if (live) {
@@ -647,21 +664,22 @@ export function addObject(t: Tools, a: { project?: string; folder?: string; kind
       decl: root.sections.find(x => x.role === 'decl')?.text, impl: root.sections.find(x => x.role === 'impl')?.text || undefined,
       children: made.ordered.filter(o => o.parent === root).map(o => memberCopy(o, kind === 'itf')),
     };
-    entry = changeFiles(t, [fsPath, project.path], `add_object ${a.name}`, () => inXae(() => {
+    const changed = changeFiles(t, [fsPath, project.path], `add_object ${a.name}`, () => inXae(() => {
       ensureFolders(live, [], folders);
       recreate(live, live.item, copy);
       live.xae.save(live.item, fsPath);
-      live.xae.save(live.item, target.path);
     }), { project: project.name, parent: folders, name: a.name, op: 'added', files: [fsPath, project.path] });
-    if (!fs.existsSync(fsPath)) throw new ToolError(`TwinCAT XAE made ${a.name} but did not save ${path.basename(fsPath)} yet: save the project in XAE.`);
-    how = savedByXae(t, live, fsPath);
+    const unsaved = unsavedOf(changed.files);
+    how = savedOrNotByXae(t, live, fsPath, unsaved);
+    // Until XAE saves its file and the .plcproj, the projects the tools read do not have the object.
+    if (unsaved.length) return [`Added ${a.name} to ${project.name}.${missing}`, `${how} undo_last_edit id=${changed.id} takes it back.`].join('\n');
+    entry = changed;
   } else {
     entry = changeFiles(t, [fsPath, project.path], `add_object ${a.name}`, () => writeNewObject(target, fsPath, include, text, style.bom));
     how = savedTo(t, fsPath);
   }
   s.refresh();
   const v = s.resolve(`${project.name}:${a.name}`);
-  const missing = found.missing.length ? `\nNot found, so their members were not added: ${found.missing.join(', ')}` : '';
   return afterWrite(t, v, entry, `Added ${objectTreeLabel(v.obj)} as ${path.relative(s.root, fsPath)} and in ${path.basename(project.path)}.${missing}`, how);
 }
 
@@ -678,6 +696,7 @@ export function undoLastEdit(t: Tools, a: { id?: number }): string {
   if (!e) return a.id !== undefined ? `No edit ${a.id}.` : 'Nothing to undo.';
   if (e.undone) throw new ToolError(`Edit ${e.id} (${e.what}) is undone already.`);
   let how = 'in the files';
+  let note = '';
   if (e.kind === 'section') {
     let v: View | undefined;
     try {
@@ -716,16 +735,20 @@ export function undoLastEdit(t: Tools, a: { id?: number }): string {
       const names = inXae(() => live.xae.children({ ...live.item, path: u.parent })).map(c => c.name.toUpperCase());
       if (u.op === 'added' && !names.includes(u.name.toUpperCase())) throw new ToolError(`${u.name} is no longer there; nothing to undo.`);
       if (u.op === 'deleted' && names.includes(u.name.toUpperCase())) throw new ToolError(`There is a ${u.name} again; undo it by hand.`);
+      const before = e.files.map(f => readText(f.path));
       inXae(() => {
         const parent = { ...live.item, path: u.parent };
         if (u.op === 'added') live.xae.delete(parent, u.name);
         else recreate(live, parent, u.copy!);
-        for (const f of u.files) if (fs.existsSync(f)) live.xae.save(live.item, f);
+        for (const f of u.files) if (fs.existsSync(f) && !s.ws.isProjectFile(f)) live.xae.save(live.item, f);
       });
       // A deleted object's file can stay on disk: it was not there before.
       for (const f of e.files) if (f.before === null && fs.existsSync(f.path)) fs.rmSync(f.path, { force: true });
       removeFolders(e.folders);
       how = `in TwinCAT XAE (process ${live.pid})`;
+      // A file the undo left as it was, though not as it was before the edit: XAE did not save it.
+      const unsaved = e.files.filter((f, i) => fs.existsSync(f.path) && readText(f.path) === before[i] && before[i] !== f.before).map(f => f.path);
+      if (unsaved.length) note = ` TwinCAT XAE ${notSavedByXae(t, unsaved)}`;
     } else {
       for (const f of e.files) {
         if (f.before === null) fs.rmSync(f.path, { force: true });
@@ -736,7 +759,7 @@ export function undoLastEdit(t: Tools, a: { id?: number }): string {
   }
   t.undo.markUndone(e);
   s.refresh();
-  return `Undid edit ${e.id} ${how}: ${e.what}.`;
+  return `Undid edit ${e.id} ${how}: ${e.what}.${note}`;
 }
 
 export function editHistory(t: Tools, a: { limit?: number }): string {

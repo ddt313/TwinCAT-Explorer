@@ -359,7 +359,8 @@ const savedByXae = (t: Tools, live: Live, file: string) =>
 
 /**
  * For a change that XAE saves itself (a member or object made or deleted): the files it left as they were. They are
- * told, not saved here: saving the TwinCAT project would rewrite the .tsproj.
+ * told, not saved here: saving the TwinCAT project would rewrite the .tsproj, and a .plcproj is saved alone only
+ * where XAE has it in its document table.
  */
 const notSavedByXae = (t: Tools, unsaved: string[]) => `did not save ${unsaved.map(f => path.relative(t.session.root, f)).join(' and ')}: `
   + 'the tools here read the files and see the change only once the user saves it in XAE.';
@@ -371,6 +372,10 @@ function savedOrNotByXae(t: Tools, live: Live, file: string, unsaved: string[]):
 /** The files a change through XAE left as they were on disk. */
 const unsavedOf = (files: FileChange[]) => files.filter(f => f.after === f.before).map(f => f.path);
 
+/** The .plcproj files among `files` that have unsaved changes in XAE (DTE's documents do not show them). */
+const projectEdits = (t: Tools, live: Live, files: string[]) =>
+  files.filter(f => t.session.ws.isProjectFile(f) && inXae(() => live.xae.project(live.item, f)).dirty);
+
 /**
  * Refuses a change through XAE that would save the user's unsaved edits in it (a change through XAE saves the
  * file): the files given, or every file of the folder given.
@@ -380,6 +385,7 @@ function refuseDirty(t: Tools, live: Live, files: string[], folder: string | und
   const dirty = inXae(() => live.xae.dirty(live.pid));
   const keys = new Set(files.map(fileKey));
   const hit = dirty.filter(d => keys.has(fileKey(d)) || (folder && fileKey(d).startsWith(fileKey(folder) + path.sep)));
+  for (const f of projectEdits(t, live, files)) if (!hit.some(h => fileKey(h) === fileKey(f))) hit.push(f);
   if (hit.length) {
     throw new ToolError(`${hit.map(h => path.relative(t.session.root, h)).join(', ')} has unsaved changes in TwinCAT XAE, and this change would save them `
       + 'too. Ask the user to save or undo them in XAE, or pass saveUserEdits: true if they agree.');
@@ -654,7 +660,8 @@ export function addObject(t: Tools, a: { project?: string; folder?: string; kind
   let how: string;
   if (live) {
     refuseDirty(t, live, [project.path], project.dir, a.saveUserEdits);
-    // The object as the extension writes it, made in XAE, which writes its file and its <Compile> item.
+    // The object as the extension writes it, made in XAE, which writes its file; the .plcproj (its <Compile> and
+    // <Folder> items) is saved alone, with no unsaved edits of the user's (refused above).
     const made = parseTcText(fsPath, text, style.bom);
     const root = made.root!;
     const sub = { fb: SUBTYPE.fb, prg: SUBTYPE.prg, fun: SUBTYPE.fun, itf: SUBTYPE.itf, struct: SUBTYPE.struct, enum: SUBTYPE.enum, union: SUBTYPE.union, alias: SUBTYPE.alias, gvl: SUBTYPE.gvl }[kind];
@@ -668,6 +675,7 @@ export function addObject(t: Tools, a: { project?: string; folder?: string; kind
       ensureFolders(live, [], folders);
       recreate(live, live.item, copy);
       live.xae.save(live.item, fsPath);
+      live.xae.project(live.item, project.path, true);
     }), { project: project.name, parent: folders, name: a.name, op: 'added', files: [fsPath, project.path] });
     const unsaved = unsavedOf(changed.files);
     how = savedOrNotByXae(t, live, fsPath, unsaved);
@@ -735,12 +743,20 @@ export function undoLastEdit(t: Tools, a: { id?: number }): string {
       const names = inXae(() => live.xae.children({ ...live.item, path: u.parent })).map(c => c.name.toUpperCase());
       if (u.op === 'added' && !names.includes(u.name.toUpperCase())) throw new ToolError(`${u.name} is no longer there; nothing to undo.`);
       if (u.op === 'deleted' && names.includes(u.name.toUpperCase())) throw new ToolError(`There is a ${u.name} again; undo it by hand.`);
+      const edits = projectEdits(t, live, u.files);
+      if (edits.length) {
+        throw new ToolError(`${edits.map(f => path.relative(s.root, f)).join(', ')} has unsaved changes in TwinCAT XAE, and undoing edit ${e.id} `
+          + 'would save them too. Ask the user to save or undo them in XAE.');
+      }
       const before = e.files.map(f => readText(f.path));
       inXae(() => {
         const parent = { ...live.item, path: u.parent };
         if (u.op === 'added') live.xae.delete(parent, u.name);
         else recreate(live, parent, u.copy!);
-        for (const f of u.files) if (fs.existsSync(f) && !s.ws.isProjectFile(f)) live.xae.save(live.item, f);
+        for (const f of u.files) {
+          if (s.ws.isProjectFile(f)) live.xae.project(live.item, f, true);
+          else if (fs.existsSync(f)) live.xae.save(live.item, f);
+        }
       });
       // A deleted object's file can stay on disk: it was not there before.
       for (const f of e.files) if (f.before === null && fs.existsSync(f.path)) fs.rmSync(f.path, { force: true });

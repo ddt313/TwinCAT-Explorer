@@ -203,10 +203,19 @@ export class Xae {
 
   /**
    * Saves the editor's document of a file when it still has unsaved changes. XAE saves a POU's file itself after a
-   * set text, CreateChild and DeleteChild; a project is never saved, as saving the TwinCAT project rewrites the .tsproj.
+   * set text, CreateChild and DeleteChild; the TwinCAT project is never saved, as that rewrites the .tsproj.
    */
   save(item: Omit<XaeItem, 'path'>, file: string): void {
     this.request({ cmd: 'save', ...item, path: [], file });
+  }
+
+  /**
+   * A PLC project's .plcproj in XAE, which CreateChild and DeleteChild of an object leave unsaved: whether it has
+   * unsaved changes. With `save`, it is saved first if it has, alone: neither the .tsproj nor the unsaved edits in the
+   * PLC project's editors are saved with it. `open` false: XAE does not have it, and nothing is saved.
+   */
+  project(item: Omit<XaeItem, 'path'>, file: string, save = false): { open: boolean; dirty: boolean } {
+    return this.request({ cmd: 'project', ...item, path: [], file, save });
   }
 
   children(item: XaeItem): { name: string }[] {

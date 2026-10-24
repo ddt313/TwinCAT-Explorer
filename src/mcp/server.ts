@@ -145,7 +145,7 @@ register('add_object', {
   inputSchema: {
     project: z.string().optional(), folder: z.string().optional().describe('POUs, POUs/Valves, ...'),
     kind: z.enum(['FB', 'PRG', 'FUN', 'ITF', 'STRUCT', 'ENUM', 'UNION', 'ALIAS', 'GVL']), name: z.string(),
-    extends: z.string().optional(), implements: z.string().optional(), type: z.string().optional().describe('Return type of a function, type of an alias'), saveUserEdits: z.boolean().optional().describe("With TwinCAT XAE open: also save the user's unsaved edits of the file, when they agreed"),
+    extends: z.string().optional(), implements: z.string().optional(), type: z.string().optional().describe('Return type of a function, type of an alias'), saveUserEdits: z.boolean().optional().describe("With TwinCAT XAE open: also save the user's unsaved edits of the .plcproj, when they agreed"),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 }, run(T.addObject));

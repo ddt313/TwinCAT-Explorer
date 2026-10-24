@@ -202,8 +202,8 @@ export class Xae {
   }
 
   /**
-   * Saves one file: its editor's document, or, for a .plcproj, the TwinCAT project that holds it. A member or
-   * object made by CreateChild lives in XAE's memory until then.
+   * Saves the editor's document of a file when it still has unsaved changes. XAE saves a POU's file itself after a
+   * set text, CreateChild and DeleteChild; a project is never saved, as saving the TwinCAT project rewrites the .tsproj.
    */
   save(item: Omit<XaeItem, 'path'>, file: string): void {
     this.request({ cmd: 'save', ...item, path: [], file });

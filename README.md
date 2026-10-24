@@ -657,12 +657,15 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
   - Undo: `undo_last_edit` and `edit_history`. Every write is logged (in
     `%LOCALAPPDATA%\twincat-explorer\mcp-undo.jsonl`), and taken back only when the code was not changed
     since.
-- **With TwinCAT XAE open on the project**, the code is read and written in XAE itself, through its
+- **With TwinCAT XAE open on the project**, through any `.tsproj` that lists the PLC project (a
+  simulation's as well as the machine's), the code is read and written in XAE itself, through its
   Automation Interface (Windows; checked with XAE 3.1.4026 and its TcXaeShell):
   - `read` shows XAE's text, unsaved edits included. A write changes it there: XAE shows the change at
     once, never asks to reload, and saves the object (a new member or object too) right away. Only that
     file is saved; when it has unsaved edits in XAE, the write is refused unless the user agrees
     (`saveUserEdits: true`), since saving would take them along.
+  - The TwinCAT project is never saved, as that rewrites the `.tsproj`. XAE leaves the `.plcproj` of a
+    new object unsaved: the answer says so, and the tools see the object once the user saves it in XAE.
   - XAE's own Ctrl+Z does not undo such a change; `undo_last_edit` does, in XAE.
   - `check` with `compiler: true` runs XAE's *Check all objects* and gives the compiler's messages.
   - The server finds the XAE instances on the desktop (TcXaeShell, or Visual Studio with TwinCAT), never

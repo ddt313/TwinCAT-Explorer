@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.15.1 - 2026-10-24
 
 ### Fixed
 - `TwinCAT: Set Up MCP Server for Claude Code` registers the server where Claude Code looks for it. It ran

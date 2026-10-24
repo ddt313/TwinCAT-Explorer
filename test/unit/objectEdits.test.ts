@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
-  PlcProjectEditError, parsePlcProject, removeItem, renameCompileItem, renameFolderItems, renameTaskCalls, taskCalls,
+  PlcProjectEditError, parsePlcProject, projectFolderList, removeItem, renameCompileItem, renameFolderItems, renameTaskCalls, taskCalls,
 } from '../../src/core/project';
 import { SpliceError, nameRanges, renameObject } from '../../src/core/splice';
 import { encodeText, parseTcFile, parseTcText } from '../../src/core/tcfile';
-import { folderNameProblem, isInFolder, projectFolderList } from '../../src/lang/objects';
+import { folderNameProblem, isInFolder } from '../../src/lang/objects';
 
 const ID = '{aaaaaaaa-0000-4000-8000-000000000001}';
 const RUN = '{aaaaaaaa-0000-4000-8000-000000000002}';

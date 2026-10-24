@@ -53,8 +53,11 @@ fbValve.M_Close();
 </TcPlcObject>`.replace(/\n/g, '\r\n'),
 };
 
-/** Runs a test on a PLC project `Plc` with FB_Valve (and its method M_Close) and MAIN, in a folder of its own. */
-function withTools(run: (t: T.Tools, root: string) => void): void {
+/**
+ * Runs a test on a PLC project `Plc` with FB_Valve (and its method M_Close) and MAIN, in a folder of its own;
+ * `more`: other files there, by path in the folder.
+ */
+function withTools(run: (t: T.Tools, root: string) => void, more: Record<string, string> = {}): void {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-mcp-'));
   const write = (rel: string, text: string) => {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -73,6 +76,7 @@ function withTools(run: (t: T.Tools, root: string) => void): void {
   </ItemGroup>
 </Project>`);
     for (const [rel, text] of Object.entries(FILES)) write(`A/Plc/${rel}`, text);
+    for (const [rel, text] of Object.entries(more)) write(rel, text);
     const t: T.Tools = { session: new Session(root), undo: new UndoLog(root, path.join(root, 'undo.jsonl')) };
     t.session.refresh();
     run(t, root);
@@ -182,6 +186,24 @@ test('add_member, add_object and delete_member change the files, and undo restor
   assert.equal(fs.readFileSync(fb, 'utf8'), fbBefore);
 }));
 
+test('add_object without XAE writes a <Folder> item for each folder it makes, where XAE puts it', () => withTools((t, root) => {
+  const plcproj = path.join(root, 'A/Plc/Plc.plcproj');
+  const before = fs.readFileSync(plcproj, 'utf8');
+  const folderItems = () => [...fs.readFileSync(plcproj, 'utf8').matchAll(/<Folder Include="([^"]+)" \/>/g)].map(m => m[1]);
+  // POUs is the folder of the project's files already: only the two new levels get an item.
+  T.addObject(t, { folder: 'POUs/Valves/Small', kind: 'FB', name: 'FB_SmallValve' });
+  assert.deepEqual(folderItems(), ['POUs\\Valves', 'POUs\\Valves\\Small']);
+  assert.match(fs.readFileSync(plcproj, 'utf8'), /<Compile Include="POUs\\Valves\\Small\\FB_SmallValve\.TcPOU">/);
+  // A folder the project has now gets no second item; a new one goes before the items that follow it.
+  T.addObject(t, { folder: 'POUs/Valves', kind: 'FB', name: 'FB_BigValve' });
+  T.addObject(t, { folder: 'DUTs', kind: 'ENUM', name: 'E_ValveState' });
+  assert.deepEqual(folderItems(), ['DUTs', 'POUs\\Valves', 'POUs\\Valves\\Small']);
+  for (let i = 0; i < 3; i++) T.undoLastEdit(t, {});
+  assert.equal(fs.readFileSync(plcproj, 'utf8'), before);
+  assert.equal(fs.existsSync(path.join(root, 'A/Plc/POUs/Valves')), false);
+  assert.equal(fs.existsSync(path.join(root, 'A/Plc/DUTs')), false);
+}));
+
 test('the undo log survives a restart of the server', () => withTools((t, root) => {
   T.editSection(t, { object: 'MAIN', part: 'impl', oldText: 'TRUE', newText: 'FALSE' });
   const again: T.Tools = { session: new Session(root), undo: new UndoLog(root, path.join(root, 'undo.jsonl')) };
@@ -246,37 +268,52 @@ test('check reports problems of one object or of all code', () => withTools(t =>
 }));
 
 /**
- * A stand-in for the running TwinCAT XAE, with the project open: its texts by tree path, with each text's editor
- * state; calls are recorded.
+ * A stand-in for the running TwinCAT XAE, with the project open through the .tsproj files `open` (by default all):
+ * its texts and tree items by tree path, with each text's editor state. It saves no file: `projects.save`, when
+ * given, saves a .plcproj as XAE would, and `projects.dirty` has those with unsaved changes. Calls are recorded, and
+ * in `at` the .tsproj and PLC project name of the items asked for.
  */
-function fakeXae(t: T.Tools, dirtyFiles: string[] = []) {
+function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
   const { textHash } = require('../../src/core/objectText') as typeof import('../../src/core/objectText');
+  const { viewPath } = require('../../src/mcp/live') as typeof import('../../src/mcp/live');
+  const { fileKey } = require('../../src/core/workspace') as typeof import('../../src/core/workspace');
   const s = t.session;
   const texts = new Map<string, string>();
   for (const v of s.views()) {
-    for (const sec of v.obj.sections.filter(x => x.accessor === v.accessor)) {
-      const { viewPath } = require('../../src/mcp/live') as typeof import('../../src/mcp/live');
-      texts.set(`${viewPath(v).join('^')}|${sec.role}`, sec.text);
-    }
+    for (const sec of v.obj.sections.filter(x => x.accessor === v.accessor)) texts.set(`${viewPath(v).join('^')}|${sec.role}`, sec.text);
+  }
+  // The tree items: those with code and their folders, then as made and deleted.
+  const items = new Set<string>();
+  for (const k of texts.keys()) {
+    const p = k.split('|')[0].split('^');
+    for (let i = 1; i <= p.length; i++) items.add(p.slice(0, i).join('^'));
   }
   const calls: string[] = [];
-  const key = (item: { path: string[] }, part: string) => `${item.path.join('^')}|${part}`;
+  const at = new Set<string>();
+  const projects: { dirty: Set<string>; save?: (file: string) => void } = { dirty: new Set() };
+  type Item = { tsproj: string; plc: string; path: string[]; file?: string };
+  const seen = (item: Item) => at.add(`${path.basename(item.tsproj)}:${item.plc}`);
+  const key = (item: Item, part: string) => {
+    seen(item);
+    return `${item.path.join('^')}|${part}`;
+  };
   const live = (text: string, file?: string) => ({ text, hash: textHash(text), open: false, dirty: !!file && dirtyFiles.includes(file) });
   const xae = {
-    instances: () => [{ pid: 4242, progId: 'TcXaeShell.DTE.15.0', solution: 'A.sln', projects: s.ws.tsProjects.map(p => p.path) }],
-    instanceFor: () => xae.instances()[0],
-    get: (item: { path: string[]; file?: string }, part: string) => {
+    instances: () => [{ pid: 4242, progId: 'TcXaeShell.DTE.15.0', solution: 'A.sln', projects: open ?? s.ws.tsProjects.map(p => p.path) }],
+    instanceFor: (tsproj: string) => xae.instances().find(i => i.projects.some(p => fileKey(p) === fileKey(tsproj))),
+    get: (item: Item, part: string) => {
       calls.push(`get ${key(item, part)}`);
       return live(texts.get(key(item, part)) ?? '', item.file);
     },
-    set: (item: { path: string[]; file?: string }, part: string, text: string, expected: string) => {
+    set: (item: Item, part: string, text: string, expected: string) => {
       const now = texts.get(key(item, part)) ?? '';
       if (textHash(now) !== expected) return { ...live(now), conflict: true };
       calls.push(`set ${key(item, part)}`);
       texts.set(key(item, part), text);
       return live(text);
     },
-    texts: (item: { path: string[] }) => {
+    texts: (item: Item) => {
+      seen(item);
       const base = item.path.join('^');
       const out = new Map<string, Record<string, string>>();
       for (const [k, text] of texts) {
@@ -288,13 +325,36 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = []) {
       return [...out.values()];
     },
     dirty: () => dirtyFiles,
-    save: (_: unknown, file: string) => calls.push(`save ${path.basename(file)}`),
-    children: () => [],
-    create: (parent: { path: string[] }, name: string, subType: number) => calls.push(`create ${[...parent.path, name].join('^')} ${subType}`),
-    delete: (parent: { path: string[] }, name: string) => calls.push(`delete ${[...parent.path, name].join('^')}`),
+    save: (item: Item, file: string) => {
+      seen(item);
+      calls.push(`save ${path.basename(file)}`);
+    },
+    project: (item: Item, file: string, save?: boolean) => {
+      seen(item);
+      calls.push(`project ${path.basename(file)}${save ? ' save' : ''}`);
+      if (save) projects.save?.(file);
+      return { open: true, dirty: projects.dirty.has(fileKey(file)) };
+    },
+    children: (item: Item) => {
+      seen(item);
+      const base = item.path.join('^');
+      return [...items].filter(p => p.split('^').slice(0, -1).join('^') === base).map(p => ({ name: p.split('^').pop()! }));
+    },
+    create: (parent: Item, name: string, subType: number) => {
+      seen(parent);
+      const p = [...parent.path, name].join('^');
+      items.add(p);
+      calls.push(`create ${p} ${subType}`);
+    },
+    delete: (parent: Item, name: string) => {
+      seen(parent);
+      const p = [...parent.path, name].join('^');
+      for (const i of [...items]) if (i === p || i.startsWith(p + '^')) items.delete(i);
+      calls.push(`delete ${p}`);
+    },
   };
   t.xae = xae as unknown as T.Tools['xae'];
-  return { texts, calls };
+  return { texts, calls, at, projects };
 }
 
 test('with XAE open, edits go through XAE: its text, its hash, undo there too, and the file is left to XAE', () => withTools((t, root) => {
@@ -340,6 +400,93 @@ test('with XAE open, members are made and deleted by CreateChild and DeleteChild
   assert.deepEqual(calls, ['delete POUs^FB_Valve^M_Close', 'save FB_Valve.TcPOU']);
 }));
 
+test('a PLC project in two .tsproj, with XAE open on the second one: read, writes and undo go through it, by that .tsproj\'s name for it', () => withTools((t, root) => {
+  const file = path.join(root, 'A/Plc/POUs/FB_Valve.TcPOU');
+  const before = fs.readFileSync(file, 'utf8');
+  const { texts, calls, at } = fakeXae(t, [], [path.join(root, 'Sim/Sim.tsproj')]);
+  assert.match(T.read(t, { object: 'FB_Valve', part: 'impl' }), /live in TwinCAT XAE \(process 4242\)/);
+  T.editSection(t, { object: 'FB_Valve', part: 'impl', oldText: 'nCount + 1', newText: 'nCount + 2' });
+  assert.match(texts.get('POUs^FB_Valve|impl')!, /nCount \+ 2/);
+  assert.match(T.undoLastEdit(t, {}), /^Undid edit 1 in TwinCAT XAE \(process 4242\): edit_section FB_Valve impl\.$/);
+  assert.match(texts.get('POUs^FB_Valve|impl')!, /nCount \+ 1/);
+  T.addMember(t, { owner: 'FB_Valve', kind: 'method', name: 'M_Open', type: 'BOOL' });
+  assert.ok(calls.includes('create POUs^FB_Valve^M_Open 609'));
+  assert.match(T.undoLastEdit(t, {}), /^Undid edit 2 in TwinCAT XAE \(process 4242\): add_member FB_Valve\.M_Open\./);
+  assert.ok(calls.includes('delete POUs^FB_Valve^M_Open'));
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'nothing is written behind XAE');
+  assert.deepEqual([...at], ['Sim.tsproj:Machine']);
+}, {
+  // After A.tsproj in the order of the .tsproj files, and with a name of its own for the PLC project, as XAE's tree has it.
+  'Sim/Sim.tsproj': `<?xml version="1.0"?>
+<TcSmProject><Project><Plc><Project Name="Machine" PrjFilePath="..\\A\\Plc\\Plc.plcproj"/></Plc></Project></TcSmProject>`,
+}));
+
+test('with XAE open, members and objects made or deleted save no TwinCAT project: a file XAE did not save is told', () => withTools((t, root) => {
+  // This stand-in saves no file, as an XAE without the .plcproj in its document table leaves it unsaved.
+  const { calls } = fakeXae(t);
+  const fb = 'A[\\\\/]Plc[\\\\/]POUs[\\\\/]FB_Valve\\.TcPOU';
+  const told = (files: string) => new RegExp(`which shows it but did not save ${files}: the tools here read the files and see the change only once the user saves it in XAE\\. undo_last_edit`);
+  assert.match(T.addMember(t, { owner: 'FB_Valve', kind: 'action', name: 'A_Reset' }), told(fb));
+  assert.match(T.deleteMember(t, { object: 'FB_Valve.M_Close', confirm: true }), told(fb));
+  // Not in the files yet, the new object is not looked up: the answer says what was made.
+  const added = T.addObject(t, { folder: 'POUs/Pumps', kind: 'FB', name: 'FB_Pump' });
+  assert.match(added, /^Added FB_Pump to Plc\.\n/);
+  assert.match(added, told('A[\\\\/]Plc[\\\\/]POUs[\\\\/]Pumps[\\\\/]FB_Pump\\.TcPOU and A[\\\\/]Plc[\\\\/]Plc\\.plcproj'));
+  assert.ok(calls.includes('create POUs^Pumps 601') && calls.includes('create POUs^Pumps^FB_Pump 604'), calls.join(', '));
+  // The files are as before the edit, so nothing is left unsaved.
+  assert.equal(T.undoLastEdit(t, {}), 'Undid edit 3 in TwinCAT XAE (process 4242): add_object FB_Pump.');
+  // XAE saved the delete, but not its undo.
+  const { removeMemberFromFile } = require('../../src/core/operations') as typeof import('../../src/core/operations');
+  removeMemberFromFile(path.join(root, 'A/Plc/POUs/FB_Valve.TcPOU'), '11111111-0000-0000-0000-000000000002');
+  assert.match(T.undoLastEdit(t, {}), new RegExp(`^Undid edit 2 in TwinCAT XAE \\(process 4242\\): delete_member FB_Valve\\.M_Close\\. TwinCAT XAE did not save ${fb}: `));
+  // Saved here: the editor's document of a source file, when it still has changes, and the .plcproj alone after
+  // add_object and its undo; never the .tsproj.
+  assert.deepEqual(calls.filter(c => c.startsWith('save')), ['save FB_Valve.TcPOU', 'save FB_Valve.TcPOU', 'save FB_Pump.TcPOU', 'save FB_Valve.TcPOU']);
+  assert.deepEqual(calls.filter(c => c.startsWith('project')), ['project Plc.plcproj', 'project Plc.plcproj save', 'project Plc.plcproj', 'project Plc.plcproj save']);
+}));
+
+test('with XAE open, add_object and its undo save the .plcproj alone; one with unsaved changes in XAE is refused', () => withTools((t, root) => {
+  const { newObjectFile, newObjectFileText, projectFileStyle, writeNewObject } = require('../../src/core/operations') as typeof import('../../src/core/operations');
+  const { fileKey } = require('../../src/core/workspace') as typeof import('../../src/core/workspace');
+  const { calls, projects } = fakeXae(t);
+  const plcproj = path.join(root, 'A/Plc/Plc.plcproj');
+  const before = fs.readFileSync(plcproj, 'utf8');
+  const unsaved = String.raw`A[\\/]Plc[\\/]Plc\.plcproj has unsaved changes in TwinCAT XAE`;
+  projects.dirty.add(fileKey(plcproj));
+  assert.throws(() => T.addObject(t, { folder: 'POUs/Pumps', kind: 'FB', name: 'FB_Pump' }), new RegExp(String.raw`${unsaved}, and this change would save them too[\s\S]*saveUserEdits: true`));
+  assert.ok(!calls.some(c => c.startsWith('create')), 'nothing is made');
+  projects.dirty.clear();
+  calls.length = 0;
+  // XAE has written the new object's file at CreateChild; saving the .plcproj gives it its <Compile> and <Folder> items.
+  projects.save = file => {
+    const project = t.session.projects.find(p => fileKey(p.path) === fileKey(file))!;
+    const { fsPath, include } = newObjectFile(project, 'POUs\\Pumps', 'FB_Pump', 'fb');
+    writeNewObject(project, fsPath, include, newObjectFileText({ kind: 'fb', name: 'FB_Pump' }, projectFileStyle(t.session.ws, project), fsPath), false);
+  };
+  const added = T.addObject(t, { folder: 'POUs/Pumps', kind: 'FB', name: 'FB_Pump' });
+  assert.match(added, /as A[\\/]Plc[\\/]POUs[\\/]Pumps[\\/]FB_Pump\.TcPOU and in Plc\.plcproj\./);
+  assert.match(added, /Written in TwinCAT XAE \(process 4242\), which shows it and saved A[\\/]Plc[\\/]POUs[\\/]Pumps[\\/]FB_Pump\.TcPOU\. undo_last_edit id=1/);
+  assert.deepEqual(calls.filter(c => !c.startsWith('get')), [
+    'project Plc.plcproj', 'create POUs^Pumps 601', 'create POUs^Pumps^FB_Pump 604', 'save FB_Pump.TcPOU', 'project Plc.plcproj save',
+  ]);
+  assert.match(T.read(t, { object: 'FB_Pump', part: 'decl' }), /^FB_Pump \(pou\) · Plc · POUs\\Pumps\\FB_Pump\.TcPOU · live in TwinCAT XAE/, 'the tools see it at once');
+  // The undo: refused while the .plcproj has unsaved changes, then XAE deletes the object and saves the .plcproj.
+  projects.dirty.add(fileKey(plcproj));
+  assert.throws(() => T.undoLastEdit(t, {}), new RegExp(String.raw`${unsaved}, and undoing edit 1 would save them too\. Ask the user to save or undo them in XAE\.$`));
+  projects.dirty.clear();
+  calls.length = 0;
+  projects.save = () => fs.writeFileSync(plcproj, before);
+  assert.equal(T.undoLastEdit(t, {}), 'Undid edit 1 in TwinCAT XAE (process 4242): add_object FB_Pump.');
+  assert.deepEqual(calls.filter(c => /^(project|delete) /.test(c)), ['project Plc.plcproj', 'delete POUs^Pumps^FB_Pump', 'project Plc.plcproj save']);
+  assert.equal(fs.readFileSync(plcproj, 'utf8'), before);
+  assert.ok(!fs.existsSync(path.join(root, 'A/Plc/POUs/Pumps')), 'the file and the folder the object made are gone');
+  // The user agreed: the .plcproj is saved with their changes.
+  projects.dirty.add(fileKey(plcproj));
+  projects.save = undefined;
+  T.addObject(t, { kind: 'GVL', name: 'GVL_Pump', saveUserEdits: true });
+  assert.deepEqual(calls.slice(-3), ['create GVL_Pump 615', 'save GVL_Pump.TcGVL', 'project Plc.plcproj save']);
+}));
+
 test('the Claude Code command line of the setup: scope local, node when on PATH, else the editor as Node', async () => {
   const { claudeAddArgs, claudeRemoveArgs, commandLine, serverLaunch } = await import('../../src/core/mcpSetup');
   // Paths with forward slashes: a quoted path loses its backslashes through claude.cmd.
@@ -350,6 +497,30 @@ test('the Claude Code command line of the setup: scope local, node when on PATH,
   assert.deepEqual(electron, ['mcp', 'add', 'twincat', '--scope', 'local', '-e', 'ELECTRON_RUN_AS_NODE=1', '--', code, js]);
   assert.equal(commandLine('claude', electron), `claude mcp add twincat --scope local -e ELECTRON_RUN_AS_NODE=1 -- "${code}" ${js}`);
   assert.deepEqual(claudeRemoveArgs(), ['mcp', 'remove', 'twincat', '--scope', 'local']);
+});
+
+test('the setup runs claude in the folder as Claude Code spells it (C:), and removes a registration under VS Code\'s c:', async () => {
+  const { claudeFolder, registerServer, serverLaunch } = await import('../../src/core/mcpSetup');
+  assert.equal(claudeFolder('c:\\Users\\me\\repo'), 'C:\\Users\\me\\repo');
+  assert.equal(claudeFolder('C:\\Users\\me\\repo'), 'C:\\Users\\me\\repo');
+  assert.equal(claudeFolder('\\\\server\\share\\repo'), '\\\\server\\share\\repo');
+  assert.equal(claudeFolder('/home/me/c:repo'), '/home/me/c:repo');
+  const calls: string[] = [];
+  // Nothing to remove: claude fails, which changes nothing.
+  const run = async (args: string[], cwd: string) => {
+    calls.push(`${args.slice(0, 2).join(' ')} in ${cwd}`);
+    return { ok: args[1] === 'add', output: '' };
+  };
+  const launch = serverLaunch('C:/Users/me/out/mcp/server.js', true, 'C:/Code.exe');
+  // VS Code's fsPath, and a folder given as Claude Code spells it: the same three runs.
+  for (const folder of ['c:\\Users\\me\\repo', 'C:\\Users\\me\\repo']) {
+    calls.length = 0;
+    assert.deepEqual(await registerServer(run, folder, launch), { ok: true, output: '' });
+    assert.deepEqual(calls, ['mcp remove in c:\\Users\\me\\repo', 'mcp remove in C:\\Users\\me\\repo', 'mcp add in C:\\Users\\me\\repo']);
+  }
+  calls.length = 0;
+  await registerServer(run, '/home/me/repo', launch);
+  assert.deepEqual(calls, ['mcp remove in /home/me/repo', 'mcp add in /home/me/repo']);
 });
 
 test('the permission rules of the setup: reading tools allowed, the XML of source files never edited, added once', async () => {

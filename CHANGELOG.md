@@ -3,6 +3,27 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.15.1 - 2026-10-24
+
+### Fixed
+- `TwinCAT: Set Up MCP Server for Claude Code` registers the server where Claude Code looks for it. It ran
+  `claude mcp add` in the folder as VS Code spells it, with a lower case drive letter (`c:\repo`), and Claude Code
+  keeps the server under exactly that folder, so sessions started there (`C:\repo`) did not get its tools. Setting
+  up again removes that registration.
+- The MCP server's `add_object`, when TwinCAT XAE does not have the project open, gives the `.plcproj` a `<Folder>`
+  item for each folder it makes, where XAE puts it, as XAE does. It wrote only the file's `<Compile>` item.
+- The MCP server writes through TwinCAT XAE when XAE has a PLC project open through any `.tsproj` that lists it,
+  by that `.tsproj`'s name for it. It looked only at the first one, so with a `.plcproj` in two TwinCAT projects
+  (a machine's and a simulation's) and XAE open on the second, it wrote the files behind XAE.
+- The MCP server no longer saves the TwinCAT project after `add_member`, `delete_member`, `add_object` and their
+  undo through TwinCAT XAE, which rewrote the `.tsproj`, its process image included. XAE saves the POU's file
+  itself; a file it leaves unsaved, such as the `.plcproj` of a new object, is now told in the answer.
+- The MCP server's `add_object` and its undo through TwinCAT XAE save the PLC project's `.plcproj` alone, through
+  XAE's running document table, so the tools see the new object at once. XAE left it unsaved after making or
+  deleting the object, without its `<Compile>` and `<Folder>` items. Neither the `.tsproj` nor the unsaved edits in
+  the PLC project's editors are saved with it, and a `.plcproj` that already has unsaved changes in XAE is refused
+  unless the user agrees (`saveUserEdits: true`).
+
 ## 0.15.0 - 2026-10-23
 
 ### Added

@@ -40,6 +40,41 @@ namespace TwinCatXaeBridge {
         int IOleMessageFilter.MessagePending(IntPtr a, int b, int c) { return 2; }
     }
 
+    // The few Visual Studio shell interfaces the bridge uses, declared here rather than referenced: their interop
+    // assemblies differ between XAE and the Visual Studio versions TwinCAT installs into. Unused slots keep the order.
+    [ComImport, Guid("6d5140c1-7436-11ce-8034-00aa006009fa"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IOleServiceProvider {
+        [PreserveSig] int QueryService(ref Guid service, ref Guid iid, out IntPtr obj);
+    }
+
+    [ComImport, Guid("a928aa21-ea77-47ac-8a07-355206c94bdd"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IVsRunningDocumentTable {
+        void RegisterAndLockDocument();
+        void LockDocument();
+        void UnlockDocument();
+        [PreserveSig] int FindAndLockDocument(uint lockType, [MarshalAs(UnmanagedType.LPWStr)] string moniker, out IntPtr hier, out uint item, out IntPtr docData, out uint cookie);
+        void RenameDocument();
+        void AdviseRunningDocTableEvents();
+        void UnadviseRunningDocTableEvents();
+        void GetDocumentInfo();
+        void NotifyDocumentChanged();
+        void NotifyOnAfterSave();
+        void GetRunningDocumentsEnum();
+        [PreserveSig] int SaveDocuments(uint options, IntPtr hier, uint item, uint cookie);
+    }
+
+    [ComImport, Guid("3afae242-b530-11d0-8199-00a0c91bbee3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPersistFileFormat {
+        [PreserveSig] int GetClassID(out Guid id);
+        [PreserveSig] int IsDirty(out int dirty);
+    }
+
+    [ComImport, Guid("d5d49c61-1c0b-4ea1-9adb-a79fb1dbc7b5"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IVsPersistDocData {
+        [PreserveSig] int GetGuidEditorType(out Guid id);
+        [PreserveSig] int IsDocDataDirty(out int dirty);
+    }
+
     class BridgeError : Exception { public BridgeError(string m) : base(m) { } }
 
     // The visible standard dialogs (#32770) of a process and their texts, through window messages only.
@@ -243,24 +278,53 @@ namespace TwinCatXaeBridge {
             return state;
         }
 
-        // The project of a project file, at any depth (a PLC project is nested in the TwinCAT project).
-        static Project FindProject(IEnumerable projects, string full) {
-            foreach (object o in projects) {
-                Project p = o as Project;
-                if (p == null) {
-                    ProjectItem pi = o as ProjectItem;
-                    if (pi != null) { try { p = pi.SubProject; } catch { } }
+        // ------------------------------------------------------------------ PLC project file
+
+        // A PLC project's .plcproj has no Project of its own in DTE: XAE keeps it in its running document table, as an
+        // item of the TwinCAT project, with the PLC project itself as the document. CreateChild and DeleteChild of an
+        // object leave it unsaved.
+        static IVsRunningDocumentTable DocumentTable(DTE2 dte) {
+            Guid sid = new Guid("a928aa21-ea77-47ac-8a07-355206c94bdd");
+            Guid iid = typeof(IVsRunningDocumentTable).GUID;
+            IntPtr p;
+            int hr = ((IOleServiceProvider)dte).QueryService(ref sid, ref iid, out p);
+            if (hr != 0 || p == IntPtr.Zero) throw new BridgeError("TwinCAT XAE gave no running document table");
+            try { return (IVsRunningDocumentTable)Marshal.GetObjectForIUnknown(p); } finally { Marshal.Release(p); }
+        }
+
+        static bool DocDirty(IntPtr docData) {
+            object o = Marshal.GetObjectForIUnknown(docData);
+            int dirty;
+            IVsPersistDocData d = o as IVsPersistDocData;
+            if (d != null && d.IsDocDataDirty(out dirty) == 0) return dirty != 0;
+            IPersistFileFormat f = o as IPersistFileFormat;
+            if (f != null && f.IsDirty(out dirty) == 0) return dirty != 0;
+            return false;
+        }
+
+        // Whether XAE has the project file in its table, and has changes to it that are not saved. With save, saves it
+        // first when it has: RDTSAVEOPT_SaveNoChildren saves the file alone, without the unsaved edits of the PLC
+        // project's editors (which a save of the file with its children writes too) and without the .tsproj.
+        static Dictionary<string, object> ProjectFile(DTE2 dte, string file, bool save) {
+            Dictionary<string, object> state = new Dictionary<string, object>();
+            IVsRunningDocumentTable rdt = DocumentTable(dte);
+            IntPtr hier, data; uint item, cookie;
+            int hr = rdt.FindAndLockDocument(0 /* RDT_NoLock */, Path.GetFullPath(file), out hier, out item, out data, out cookie);
+            try {
+                state["open"] = hr == 0 && cookie != 0 && data != IntPtr.Zero;
+                state["dirty"] = false;
+                if (!(bool)state["open"]) return state;
+                state["dirty"] = DocDirty(data);
+                if (save && (bool)state["dirty"]) {
+                    hr = rdt.SaveDocuments(4 /* RDTSAVEOPT_SaveIfDirty | RDTSAVEOPT_SaveNoChildren */, hier, item, cookie);
+                    if (hr != 0) throw new BridgeError("TwinCAT XAE did not save " + file + " (0x" + hr.ToString("x8") + ")");
+                    state["dirty"] = DocDirty(data);
                 }
-                if (p == null) continue;
-                try {
-                    if (string.Equals(Path.GetFullPath(p.FullName), full, StringComparison.OrdinalIgnoreCase)) return p;
-                } catch { }
-                try {
-                    Project inner = FindProject(p.ProjectItems, full);
-                    if (inner != null) return inner;
-                } catch { }
+                return state;
+            } finally {
+                if (hier != IntPtr.Zero) Marshal.Release(hier);
+                if (data != IntPtr.Zero) Marshal.Release(data);
             }
-            return null;
         }
 
         static string BuildPane(DTE2 dte) {
@@ -323,7 +387,9 @@ namespace TwinCatXaeBridge {
                     return list;
                 }
                 case "save": {
-                    // Saves the documents of one file only (a new member lives in memory until its file is saved).
+                    // Saves the documents of one file that still have unsaved changes. XAE saves a POU's file itself
+                    // after CreateChild, DeleteChild and a set text; the TwinCAT project is never saved here: saving it
+                    // rewrites the .tsproj, its process image included. A .plcproj is saved by "project".
                     DTE2 dte = Dte(Int(r, "pid"));
                     string full = Path.GetFullPath(Str(r, "file"));
                     int saved = 0;
@@ -331,20 +397,19 @@ namespace TwinCatXaeBridge {
                         string name;
                         try { name = d.FullName; } catch { continue; }
                         if (!string.Equals(Path.GetFullPath(name), full, StringComparison.OrdinalIgnoreCase)) continue;
+                        bool dirty;
+                        try { dirty = !d.Saved; } catch { dirty = true; }
+                        if (!dirty) continue;
                         d.Save();
                         saved++;
-                    }
-                    if (saved == 0) {
-                        // Not open in an editor: a project file (.plcproj) is saved through its project.
-                        Project p = FindProject(dte.Solution.Projects, full);
-                        // A PLC project is not a project of its own to DTE: the TwinCAT project that holds it saves it.
-                        if (p == null && Str(r, "tsproj") != null) p = FindProject(dte.Solution.Projects, Path.GetFullPath(Str(r, "tsproj")));
-                        if (p != null) { p.Save(); saved++; }
                     }
                     Dictionary<string, object> a = DocState(dte, full);
                     a["saved"] = saved;
                     return a;
                 }
+                case "project":
+                    // A PLC project's .plcproj: its unsaved state, saved alone first when save is given.
+                    return ProjectFile(Dte(Int(r, "pid")), Str(r, "file"), r.ContainsKey("save") && Convert.ToBoolean(r["save"]));
                 case "dirty": {
                     // The files with unsaved changes in XAE's editors.
                     List<string> files = new List<string>();

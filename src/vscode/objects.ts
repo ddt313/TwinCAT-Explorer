@@ -11,8 +11,8 @@ import * as vscode from 'vscode';
 import { NewObjectKind, NewObjectSpec } from '../core/newObjects';
 import { newObjectFile, newObjectFileText, projectFileStyle } from '../core/operations';
 import {
-  LibraryRef, PlcProject, addCompileItem, addFolderItem, addPlaceholderReference, itemOrder, referenceTo, removeItem, renameCompileItem,
-  renameFolderItems, renameTaskCalls, taskCalls,
+  LibraryRef, PlcProject, addCompileItem, addFolderItem, addPlaceholderReference, itemOrder, projectFolderList, referenceTo, removeItem,
+  renameCompileItem, renameFolderItems, renameTaskCalls, taskCalls,
 } from '../core/project';
 import { ChosenFile, ExistingPlan, objectIds, planExistingFiles } from '../core/existing';
 import { InstalledLibrary, libraryReference, placeholderName, readRepositories, systemRepositories } from '../core/libraries';
@@ -22,7 +22,7 @@ import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
 import { LanguageIndex } from '../lang/index';
 import { typeProblem } from '../lang/members';
 import {
-  BaseProblem, baseProblem, folderNameProblem, isInFolder, newObjectStubs, objectNameProblem, projectFolderList, projectObjectNames,
+  BaseProblem, baseProblem, folderNameProblem, isInFolder, newObjectStubs, objectNameProblem, projectObjectNames,
 } from '../lang/objects';
 import { Analyse, RenamePlan, planFiles, planRename, renameAlone, renameTexts } from '../lang/rename';
 import { Loc } from '../lang/symbols';

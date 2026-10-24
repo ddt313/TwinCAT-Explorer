@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import { findOnPath } from '../core/paths';
 import {
   MCP_READ_TOOLS, MCP_SERVER_NAME, PermissionRules, TWINCAT_SOURCE_EXTENSIONS, addFolderPermissions, claudeAddArgs,
-  claudeRemoveArgs, commandLine, findClaude, permissionRules, serverLaunch,
+  commandLine, findClaude, permissionRules, registerServer, serverLaunch,
 } from '../core/mcpSetup';
 import { runGit } from './git';
 
@@ -82,11 +82,7 @@ export async function setUpMcpServer(context: vscode.ExtensionContext, folderPat
   if (!rules) return;
   const result = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Registering the TwinCAT MCP server with Claude Code' },
-    async () => {
-      // A registration made with the path of an older version is replaced: add refuses a name already there.
-      await run(claude, claudeRemoveArgs(), folder);
-      return run(claude, addArgs, folder);
-    });
+    () => registerServer((args, cwd) => run(claude, args, cwd), folder, launch));
   if (!result.ok) {
     void vscode.window.showErrorMessage(`TwinCAT: claude mcp add failed: ${result.output}`);
     return;

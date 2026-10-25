@@ -191,8 +191,16 @@ export function settled(): Promise<void> {
 
 // ------------------------------------------------------------------ reads from the workspace
 
-async function inBatches<T>(items: T[], size: number, run: (item: T) => Promise<void>): Promise<void> {
-  for (let i = 0; i < items.length; i += size) await Promise.all(items.slice(i, i + size).map(run));
+/**
+ * Runs `run` on the items with up to `size` of them at a time, the next one as soon as one is done: from GitHub each
+ * read is a request, and waiting for the slowest of a batch before the next would add up.
+ */
+async function inParallel<T>(items: T[], size: number, run: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await run(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
 }
 
 /** Reads a file into memory (its bytes when it is a TwinCAT file); false when it cannot be read. */
@@ -211,7 +219,8 @@ export async function loadFolder(folder: vscode.WorkspaceFolder): Promise<number
   const uris = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, '**/*'));
   for (const u of uris) if (!CONTENT.test(u.path)) put(u.fsPath, undefined);
   const wanted = uris.filter(u => CONTENT.test(u.path));
-  await inBatches(wanted, 16, async u => void await load(u, true));
+  // GitHub asks for no more than 100 requests at a time.
+  await inParallel(wanted, 32, async u => void await load(u, true));
   return wanted.length;
 }
 

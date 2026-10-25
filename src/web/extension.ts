@@ -11,7 +11,7 @@ import { TwinCatExplorerApi, activate as activateExtension } from '../extension'
 import { disableGit, useRevisionSource } from '../vscode/git';
 import { activeThemeFile } from '../vscode/theme';
 import { useFileUris } from '../vscode/uris';
-import { GitHubRevisions } from './github';
+import { GitHubRevisions, prefetchRepository } from './github';
 import * as vfs from './vfs';
 
 /** The folder the bundle's `__dirname` points into (set by scripts/build-web.js): the extension's own. */
@@ -54,8 +54,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       await languageConfig;
       const fresh = folders.filter(f => !loaded.has(f.uri.toString()));
       if (fresh.length) {
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Reading the TwinCAT files' }, async () => {
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Reading the TwinCAT files' }, async progress => {
           for (const f of fresh) {
+            progress.report({ message: `downloading ${f.name}` });
+            await prefetchRepository(f.uri);
+            progress.report({ message: f.name });
             await vfs.loadFolder(f);
             loaded.add(f.uri.toString());
           }

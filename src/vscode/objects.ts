@@ -69,6 +69,14 @@ const POU_KINDS: Choice<NewObjectKind>[] = [
   { label: 'Function', description: 'FUNCTION', value: 'fun' },
 ];
 
+/**
+ * Whether deleted files go to the Recycle Bin: on the desktop. In the browser (vscode.dev) the repository's files have
+ * none, and a deletion is a change Source Control can discard until it is committed.
+ */
+function hasTrash(uri: vscode.Uri): boolean {
+  return uri.scheme === 'file';
+}
+
 const DUT_KINDS: Choice<NewObjectKind>[] = [
   { label: 'Structure', description: 'STRUCT', value: 'struct' },
   { label: 'Enumeration', description: '( ... )', value: 'enum' },
@@ -597,9 +605,11 @@ export class ObjectCommands {
     if (this.refuseUnsavedFiles([fsPath, project.path])) return;
     const upper = root.name.toUpperCase();
     const callers = root.pouKind === 'PRG' ? this.tasksOf(project).filter(t => t.calls.some(c => c.toUpperCase() === upper)) : [];
+    const uri = fileUri(fsPath);
     const choice = await vscode.window.showWarningMessage(`Delete the ${objectWord(root)} ${root.name}?`, {
       modal: true,
-      detail: `${path.basename(fsPath)} goes to the Recycle Bin and out of ${path.basename(project.path)}, as when it is deleted in TwinCAT XAE. `
+      detail: `${path.basename(fsPath)} ${hasTrash(uri) ? 'goes to the Recycle Bin' : 'is deleted (Source Control can still discard that)'} and out of `
+        + `${path.basename(project.path)}, as when it is deleted in TwinCAT XAE. `
         + `What uses it is not changed${callers.length ? `: ${ObjectCommands.taskNames(callers)} still call${callers.length === 1 ? 's' : ''} it` : ''}.`,
     }, 'Delete');
     if (choice !== 'Delete' || this.refuseUnsavedFiles([fsPath, project.path])) return;
@@ -613,7 +623,7 @@ export class ObjectCommands {
     }
     await closeTabs(tabsOf(fsPath));
     try {
-      await vscode.workspace.fs.delete(fileUri(fsPath), { useTrash: true });
+      await vscode.workspace.fs.delete(uri, { useTrash: hasTrash(uri) });
       fs.writeFileSync(plcproj.fsPath, encodeText(plcproj.text, plcproj.bom));
     } catch (e) {
       void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
@@ -638,12 +648,13 @@ export class ObjectCommands {
     const choice = await vscode.window.showWarningMessage(`Delete the folder ${target.folder}?`, {
       modal: true,
       detail: `Its item leaves ${path.basename(project.path)}, `
-        + (inside.length ? 'and the folder stays on disk, where something the project does not list is in it.' : 'and the empty folder goes to the Recycle Bin.'),
+        + (inside.length ? 'and the folder stays on disk, where something the project does not list is in it.'
+          : `and the empty folder ${hasTrash(fileUri(dir)) ? 'goes to the Recycle Bin' : 'is deleted'}.`),
     }, 'Delete');
     if (choice !== 'Delete' || !this.write(project, text => removeItem(text, 'Folder', target.folder), () => undefined)) return;
     if (!inside.length && fs.existsSync(dir)) {
       try {
-        await vscode.workspace.fs.delete(fileUri(dir), { recursive: false, useTrash: true });
+        await vscode.workspace.fs.delete(fileUri(dir), { recursive: false, useTrash: hasTrash(fileUri(dir)) });
       } catch (e) {
         void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
       }

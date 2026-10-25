@@ -13,6 +13,8 @@ interface RemoteHubApi {
     repo: { owner: string; name: string };
     getRevision(): Promise<{ type: number; name: string; revision: string }>;
   } | undefined>;
+  /** Downloads the repository's files at once (a tarball, kept in memory); false when it did not. */
+  loadWorkspaceContents(uri: vscode.Uri): Promise<boolean>;
 }
 
 const REMOTE_HUB = 'ms-vscode.remote-repositories';
@@ -24,6 +26,20 @@ async function remoteHub(): Promise<RemoteHubApi | undefined> {
   const ext = vscode.extensions.getExtension<RemoteHubApi>(REMOTE_HUB);
   if (!ext) return undefined;
   return ext.isActive ? ext.exports : ext.activate();
+}
+
+/**
+ * Has GitHub Repositories download a workspace folder's repository in one go before its TwinCAT files are read:
+ * without it each file is one request to GitHub's API (a thousand POUs, a thousand requests). False when it did
+ * not (not a GitHub repository, too large for its limit, offline): the files are then read one by one.
+ */
+export async function prefetchRepository(folder: vscode.Uri): Promise<boolean> {
+  if (folder.scheme !== 'vscode-vfs' || !/^github(\+|$)/.test(folder.authority)) return false;
+  try {
+    return (await (await remoteHub())?.loadWorkspaceContents(folder)) ?? false;
+  } catch {
+    return false;
+  }
 }
 
 interface Repository {

@@ -615,7 +615,10 @@ features and editing work as on the desktop; saving writes the repository's file
 (GitHub Repositories keeps them until you commit them there).
 
 - The `.tsproj`, `.plcproj`, `.xti` and TwinCAT source files are read when the workspace opens (the status bar
-  shows *Reading the TwinCAT files*); a large repository takes a moment.
+  shows *Reading the TwinCAT files*). The repository is downloaded in one go first, as GitHub Repositories does to
+  search it; a large repository takes a moment.
+- Deleting a POU, DUT, GVL or folder deletes it without the Recycle Bin: until it is committed, Source Control can
+  discard the deletion.
 - **Changes vs HEAD:** *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* compare
   with HEAD as GitHub has it (the commit of the branch, tag or pull request open), read through GitHub's API. A
   public repository needs no sign-in; a private one asks to sign in with GitHub (the Accounts menu) once.

@@ -15,6 +15,10 @@ All notable changes to Explorer for TwinCAT. The format follows
 - In the browser, *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* (and its marks
   of the changed lines) compare with HEAD as GitHub has it: the commit of the branch, tag or pull request open in
   vscode.dev, read through GitHub's API. A private repository asks to sign in with GitHub first.
+- In the browser the repository is downloaded in one go (GitHub Repositories' tarball) before the TwinCAT files are
+  read, instead of one request to GitHub's API per file, and the files left are read 32 at a time. Deleting a POU,
+  DUT, GVL or empty folder deletes it there (Source Control can still discard that): GitHub Repositories has no
+  Recycle Bin, and the deletion failed.
 
 ## 0.15.1 - 2026-10-24
 

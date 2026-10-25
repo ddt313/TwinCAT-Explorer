@@ -10,7 +10,11 @@ All notable changes to Explorer for TwinCAT. The format follows
   `vscode.dev/github/<owner>/<repo>`): the TwinCAT tree, the split editor and the object notebooks, the Structured
   Text features, and editing and saving, which write the repository's files as VS Code in the browser does. The
   TwinCAT files are read when the workspace opens. The git views (TwinCAT Changes, Commits, History), blame and
-  the comparisons need git, and the MCP server needs Node: they stay on the desktop and are hidden in the browser.
+  the comparisons with other refs need git, and the MCP server needs Node: they stay on the desktop and are hidden
+  in the browser.
+- In the browser, *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* (and its marks
+  of the changed lines) compare with HEAD as GitHub has it: the commit of the branch, tag or pull request open in
+  vscode.dev, read through GitHub's API. A private repository asks to sign in with GitHub first.
 
 ## 0.15.1 - 2026-10-24
 

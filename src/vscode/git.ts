@@ -30,6 +30,42 @@ export function disableGit(reason: string): void {
 }
 
 /**
+ * Commits read without git: in the browser, from the repository's host (web/github.ts). HEAD and the files of a
+ * commit only: no index, no branches, no renames.
+ */
+export interface RevisionSource {
+  /** Root folder of the repository a file or folder is in; undefined outside one. */
+  root(fsPath: string): string | undefined;
+  /** Commit of HEAD. */
+  head(root: string): Promise<string>;
+  /** A file at a commit, by its repository-relative path; undefined when the commit does not have it. */
+  read(root: string, relPath: string, commit: string): Promise<Uint8Array | undefined>;
+  /** Before a comparison the user asked for: false, said to the user, when the commits cannot be read (signed out). */
+  canRead(fsPath: string): Promise<boolean>;
+}
+
+let revisions: RevisionSource | undefined;
+
+export function useRevisionSource(source: RevisionSource): void {
+  revisions = source;
+}
+
+/** Whether the commits of a file can be compared with (in the browser: asks to sign in when they cannot). */
+export function canReadRevisions(fsPath: string): Promise<boolean> {
+  return revisions ? revisions.canRead(fsPath) : Promise.resolve(true);
+}
+
+async function showAtRevision(source: RevisionSource, fsPath: string, ref: string, orig?: string): Promise<Buffer> {
+  if (ref === INDEX) throw new Error('There is no index in the browser');
+  const root = source.root(fsPath);
+  if (!root) throw new Error(`${fsPath} is not in a repository`);
+  const commit = ref === 'HEAD' ? await source.head(root) : ref;
+  const rel = orig ?? path.relative(root, fsPath).split(path.sep).join('/');
+  const bytes = commit ? await source.read(root, rel, commit) : undefined;
+  return bytes ? Buffer.from(bytes) : Buffer.alloc(0);
+}
+
+/**
  * Full path of the git program: the git extension's (it applies the `git.path` setting), else the first git
  * on PATH. Never a bare `git`: Windows looks for that in the folder git runs in first, so a `git.exe` in a
  * repository would run instead of git.
@@ -112,6 +148,7 @@ function specOf(ref: string, rel: string): string {
  * when the file was renamed since.
  */
 export async function showAtRef(fsPath: string, ref: string, orig?: string): Promise<Buffer> {
+  if (revisions) return showAtRevision(revisions, fsPath, ref, orig);
   const cwd = existingDir(fsPath);
   const spec = specOf(ref, orig ?? relFrom(cwd, fsPath));
   try {
@@ -196,6 +233,7 @@ async function sameObjectDeleted(fsPath: string, ref: string, staged: boolean): 
 
 /** Path at `ref` of the file now at `fsPath`, when it was renamed since (undefined when not renamed). */
 export async function originalPath(fsPath: string, ref: string, staged: boolean): Promise<string | undefined> {
+  if (revisions) return undefined;
   if (await existsAt(fsPath, ref)) return undefined;
   return (await renamedFrom(fsPath, ref, staged)) ?? (await sameObjectDeleted(fsPath, ref, staged));
 }
@@ -217,6 +255,7 @@ function folderOf(fsPath: string): string {
  * file paths joined to it would then not match the workspace's.
  */
 export async function repositoryRoot(fsPath: string): Promise<string | undefined> {
+  if (revisions) return revisions.root(fsPath);
   const cwd = folderOf(fsPath);
   try {
     const up = (await git(['rev-parse', '--show-cdup'], cwd)).toString('utf8').trim();
@@ -229,6 +268,8 @@ export async function repositoryRoot(fsPath: string): Promise<string | undefined
 
 /** Commit of HEAD, or '' in a repository without commits. */
 export async function headCommit(root: string): Promise<string> {
+  // Not '' when it cannot be read (offline, signed out): every object would show as added.
+  if (revisions) return revisions.head(root);
   try {
     return (await git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], root)).toString('utf8').trim();
   } catch {
@@ -241,6 +282,8 @@ export async function headCommit(root: string): Promise<string> {
  * renamed. Deleted files are left out (there is nothing to show for them).
  */
 export async function changedSourceFiles(root: string): Promise<string[]> {
+  // The browser knows no status of the working tree: a file is compared with HEAD once it is opened or saved.
+  if (revisions) return [];
   const args = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...extensionSpecs(SOURCE_EXTENSIONS)];
   const tokens = (await git(args, root)).toString('utf8').split('\0');
   const out: string[] = [];
@@ -632,6 +675,7 @@ export async function revision(root: string, rel: string, ref: string | undefine
  * its parent), instead of looking renames up against the working tree.
  */
 export async function openNotebookDiff(fsPath: string, ref: string, right: string = WORKTREE, paths?: { left: string; right: string }): Promise<void> {
+  if (!(await canReadRevisions(fsPath))) return;
   const base = path.basename(fsPath);
   const orig = paths ? (paths.left !== paths.right ? paths.left : undefined) : await originalPath(fsPath, ref, right === INDEX);
   const leftName = orig ? path.posix.basename(orig) : base;

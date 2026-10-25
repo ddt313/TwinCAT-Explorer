@@ -616,9 +616,12 @@ features and editing work as on the desktop; saving writes the repository's file
 
 - The `.tsproj`, `.plcproj`, `.xti` and TwinCAT source files are read when the workspace opens (the status bar
   shows *Reading the TwinCAT files*); a large repository takes a moment.
-- **Not in the browser:** the TwinCAT Changes, Commits and History views, blame and *Open Changes* need git, and
-  the MCP server needs Node; they are hidden there. Libraries installed with TwinCAT are not found either: use
-  stub files (`twincatExplorer.stubFiles`) from the repository.
+- **Changes vs HEAD:** *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* compare
+  with HEAD as GitHub has it (the commit of the branch, tag or pull request open), read through GitHub's API. A
+  public repository needs no sign-in; a private one asks to sign in with GitHub (the Accounts menu) once.
+- **Not in the browser:** the TwinCAT Changes, Commits and History views, blame and *Compare with Git Ref* need git,
+  and the MCP server needs Node; they are hidden there. Libraries installed with TwinCAT are not found either:
+  use stub files (`twincatExplorer.stubFiles`) from the repository.
 
 ## MCP server for AI agents
 

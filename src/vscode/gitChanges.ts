@@ -82,6 +82,10 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
         this.headLookups.delete(key);
         if (!this.heads.has(key)) this.heads.set(key, { root, head });
         return this.heads.get(key)!.head;
+      }, (e: Error) => {
+        // Asked again next time (in the browser HEAD is read from the repository's host).
+        this.headLookups.delete(key);
+        throw e;
       });
       this.headLookups.set(key, lookup);
     }

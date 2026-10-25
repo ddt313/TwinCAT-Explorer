@@ -20,6 +20,7 @@ import { activeThemeTokens } from './theme';
 import { debugLog } from '../core/debugLog';
 import { BlameCommit, isUncommitted } from '../core/gitLog';
 import { BlameService, ViewBlame } from './blame';
+import { canReadRevisions } from './git';
 import { GitChanges } from './gitChanges';
 import { INDEX, ObjectRef, ST_LANGUAGE, locUriOf, parseObjectUri } from './uris';
 import type { SymbolRename } from './rename';
@@ -793,6 +794,9 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
       void vscode.window.showInformationMessage('Changes vs HEAD are shown in the TwinCAT split editor.');
       return;
     }
+    if (on && !(await canReadRevisions(session.ref.fsPath))) return;
+    // In the browser HEAD may be readable only now (signed in just before): its texts are asked for again.
+    if (on && !session.baseAvailable) await session.sendBase();
     if (!(await session.setChangesMode(on))) {
       void vscode.window.showInformationMessage(`${path.basename(session.ref.fsPath)} is not in a git repository with a commit to compare with.`);
     }

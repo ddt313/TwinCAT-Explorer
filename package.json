@@ -47,7 +47,7 @@
   "capabilities": {
     "virtualWorkspaces": {
       "supported": "limited",
-      "description": "In the browser (vscode.dev, github.dev) the TwinCAT tree, the editors and the Structured Text features work; the git views (TwinCAT Changes, Commits, History, blame) and the MCP server need VS Code on the desktop."
+      "description": "In the browser (vscode.dev, github.dev) the TwinCAT tree, the editors, the Structured Text features and the comparisons with HEAD (from GitHub) work; the git views (TwinCAT Changes, Commits, History, blame) and the MCP server need VS Code on the desktop."
     },
     "untrustedWorkspaces": {
       "supported": true
@@ -620,7 +620,7 @@
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "(resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat) && !isWeb"
+          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
         },
         {
           "command": "twincatExplorer.compareWithRef",
@@ -628,11 +628,11 @@
         },
         {
           "command": "twincatExplorer.showChanges",
-          "when": "activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode && !isWeb"
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode"
         },
         {
           "command": "twincatExplorer.hideChanges",
-          "when": "activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode && !isWeb"
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode"
         },
         {
           "command": "twincatExplorer.revealInTree",
@@ -820,7 +820,7 @@
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/ && !isWeb",
+          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
           "group": "navigation@3"
         },
         {
@@ -1057,17 +1057,17 @@
         },
         {
           "command": "twincatExplorer.showChanges",
-          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode && !isWeb",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode",
           "group": "navigation@91"
         },
         {
           "command": "twincatExplorer.hideChanges",
-          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode && !isWeb",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode",
           "group": "navigation@91"
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == twincat && activeCustomEditorId != twincatExplorer.objectEditor && !isWeb",
+          "when": "resourceScheme == twincat && activeCustomEditorId != twincatExplorer.objectEditor",
           "group": "navigation@91"
         },
         {
@@ -1077,7 +1077,7 @@
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && !isWeb",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
           "group": "1_twincat@1"
         },
         {
@@ -1099,7 +1099,7 @@
       "editor/title/context": [
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i && !isWeb",
+          "when": "(resourceScheme == file || isWeb) && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
           "group": "3_compare@1"
         },
         {
@@ -1118,7 +1118,7 @@
       "explorer/context": [
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i && !isWeb",
+          "when": "(resourceScheme == file || isWeb) && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
           "group": "3_compare@90"
         },
         {

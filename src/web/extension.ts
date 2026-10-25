@@ -1,15 +1,17 @@
 // Entry point in the browser (vscode.dev, github.dev): the extension of the desktop, bundled with the modules of
 // this folder in place of Node's (scripts/build-web.js). The workspace's TwinCAT files are read into memory before
-// the projects load, so the synchronous reads of the rest of the extension find them (vfs.ts). No git (the
-// Changes, Commits and History views are hidden there) and no MCP server: both need programs to run.
+// the projects load, so the synchronous reads of the rest of the extension find them (vfs.ts). No git: the
+// comparisons with HEAD read it from GitHub (github.ts); the Changes, Commits and History views are hidden there.
+// No MCP server: it runs in Node.
 
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { parseJsonc } from '../core/jsonc';
 import { TwinCatExplorerApi, activate as activateExtension } from '../extension';
-import { disableGit } from '../vscode/git';
+import { disableGit, useRevisionSource } from '../vscode/git';
 import { activeThemeFile } from '../vscode/theme';
 import { useFileUris } from '../vscode/uris';
+import { GitHubRevisions } from './github';
 import * as vfs from './vfs';
 
 /** The folder the bundle's `__dirname` points into (set by scripts/build-web.js): the extension's own. */
@@ -36,6 +38,8 @@ async function loadThemeFiles(file: string, seen = new Set<string>()): Promise<b
 
 export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   disableGit('Git is not available in the browser.');
+  // Open Changes and the split editor's changes compare with HEAD as GitHub has it.
+  useRevisionSource(new GitHubRevisions());
   vfs.mount(BUNDLE_ROOT, context.extensionUri);
   // The color themes are files of other extensions.
   for (const ext of vscode.extensions.all) vfs.mount(ext.extensionUri.fsPath, ext.extensionUri);

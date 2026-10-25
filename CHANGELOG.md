@@ -3,6 +3,38 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- The extension runs in the browser, on vscode.dev and github.dev (for example a GitHub repository opened at
+  `vscode.dev/github/<owner>/<repo>`): the TwinCAT tree, the split editor and the object notebooks, the Structured
+  Text features, and editing and saving, which write the repository's files as VS Code in the browser does. The
+  TwinCAT files are read when the workspace opens. The git views (TwinCAT Changes, Commits, History), blame and
+  the comparisons with other refs need git, and the MCP server needs Node: they stay on the desktop and are hidden
+  in the browser.
+- In the browser, *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* (and its marks
+  of the changed lines) compare with HEAD as GitHub has it: the commit of the branch, tag or pull request open in
+  vscode.dev, read through GitHub's API. A private repository asks to sign in with GitHub first.
+- In the browser the **TwinCAT Changes** view lists what the branch changed since it left another one, object by
+  object, as on the desktop: since the base branch of the pull request open (github.dev opened from a pull request),
+  else since the default branch, or since the branch, tag or commit *Compare Branch With* is given. Changes not
+  committed are in. GitHub gives the merge base and the files of that commit (two requests); the files of the
+  workspace are compared by their blob ids. A click shows an object's changes in the split editor, a deleted object
+  as text, a project file as a text diff. Staging, and the list of uncommitted changes against the index, stay on
+  the desktop.
+- In the browser the **TwinCAT Commits** view lists the commits of HEAD from GitHub (100 a page, *Load more*), each
+  with the files and objects it changed against its first parent, opened as on the desktop; and *Compare with Git
+  Ref as TwinCAT Notebook* compares a file with a branch, tag or commit of GitHub (the branch the TwinCAT Changes
+  view compares with first).
+- In the browser the **TwinCAT History** view lists the commits that changed an object, from GitHub's list of the
+  commits of its file (renames not followed); a commit opens its changes in the commit diff panel. The line blame of
+  the split editor comes from GitHub's GraphQL API, which needs a sign-in even for a public repository: until then
+  the Accounts menu has a sign-in request, and the editors get the blame once signed in.
+- In the browser the repository is downloaded in one go (GitHub Repositories' tarball) before the TwinCAT files are
+  read, instead of one request to GitHub's API per file, and the files left are read 32 at a time. Deleting a POU,
+  DUT, GVL or empty folder deletes it there (Source Control can still discard that): GitHub Repositories has no
+  Recycle Bin, and the deletion failed.
+
 ## 0.15.1 - 2026-10-24
 
 ### Fixed

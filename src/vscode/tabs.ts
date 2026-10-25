@@ -4,7 +4,7 @@
 import * as vscode from 'vscode';
 import { fileKey } from '../core/workspace';
 import { Accessor } from '../core/objectText';
-import { OBJECT_EDITOR, OBJECT_NOTEBOOK, parseObjectUri } from './uris';
+import { OBJECT_EDITOR, OBJECT_NOTEBOOK, isFileUri, parseObjectUri } from './uris';
 
 /** A tab to open again: what it showed, in which editor, where. */
 export interface ShownTab {
@@ -34,7 +34,7 @@ export function tabsOf(fsPath: string, objectId?: string, accessor?: Accessor): 
     if (!uri) return false;
     const ref = parseObjectUri(uri);
     if (ref) return fileKey(ref.fsPath) === key && (!objectId || ref.objectId === objectId) && (!accessor || ref.accessor === accessor);
-    return !objectId && uri.scheme === 'file' && fileKey(uri.fsPath) === key;
+    return !objectId && isFileUri(uri) && fileKey(uri.fsPath) === key;
   });
 }
 
@@ -45,7 +45,7 @@ export function shownTabs(tabs: vscode.Tab[]): ShownTab[] {
     const ref = parseObjectUri(uri);
     const kind = t.input instanceof vscode.TabInputCustom && t.input.viewType === OBJECT_EDITOR ? 'editor'
       : t.input instanceof vscode.TabInputNotebook && t.input.notebookType === OBJECT_NOTEBOOK ? 'notebook'
-        : t.input instanceof vscode.TabInputText && uri.scheme === 'file' ? 'text' : undefined;
+        : t.input instanceof vscode.TabInputText && isFileUri(uri) ? 'text' : undefined;
     if (!kind || (kind !== 'text' && !ref)) return [];
     return [{ kind, objectId: ref?.objectId, accessor: ref?.accessor, viewColumn: t.group.viewColumn, preview: t.isPreview, active: t.isActive && t.group.isActive }];
   });

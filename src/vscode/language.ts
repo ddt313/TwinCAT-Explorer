@@ -21,7 +21,7 @@ import { CompletionResult, HoverResult, SignatureResult } from '../shared/protoc
 import { cellMeta } from './serializers';
 import { openObjectDocument } from './openDocs';
 import {
-  DIFF_NOTEBOOK, FILE_NOTEBOOK, OBJECT_NOTEBOOK, ST_LANGUAGE, objectUri, parseDiffUri, parseObjectUri,
+  DIFF_NOTEBOOK, FILE_NOTEBOOK, OBJECT_NOTEBOOK, ST_LANGUAGE, fileUri, isFileUri, objectUri, parseDiffUri, parseObjectUri,
 } from './uris';
 
 /** Editor that TwinCAT objects open in: the XAE-like split editor or a notebook. */
@@ -98,7 +98,7 @@ export function cellInfo(doc: vscode.TextDocument): CellInfo | undefined {
       live = false;
     } else {
       fsPath = nb.uri.fsPath;
-      live = nb.uri.scheme === 'file';
+      live = isFileUri(nb.uri);
     }
     if (!fsPath) return undefined;
     return { notebook: nb, cell, fsPath, fileKey: fileKey(fsPath), sectionKey: meta.key, live };
@@ -478,7 +478,7 @@ export class LanguageFeatures implements
       }
       byFile.set(ctx.filePath, diags);
     }
-    for (const [p, diags] of byFile) collection.set(vscode.Uri.file(p), diags);
+    for (const [p, diags] of byFile) collection.set(fileUri(p), diags);
     return { files: byFile.size, problems };
   }
 }

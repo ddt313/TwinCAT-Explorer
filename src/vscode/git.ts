@@ -22,6 +22,12 @@ export type { CommitInfo } from '../core/gitLog';
 const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', GIT_OPTIONAL_LOCKS: '0' };
 
 let gitProgram: Promise<string> | undefined;
+let gitUnavailable: string | undefined;
+
+/** Turns git off: in the browser there is no git program to run. */
+export function disableGit(reason: string): void {
+  gitUnavailable = reason;
+}
 
 /**
  * Full path of the git program: the git extension's (it applies the `git.path` setting), else the first git
@@ -29,6 +35,7 @@ let gitProgram: Promise<string> | undefined;
  * repository would run instead of git.
  */
 function gitExecutable(): Promise<string> {
+  if (gitUnavailable) return Promise.reject(new Error(gitUnavailable));
   if (!gitProgram) {
     const found = (async () => {
       const known = (await gitApi())?.git?.path;

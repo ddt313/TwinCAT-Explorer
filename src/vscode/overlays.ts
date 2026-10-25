@@ -12,7 +12,7 @@ import { LanguageIndex } from '../lang/index';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { parseObjectText } from '../core/objectText';
 import { cellMeta } from './serializers';
-import { FILE_NOTEBOOK, OBJECT_NOTEBOOK, OBJECT_SCHEME, parseObjectUri } from './uris';
+import { FILE_NOTEBOOK, OBJECT_NOTEBOOK, OBJECT_SCHEME, isFileUri, parseObjectUri } from './uris';
 import { anyTabShows, shownInTab, tabKinds } from './openDocs';
 import { textHash } from '../core/objectText';
 
@@ -46,7 +46,7 @@ export class OverlaySync {
   private static realPath(nb: vscode.NotebookDocument): string | undefined {
     if (nb.notebookType === OBJECT_NOTEBOOK) return parseObjectUri(nb.uri)?.fsPath;
     // Only the working file: a twincat-file notebook on a git: URI is history.
-    if (nb.notebookType === FILE_NOTEBOOK) return nb.uri.scheme === 'file' ? nb.uri.fsPath : undefined;
+    if (nb.notebookType === FILE_NOTEBOOK) return isFileUri(nb.uri) ? nb.uri.fsPath : undefined;
     return undefined;
   }
 

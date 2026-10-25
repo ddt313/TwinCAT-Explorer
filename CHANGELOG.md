@@ -3,6 +3,15 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- The extension runs in the browser, on vscode.dev and github.dev (for example a GitHub repository opened at
+  `vscode.dev/github/<owner>/<repo>`): the TwinCAT tree, the split editor and the object notebooks, the Structured
+  Text features, and editing and saving, which write the repository's files as VS Code in the browser does. The
+  TwinCAT files are read when the workspace opens. The git views (TwinCAT Changes, Commits, History), blame and
+  the comparisons need git, and the MCP server needs Node: they stay on the desktop and are hidden in the browser.
+
 ## 0.15.1 - 2026-10-24
 
 ### Fixed

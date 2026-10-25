@@ -15,6 +15,27 @@ export const DIFF_NOTEBOOK = 'twincat-diff';
 export const FILE_NOTEBOOK = 'twincat-file';
 export const ST_LANGUAGE = 'twincat-st';
 
+// The workspace's files are `file:` URIs on the desktop. In the browser (vscode.dev) they are those of the
+// workspace folders (`vscode-vfs:` for a GitHub repository) and their paths come from the URIs' fsPath.
+let fileSchemes: ReadonlySet<string> = new Set(['file']);
+let uriOfPath: (fsPath: string) => vscode.Uri | undefined = () => undefined;
+
+/** Makes the URIs of other schemes count as the workspace's files (see web/extension.ts). */
+export function useFileUris(schemes: Iterable<string>, toUri: (fsPath: string) => vscode.Uri | undefined): void {
+  fileSchemes = new Set(['file', ...schemes]);
+  uriOfPath = toUri;
+}
+
+/** True for the URI of a file of the workspace (not one of our virtual documents, nor a git: URI). */
+export function isFileUri(uri: vscode.Uri): boolean {
+  return fileSchemes.has(uri.scheme);
+}
+
+/** The URI of a file of the workspace, or of the extension, from its path. */
+export function fileUri(fsPath: string): vscode.Uri {
+  return uriOfPath(fsPath) ?? vscode.Uri.file(fsPath);
+}
+
 export const SOURCE_EXTENSIONS = ['.tcpou', '.tcdut', '.tcgvl', '.tcio'];
 
 export function isSourcePath(p: string): boolean {
@@ -166,6 +187,6 @@ export function parseDiffUri(uri: vscode.Uri): { fsPath: string; ref: string; ag
 
 /** Real file behind any of our URIs (or a plain file URI). */
 export function realPathOf(uri: vscode.Uri): string | undefined {
-  if (uri.scheme === 'file') return uri.fsPath;
+  if (isFileUri(uri)) return uri.fsPath;
   return parseObjectUri(uri)?.fsPath ?? parseLocUri(uri)?.fsPath ?? parseDiffUri(uri)?.fsPath;
 }

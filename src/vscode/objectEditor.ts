@@ -982,7 +982,8 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     this.locations.changed(doc.uri);
   }
 
-  private postTheme(): void {
+  /** Sends the token colors of the theme to the editors (again once the browser build has read the theme's files). */
+  postTheme(): void {
     const theme = activeThemeTokens().rules;
     for (const s of this.sessions) if (s.ready) s.post({ type: 'theme', theme });
   }

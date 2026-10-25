@@ -43,6 +43,16 @@
     "onStartupFinished"
   ],
   "main": "./out/src/extension.js",
+  "browser": "./out/web/extension.js",
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "In the browser (vscode.dev, github.dev) the TwinCAT tree, the editors and the Structured Text features work; the git views (TwinCAT Changes, Commits, History, blame) and the MCP server need VS Code on the desktop."
+    },
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
   "contributes": {
     "languages": [
       {
@@ -149,21 +159,21 @@
           "name": "TwinCAT Changes",
           "icon": "media/twincat.svg",
           "contextualTitle": "TwinCAT",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
         },
         {
           "id": "twincatExplorer.commits",
           "name": "TwinCAT Commits",
           "icon": "media/twincat.svg",
           "contextualTitle": "TwinCAT",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
         },
         {
           "id": "twincatExplorer.history",
           "name": "TwinCAT History",
           "icon": "media/twincat.svg",
           "contextualTitle": "TwinCAT",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
         }
       ]
     },
@@ -610,19 +620,19 @@
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
+          "when": "(resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat) && !isWeb"
         },
         {
           "command": "twincatExplorer.compareWithRef",
-          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
+          "when": "(resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat) && !isWeb"
         },
         {
           "command": "twincatExplorer.showChanges",
-          "when": "activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode"
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode && !isWeb"
         },
         {
           "command": "twincatExplorer.hideChanges",
-          "when": "activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode"
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode && !isWeb"
         },
         {
           "command": "twincatExplorer.revealInTree",
@@ -658,19 +668,19 @@
         },
         {
           "command": "twincatExplorer.changes.refresh",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
         },
         {
           "command": "twincatExplorer.changes.showUncommitted",
-          "when": "twincatExplorer.hasProjects && twincatExplorer.changesScope == branch"
+          "when": "twincatExplorer.hasProjects && twincatExplorer.changesScope == branch && !isWeb"
         },
         {
           "command": "twincatExplorer.changes.showBranch",
-          "when": "twincatExplorer.hasProjects && twincatExplorer.changesScope != branch"
+          "when": "twincatExplorer.hasProjects && twincatExplorer.changesScope != branch && !isWeb"
         },
         {
           "command": "twincatExplorer.changes.compareBranchWith",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
         },
         {
           "command": "twincatExplorer.commits.open",
@@ -698,27 +708,27 @@
         },
         {
           "command": "twincatExplorer.commits.refresh",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
         },
         {
           "command": "twincatExplorer.commitDiff.openCurrent",
-          "when": "activeWebviewPanelId == twincatExplorer.commitDiff"
+          "when": "activeWebviewPanelId == twincatExplorer.commitDiff && !isWeb"
         },
         {
           "command": "twincatExplorer.history.show",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
         },
         {
           "command": "twincatExplorer.history.refresh",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
         },
         {
           "command": "twincatExplorer.history.pin",
-          "when": "twincatExplorer.hasProjects && !twincatExplorer.historyPinned"
+          "when": "twincatExplorer.hasProjects && !twincatExplorer.historyPinned && !isWeb"
         },
         {
           "command": "twincatExplorer.history.unpin",
-          "when": "twincatExplorer.hasProjects && twincatExplorer.historyPinned"
+          "when": "twincatExplorer.hasProjects && twincatExplorer.historyPinned && !isWeb"
         },
         {
           "command": "twincatExplorer.history.open",
@@ -738,7 +748,11 @@
         },
         {
           "command": "twincatExplorer.toggleBlame",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects && !isWeb"
+        },
+        {
+          "command": "twincatExplorer.setUpMcpServer",
+          "when": "!isWeb"
         }
       ],
       "view/title": [
@@ -754,42 +768,42 @@
         },
         {
           "command": "twincatExplorer.changes.showBranch",
-          "when": "view == twincatExplorer.changes && twincatExplorer.changesScope != branch",
+          "when": "view == twincatExplorer.changes && twincatExplorer.changesScope != branch && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.changes.showUncommitted",
-          "when": "view == twincatExplorer.changes && twincatExplorer.changesScope == branch",
+          "when": "view == twincatExplorer.changes && twincatExplorer.changesScope == branch && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.changes.compareBranchWith",
-          "when": "view == twincatExplorer.changes",
+          "when": "view == twincatExplorer.changes && !isWeb",
           "group": "navigation@2"
         },
         {
           "command": "twincatExplorer.changes.refresh",
-          "when": "view == twincatExplorer.changes",
+          "when": "view == twincatExplorer.changes && !isWeb",
           "group": "navigation@3"
         },
         {
           "command": "twincatExplorer.commits.refresh",
-          "when": "view == twincatExplorer.commits",
+          "when": "view == twincatExplorer.commits && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.history.pin",
-          "when": "view == twincatExplorer.history && !twincatExplorer.historyPinned",
+          "when": "view == twincatExplorer.history && !twincatExplorer.historyPinned && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.history.unpin",
-          "when": "view == twincatExplorer.history && twincatExplorer.historyPinned",
+          "when": "view == twincatExplorer.history && twincatExplorer.historyPinned && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.history.refresh",
-          "when": "view == twincatExplorer.history",
+          "when": "view == twincatExplorer.history && !isWeb",
           "group": "navigation@2"
         }
       ],
@@ -806,17 +820,17 @@
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
+          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/ && !isWeb",
           "group": "navigation@3"
         },
         {
           "command": "twincatExplorer.compareWithRef",
-          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
+          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/ && !isWeb",
           "group": "navigation@4"
         },
         {
           "command": "twincatExplorer.history.show",
-          "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
+          "when": "view == twincatExplorer.tree && viewItem =~ /openable/ && !isWeb",
           "group": "navigation@5"
         },
         {
@@ -911,117 +925,117 @@
         },
         {
           "command": "twincatExplorer.changes.openNotebook",
-          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/ && !isWeb",
           "group": "inline@1"
         },
         {
           "command": "twincatExplorer.changes.discard",
-          "when": "view == twincatExplorer.changes && viewItem =~ /discard-/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /discard-/ && !isWeb",
           "group": "inline@2"
         },
         {
           "command": "twincatExplorer.changes.openNotebook",
-          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/ && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.changes.discard",
-          "when": "view == twincatExplorer.changes && viewItem =~ /discard-/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /discard-/ && !isWeb",
           "group": "1_modification@1"
         },
         {
           "command": "twincatExplorer.changes.stage",
-          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stage-/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stage-/ && !isWeb",
           "group": "inline@3"
         },
         {
           "command": "twincatExplorer.changes.unstage",
-          "when": "view == twincatExplorer.changes && viewItem =~ /unstage-/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstage-/ && !isWeb",
           "group": "inline@3"
         },
         {
           "command": "twincatExplorer.changes.stageAll",
-          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stageAll/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stageAll/ && !isWeb",
           "group": "inline@1"
         },
         {
           "command": "twincatExplorer.changes.unstageAll",
-          "when": "view == twincatExplorer.changes && viewItem =~ /unstageAll/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstageAll/ && !isWeb",
           "group": "inline@1"
         },
         {
           "command": "twincatExplorer.changes.stage",
-          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stage-/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stage-/ && !isWeb",
           "group": "1_modification@2"
         },
         {
           "command": "twincatExplorer.changes.unstage",
-          "when": "view == twincatExplorer.changes && viewItem =~ /unstage-/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstage-/ && !isWeb",
           "group": "1_modification@2"
         },
         {
           "command": "twincatExplorer.changes.stageAll",
-          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stageAll/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /(^| )stageAll/ && !isWeb",
           "group": "1_modification@1"
         },
         {
           "command": "twincatExplorer.changes.unstageAll",
-          "when": "view == twincatExplorer.changes && viewItem =~ /unstageAll/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /unstageAll/ && !isWeb",
           "group": "1_modification@1"
         },
         {
           "command": "twincatExplorer.commits.openNotebook",
-          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/",
+          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/ && !isWeb",
           "group": "inline@1"
         },
         {
           "command": "twincatExplorer.commits.openNotebook",
-          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/",
+          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/ && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.commits.copySha",
-          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/ && !isWeb",
           "group": "9_copy@1"
         },
         {
           "command": "twincatExplorer.commits.copyMessage",
-          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/ && !isWeb",
           "group": "9_copy@2"
         },
         {
           "command": "twincatExplorer.history.show",
-          "when": "view == twincatExplorer.changes && viewItem =~ /^view/",
+          "when": "view == twincatExplorer.changes && viewItem =~ /^view/ && !isWeb",
           "group": "navigation@2"
         },
         {
           "command": "twincatExplorer.history.show",
-          "when": "view == twincatExplorer.commits && viewItem =~ /^view/",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^view/ && !isWeb",
           "group": "navigation@2"
         },
         {
           "command": "twincatExplorer.history.compareWithWorking",
-          "when": "view == twincatExplorer.history && viewItem =~ /compare/",
+          "when": "view == twincatExplorer.history && viewItem =~ /compare/ && !isWeb",
           "group": "inline@1"
         },
         {
           "command": "twincatExplorer.history.compareWithWorking",
-          "when": "view == twincatExplorer.history && viewItem =~ /compare/",
+          "when": "view == twincatExplorer.history && viewItem =~ /compare/ && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.history.show",
-          "when": "view == twincatExplorer.history && viewItem =~ /^view/",
+          "when": "view == twincatExplorer.history && viewItem =~ /^view/ && !isWeb",
           "group": "navigation@2"
         },
         {
           "command": "twincatExplorer.commits.copySha",
-          "when": "view == twincatExplorer.history && viewItem =~ /^commit/",
+          "when": "view == twincatExplorer.history && viewItem =~ /^commit/ && !isWeb",
           "group": "9_copy@1"
         },
         {
           "command": "twincatExplorer.commits.copyMessage",
-          "when": "view == twincatExplorer.history && viewItem =~ /^commit/",
+          "when": "view == twincatExplorer.history && viewItem =~ /^commit/ && !isWeb",
           "group": "9_copy@2"
         }
       ],
@@ -1043,27 +1057,27 @@
         },
         {
           "command": "twincatExplorer.showChanges",
-          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && !twincatExplorer.changesMode && !isWeb",
           "group": "navigation@91"
         },
         {
           "command": "twincatExplorer.hideChanges",
-          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode && !isWeb",
           "group": "navigation@91"
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == twincat && activeCustomEditorId != twincatExplorer.objectEditor",
+          "when": "resourceScheme == twincat && activeCustomEditorId != twincatExplorer.objectEditor && !isWeb",
           "group": "navigation@91"
         },
         {
           "command": "twincatExplorer.history.show",
-          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && !isWeb",
           "group": "navigation@92"
         },
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && !isWeb",
           "group": "1_twincat@1"
         },
         {
@@ -1073,24 +1087,24 @@
         },
         {
           "command": "twincatExplorer.commitDiff.openCurrent",
-          "when": "activeWebviewPanelId == twincatExplorer.commitDiff",
+          "when": "activeWebviewPanelId == twincatExplorer.commitDiff && !isWeb",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.history.show",
-          "when": "activeWebviewPanelId == twincatExplorer.commitDiff",
+          "when": "activeWebviewPanelId == twincatExplorer.commitDiff && !isWeb",
           "group": "navigation@2"
         }
       ],
       "editor/title/context": [
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i && !isWeb",
           "group": "3_compare@1"
         },
         {
           "command": "twincatExplorer.revealInTree",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i || resourceScheme == twincat",
+          "when": "(resourceScheme == file || isWeb) && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i || resourceScheme == twincat",
           "group": "2_files@90"
         }
       ],
@@ -1104,19 +1118,19 @@
       "explorer/context": [
         {
           "command": "twincatExplorer.openChanges",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
+          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i && !isWeb",
           "group": "3_compare@90"
         },
         {
           "command": "twincatExplorer.revealInTree",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i",
+          "when": "(resourceScheme == file || isWeb) && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO|TcTTO)$/i",
           "group": "navigation@90"
         }
       ],
       "scm/resourceState/context": [
         {
           "command": "twincatExplorer.openChanges",
-          "when": "scmProvider == git && scmResourceGroup =~ /^(index|workingTree|untracked)$/",
+          "when": "scmProvider == git && scmResourceGroup =~ /^(index|workingTree|untracked)$/ && !isWeb",
           "group": "7_twincat@1"
         }
       ]
@@ -1255,7 +1269,7 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p . && tsc -p src/webview && node scripts/build-webview.js && node scripts/build-mcp.js",
+    "compile": "tsc -p . && tsc -p src/webview && node scripts/build-webview.js && node scripts/build-mcp.js && node scripts/build-web.js",
     "watch": "tsc -w -p .",
     "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
     "test": "npm run compile && npm run test:unit",
@@ -1264,16 +1278,20 @@
     "install:local": "node scripts/install.js",
     "build:webview": "node scripts/build-webview.js",
     "build:browser": "tsc -p browser && node browser/build.js",
-    "build:mcp": "node scripts/build-mcp.js"
+    "build:mcp": "node scripts/build-mcp.js",
+    "build:web": "node scripts/build-web.js"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.95.0",
     "@vscode/test-electron": "^2.4.1",
+    "@vscode/test-web": "^0.0.81",
     "@vscode/vsce": "^3.2.1",
+    "buffer": "^6.0.3",
     "esbuild": "0.28.2",
     "monaco-editor": "0.55.1",
+    "path-unified": "^0.2.0",
     "typescript": "^5.6.3",
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2",

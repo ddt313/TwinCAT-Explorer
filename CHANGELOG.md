@@ -15,6 +15,13 @@ All notable changes to Explorer for TwinCAT. The format follows
 - In the browser, *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* (and its marks
   of the changed lines) compare with HEAD as GitHub has it: the commit of the branch, tag or pull request open in
   vscode.dev, read through GitHub's API. A private repository asks to sign in with GitHub first.
+- In the browser the **TwinCAT Changes** view lists what the branch changed since it left another one, object by
+  object, as on the desktop: since the base branch of the pull request open (github.dev opened from a pull request),
+  else since the default branch, or since the branch, tag or commit *Compare Branch With* is given. Changes not
+  committed are in. GitHub gives the merge base and the files of that commit (two requests); the files of the
+  workspace are compared by their blob ids. A click shows an object's changes in the split editor, a deleted object
+  as text, a project file as a text diff. Staging, and the list of uncommitted changes against the index, stay on
+  the desktop.
 - In the browser the repository is downloaded in one go (GitHub Repositories' tarball) before the TwinCAT files are
   read, instead of one request to GitHub's API per file, and the files left are read 32 at a time. Deleting a POU,
   DUT, GVL or empty folder deletes it there (Source Control can still discard that): GitHub Repositories has no

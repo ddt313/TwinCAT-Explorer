@@ -47,7 +47,7 @@
   "capabilities": {
     "virtualWorkspaces": {
       "supported": "limited",
-      "description": "In the browser (vscode.dev, github.dev) the TwinCAT tree, the editors, the Structured Text features and the comparisons with HEAD (from GitHub) work; the git views (TwinCAT Changes, Commits, History, blame) and the MCP server need VS Code on the desktop."
+      "description": "In the browser (vscode.dev, github.dev) the TwinCAT tree, the editors, the Structured Text features, the comparisons with HEAD and the TwinCAT Changes view against a branch (from GitHub) work; staging, the TwinCAT Commits and History views, blame and the MCP server need VS Code on the desktop."
     },
     "untrustedWorkspaces": {
       "supported": true
@@ -159,7 +159,7 @@
           "name": "TwinCAT Changes",
           "icon": "media/twincat.svg",
           "contextualTitle": "TwinCAT",
-          "when": "twincatExplorer.hasProjects && !isWeb"
+          "when": "twincatExplorer.hasProjects"
         },
         {
           "id": "twincatExplorer.commits",
@@ -668,7 +668,7 @@
         },
         {
           "command": "twincatExplorer.changes.refresh",
-          "when": "twincatExplorer.hasProjects && !isWeb"
+          "when": "twincatExplorer.hasProjects"
         },
         {
           "command": "twincatExplorer.changes.showUncommitted",
@@ -680,7 +680,7 @@
         },
         {
           "command": "twincatExplorer.changes.compareBranchWith",
-          "when": "twincatExplorer.hasProjects && !isWeb"
+          "when": "twincatExplorer.hasProjects"
         },
         {
           "command": "twincatExplorer.commits.open",
@@ -778,12 +778,12 @@
         },
         {
           "command": "twincatExplorer.changes.compareBranchWith",
-          "when": "view == twincatExplorer.changes && !isWeb",
+          "when": "view == twincatExplorer.changes",
           "group": "navigation@2"
         },
         {
           "command": "twincatExplorer.changes.refresh",
-          "when": "view == twincatExplorer.changes && !isWeb",
+          "when": "view == twincatExplorer.changes",
           "group": "navigation@3"
         },
         {
@@ -925,7 +925,7 @@
         },
         {
           "command": "twincatExplorer.changes.openNotebook",
-          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/ && !isWeb",
+          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/",
           "group": "inline@1"
         },
         {
@@ -935,7 +935,7 @@
         },
         {
           "command": "twincatExplorer.changes.openNotebook",
-          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/ && !isWeb",
+          "when": "view == twincatExplorer.changes && viewItem =~ /notebookDiff/",
           "group": "navigation@1"
         },
         {

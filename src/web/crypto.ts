@@ -56,6 +56,12 @@ export function sha1(bytes: Uint8Array): Uint8Array {
   return out;
 }
 
+/** The id git gives the bytes of a file (a blob), as in the trees of commits: `git hash-object`. */
+export function blobId(bytes: Uint8Array): string {
+  const header = Buffer.from(`blob ${bytes.length}\0`, 'utf8');
+  return Buffer.from(sha1(Buffer.concat([header, bytes]))).toString('hex');
+}
+
 class Hash {
   private readonly parts: Uint8Array[] = [];
 

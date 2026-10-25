@@ -30,8 +30,8 @@ export function disableGit(reason: string): void {
 }
 
 /**
- * Commits read without git: in the browser, from the repository's host (web/github.ts). HEAD and the files of a
- * commit only: no index, no branches, no renames.
+ * Commits read without git: in the browser, from the repository's host (web/github.ts). HEAD, the files of a
+ * commit, branches compared with the working tree; no index, no renames.
  */
 export interface RevisionSource {
   /** Root folder of the repository a file or folder is in; undefined outside one. */
@@ -42,6 +42,12 @@ export interface RevisionSource {
   read(root: string, relPath: string, commit: string): Promise<Uint8Array | undefined>;
   /** Before a comparison the user asked for: false, said to the user, when the commits cannot be read (signed out). */
   canRead(fsPath: string): Promise<boolean>;
+  /** The commit a branch, tag or commit id names; undefined when the repository has no such ref. */
+  resolve(root: string, ref: string): Promise<string | undefined>;
+  /** The commit HEAD and a ref have in common last; undefined when there is no such ref. */
+  mergeBase(root: string, ref: string): Promise<string | undefined>;
+  /** Files with the given extensions that differ between a commit and the working tree, uncommitted changes included. */
+  changesSince(root: string, base: string, extensions: string[]): Promise<NameStatus[]>;
 }
 
 let revisions: RevisionSource | undefined;
@@ -161,6 +167,10 @@ export async function showAtRef(fsPath: string, ref: string, orig?: string): Pro
 }
 
 export async function verifyRef(fsPath: string, ref: string): Promise<boolean> {
+  if (revisions) {
+    const root = revisions.root(fsPath);
+    return !!root && !!(await revisions.resolve(root, ref).catch(() => undefined));
+  }
   try {
     await git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], existingDir(fsPath));
     return true;
@@ -325,6 +335,7 @@ function pathChange(root: string, f: NameStatus): PathChange {
  * not, plus the untracked ones.
  */
 export async function changesSince(root: string, base: string, extensions: string[]): Promise<PathChange[]> {
+  if (revisions) return (await revisions.changesSince(root, base, extensions)).map(f => pathChange(root, f));
   const specs = extensionSpecs(extensions);
   const byPath = new Map<string, PathChange>();
   const add = (c: PathChange) => {
@@ -378,6 +389,7 @@ export async function indexChanges(root: string, head: string, extensions: strin
 
 /** The commit where HEAD's branch left `ref` (what a merge request of this branch into `ref` compares with). */
 export async function mergeBase(root: string, ref: string): Promise<string | undefined> {
+  if (revisions) return revisions.mergeBase(root, ref);
   try {
     return (await git(['merge-base', ref, 'HEAD'], root)).toString('utf8').trim() || undefined;
   } catch {

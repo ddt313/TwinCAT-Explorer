@@ -20,7 +20,7 @@ import { CommitFile, GitChanges } from './gitChanges';
 import { CompareBase, HEAD_BASE, INDEX_BASE } from './objectEditor';
 import { hasUnsavedEdits } from './openDocs';
 import { KIND_WORD, TreeIcon, compareLabels, objectIcon, objectTreeLabel, projectFileIcon, viewIcon } from './tree';
-import { INDEX, SOURCE_EXTENSIONS, ST_LANGUAGE, isSourcePath, revisionUri } from './uris';
+import { INDEX, SOURCE_EXTENSIONS, ST_LANGUAGE, fileUri, isSourcePath, revisionUri } from './uris';
 
 export type ChangesScope = { kind: 'head' } | { kind: 'branch'; ref: string };
 /** The two lists of the uncommitted scope: staged (HEAD ↔ index), and not staged (index ↔ working tree). */
@@ -623,7 +623,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
 
   /** A file without object changes (project files, build output): VS Code's text diff of the XML. */
   private async openText(n: ChangeNode): Promise<void> {
-    const file = vscode.Uri.file(n.fsPath!);
+    const file = fileUri(n.fsPath!);
     const name = path.basename(n.fsPath!);
     const open = (uri: vscode.Uri) => vscode.commands.executeCommand('vscode.open', uri, { preview: true });
     if (!n.root || !n.base) return void (await open(file));

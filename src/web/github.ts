@@ -3,7 +3,9 @@
 // GitHub's REST API, with the GitHub account VS Code is signed in with.
 
 import * as vscode from 'vscode';
+import { NameStatus } from '../core/gitLog';
 import { RevisionSource } from '../vscode/git';
+import { blobId } from './crypto';
 import * as vfs from './vfs';
 
 /** What the Remote Repositories extension exports (ms-vscode.remote-repositories, its ExtensionApi). */
@@ -21,6 +23,14 @@ const REMOTE_HUB = 'ms-vscode.remote-repositories';
 const API = 'https://api.github.com';
 /** Files of commits never change: the last ones read are kept. */
 const KEPT = 200;
+/** How long a merge base is kept: the branch compared with can move meanwhile. */
+const MERGE_BASE_MS = 60_000;
+
+/** A ref in a URL path: its slashes kept (feature/x), the rest encoded. */
+function refPath(ref: string): string {
+  return ref.split('/').map(encodeURIComponent).join('/');
+}
+
 
 async function remoteHub(): Promise<RemoteHubApi | undefined> {
   const ext = vscode.extensions.getExtension<RemoteHubApi>(REMOTE_HUB);
@@ -51,6 +61,11 @@ interface Repository {
 export class GitHubRevisions implements RevisionSource {
   private readonly repos = new Map<string, Promise<Repository | undefined>>();
   private readonly files = new Map<string, Promise<Uint8Array | undefined>>();
+  /** The files of commits' trees (path → blob id), per repository root and commit. */
+  private readonly trees = new Map<string, Promise<Map<string, string>>>();
+  private readonly mergeBases = new Map<string, { at: number; commit: Promise<string | undefined> }>();
+  /** Blob ids of the working tree's files, per path and modification. */
+  private readonly blobIds = new Map<string, { mtimeMs: number; id: string }>();
   /** Whether a repository answers without signing in (a public one), per owner/name. */
   private readonly publicRepos = new Map<string, Promise<boolean>>();
 
@@ -109,12 +124,21 @@ export class GitHubRevisions implements RevisionSource {
   }
 
   private async fetchFile(root: string, relPath: string, commit: string): Promise<Uint8Array | undefined> {
+    const response = await this.request(root, `contents/${relPath.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(commit)}`,
+      'application/vnd.github.raw+json', `Reading ${relPath} at ${commit.slice(0, 7)}`);
+    return response && new Uint8Array(await response.arrayBuffer());
+  }
+
+  /**
+   * A request about the repository of a workspace folder (`repos/<owner>/<name>/<what>`); undefined when GitHub
+   * answers 404 (no such file or ref). Throws when the repository cannot be read: signed out of a private one, the
+   * rate limit reached, offline.
+   */
+  private async request(root: string, what: string, accept: string, doing: string): Promise<Response | undefined> {
     const repo = await this.repository(root);
     if (!repo) throw new Error('The repository of the workspace is not known (GitHub Repositories)');
-    const url = `${API}/repos/${repo.owner}/${repo.name}/contents/${relPath.split('/').map(encodeURIComponent).join('/')}`
-      + `?ref=${encodeURIComponent(commit)}`;
     const session = await this.session(true);
-    const response = await this.get(url, session);
+    const response = await this.get(`${API}/repos/${repo.owner}/${repo.name}${what ? `/${what}` : ''}`, session, accept);
     // A private repository answers 404 to whoever is not signed in, as for a file the commit does not have.
     if (!session && [401, 403, 404].includes(response.status) && !(await this.isPublic(repo))) {
       void this.session(false);
@@ -124,15 +148,99 @@ export class GitHubRevisions implements RevisionSource {
     if (!response.ok) {
       const why = response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0' ? 'the rate limit of GitHub\'s API is reached'
         : `${response.status} ${response.statusText}`;
-      throw new Error(`Reading ${relPath} at ${commit.slice(0, 7)} from GitHub failed: ${why}`);
+      throw new Error(`${doing} from GitHub failed: ${why}`);
     }
-    return new Uint8Array(await response.arrayBuffer());
+    return response;
   }
 
-  private get(url: string, session: vscode.AuthenticationSession | undefined): Promise<Response> {
-    const headers: Record<string, string> = { Accept: 'application/vnd.github.raw+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  private get(url: string, session: vscode.AuthenticationSession | undefined, accept = 'application/vnd.github+json'): Promise<Response> {
+    const headers: Record<string, string> = { Accept: accept, 'X-GitHub-Api-Version': '2022-11-28' };
     if (session) headers.Authorization = `Bearer ${session.accessToken}`;
     return fetch(url, { headers });
+  }
+
+  async resolve(root: string, ref: string): Promise<string | undefined> {
+    const response = await this.request(root, `commits/${refPath(ref)}`, 'application/vnd.github.sha', `Looking up ${ref}`);
+    return response && (await response.text()).trim();
+  }
+
+  mergeBase(root: string, ref: string): Promise<string | undefined> {
+    return (async () => {
+      const head = await this.head(root);
+      const key = `${root}|${ref}|${head}`;
+      const known = this.mergeBases.get(key);
+      if (known && Date.now() - known.at < MERGE_BASE_MS) return known.commit;
+      const commit = (async () => {
+        // One commit per page: only the merge base is wanted, not the list of commits.
+        const response = await this.request(root, `compare/${refPath(ref)}...${head}?per_page=1`, 'application/vnd.github+json', `Comparing with ${ref}`);
+        return response ? ((await response.json()) as { merge_base_commit?: { sha?: string } }).merge_base_commit?.sha : undefined;
+      })();
+      this.mergeBases.set(key, { at: Date.now(), commit });
+      void commit.catch(() => this.mergeBases.delete(key));
+      return commit;
+    })();
+  }
+
+  /**
+   * Compares the tree of the commit (one request, kept) with the files in memory by their blob ids, as git compares
+   * a commit with the working tree: changes not committed are in, and there is no limit on the number of files (the
+   * file list of GitHub's comparisons stops at 300). Renames show as a file deleted and one added.
+   */
+  async changesSince(root: string, base: string, extensions: string[]): Promise<NameStatus[]> {
+    const lower = extensions.map(e => e.toLowerCase());
+    const wanted = (p: string) => lower.some(e => p.toLowerCase().endsWith(e));
+    const tree = await this.tree(root, base);
+    const working = new Map<string, string>();
+    for (const f of vfs.contents(root)) {
+      if (!wanted(f.relPath)) continue;
+      const key = `${root}|${f.relPath}`;
+      let known = this.blobIds.get(key);
+      if (known?.mtimeMs !== f.mtimeMs) this.blobIds.set(key, known = { mtimeMs: f.mtimeMs, id: blobId(f.bytes) });
+      working.set(f.relPath, known.id);
+    }
+    const out: NameStatus[] = [];
+    for (const [p, id] of tree) {
+      if (!wanted(p)) continue;
+      const now = working.get(p);
+      if (now === undefined) out.push({ status: 'D', path: p });
+      else if (now !== id) out.push({ status: 'M', path: p });
+    }
+    for (const p of working.keys()) if (!tree.has(p)) out.push({ status: 'A', path: p });
+    return out;
+  }
+
+  private tree(root: string, commit: string): Promise<Map<string, string>> {
+    const key = `${root}|${commit}`;
+    let tree = this.trees.get(key);
+    if (!tree) {
+      tree = (async () => {
+        const response = await this.request(root, `git/trees/${commit}?recursive=1`, 'application/vnd.github+json', `Reading the files of ${commit.slice(0, 7)}`);
+        if (!response) throw new Error(`GitHub does not have the commit ${commit.slice(0, 7)}`);
+        const json = (await response.json()) as { truncated?: boolean; tree: { path: string; type: string; sha: string }[] };
+        if (json.truncated) throw new Error(`The repository has too many files for GitHub to list those of ${commit.slice(0, 7)}`);
+        return new Map(json.tree.filter(e => e.type === 'blob').map(e => [e.path, e.sha]));
+      })();
+      this.trees.set(key, tree);
+      void tree.catch(() => this.trees.delete(key));
+    }
+    return tree;
+  }
+
+  /**
+   * The branch to compare the workspace with: the base branch of the pull request of the commit shown (github.dev
+   * opened from a pull request), else the repository's default branch.
+   */
+  async defaultBase(): Promise<string | undefined> {
+    const root = vscode.workspace.workspaceFolders?.map(f => this.root(f.uri.fsPath)).find(r => r);
+    if (!root) return undefined;
+    const head = await this.head(root);
+    type Pull = { state: string; head: { sha: string }; base: { ref: string } };
+    const pulls = await this.request(root, `commits/${head}/pulls`, 'application/vnd.github+json', 'Looking up the pull request');
+    const open = ((await pulls?.json()) as Pull[] | undefined)?.filter(p => p.state === 'open') ?? [];
+    const pull = open.find(p => p.head.sha === head) ?? open[0];
+    if (pull) return pull.base.ref;
+    const repo = await this.request(root, '', 'application/vnd.github+json', 'Reading the repository');
+    return ((await repo?.json()) as { default_branch?: string } | undefined)?.default_branch;
   }
 
   private isPublic(repo: Repository): Promise<boolean> {

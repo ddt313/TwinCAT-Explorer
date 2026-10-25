@@ -1,7 +1,8 @@
 // Entry point in the browser (vscode.dev, github.dev): the extension of the desktop, bundled with the modules of
 // this folder in place of Node's (scripts/build-web.js). The workspace's TwinCAT files are read into memory before
 // the projects load, so the synchronous reads of the rest of the extension find them (vfs.ts). No git: the
-// comparisons with HEAD read it from GitHub (github.ts); the Changes, Commits and History views are hidden there.
+// comparisons with HEAD and with a branch (the TwinCAT Changes view) read GitHub (github.ts); the Commits and History
+// views are hidden there.
 // No MCP server: it runs in Node.
 
 import * as path from 'path';
@@ -39,7 +40,8 @@ async function loadThemeFiles(file: string, seen = new Set<string>()): Promise<b
 export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   disableGit('Git is not available in the browser.');
   // Open Changes and the split editor's changes compare with HEAD as GitHub has it.
-  useRevisionSource(new GitHubRevisions());
+  const revisions = new GitHubRevisions();
+  useRevisionSource(revisions);
   vfs.mount(BUNDLE_ROOT, context.extensionUri);
   // The color themes are files of other extensions.
   for (const ext of vscode.extensions.all) vfs.mount(ext.extensionUri.fsPath, ext.extensionUri);
@@ -71,6 +73,14 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       }
     },
     sync: uri => vfs.sync(uri),
+  });
+
+  // The TwinCAT Changes view compares with a branch only (no index in the browser): the base branch of the pull
+  // request open (github.dev from a pull request), else the default branch, until another is picked.
+  void api.ready.then(async () => {
+    if (api.changes.scope.kind !== 'head' || !api.workspace.tsProjects.length) return;
+    const ref = await revisions.defaultBase().catch(() => undefined);
+    if (ref) await api.changes.setScope({ kind: 'branch', ref });
   });
 
   const loadTheme = async () => {

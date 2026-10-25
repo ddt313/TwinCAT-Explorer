@@ -102,6 +102,16 @@ export function read(fsPath: string): Uint8Array | 'unread' | undefined {
   return f ? f.bytes ?? 'unread' : undefined;
 }
 
+/** The files under a folder whose bytes were read, by their path relative to it (forward slashes). */
+export function contents(dir: string): { relPath: string; bytes: Uint8Array; mtimeMs: number }[] {
+  const k = keyOf(dir);
+  const out: { relPath: string; bytes: Uint8Array; mtimeMs: number }[] = [];
+  for (const [key, f] of files) {
+    if (f.bytes && key.startsWith(k + '/')) out.push({ relPath: f.path.slice(k.length + 1), bytes: f.bytes, mtimeMs: f.mtimeMs });
+  }
+  return out;
+}
+
 /** The names in a folder. */
 export function list(dir: string): { name: string; directory: boolean }[] | undefined {
   const k = keyOf(dir);

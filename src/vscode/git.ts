@@ -57,6 +57,10 @@ export interface RevisionSource {
   blame(root: string, commit: string, relPath: string, ranges: [number, number][]): Promise<BlameResult>;
   /** The first parent of a commit; undefined for the first commit of a repository. */
   firstParent(root: string, sha: string): Promise<string | undefined>;
+  /** The first `count` commits of HEAD, newest first. */
+  commitLog(root: string, count: number): Promise<CommitInfo[]>;
+  /** Files a commit changed against its first parent (renames with the path they came from). */
+  commitChanges(root: string, commit: string): Promise<NameStatus[]>;
 }
 
 let revisions: RevisionSource | undefined;
@@ -408,6 +412,7 @@ export async function mergeBase(root: string, ref: string): Promise<string | und
 
 /** The first `count` commits reachable from HEAD, newest first, like `git log`. */
 export async function commitLog(root: string, count: number): Promise<CommitInfo[]> {
+  if (revisions) return revisions.commitLog(root, count);
   // No signature checks (log.showSignature): slow, and their text would land in the commit messages.
   const out = await git(['log', '--no-show-signature', `-n${count}`, `--format=${COMMIT_FORMAT}`, 'HEAD', '--'], root);
   return out.toString('utf8').split('\x1e').slice(1).map(parseCommit);
@@ -415,6 +420,8 @@ export async function commitLog(root: string, count: number): Promise<CommitInfo
 
 /** Files that a commit changed against `parent` (its first parent; none for the first commit of a repository). */
 export async function commitChanges(root: string, commit: string, parent: string | undefined): Promise<PathChange[]> {
+  // GitHub compares a commit with its first parent, the one the views pass.
+  if (revisions) return (await revisions.commitChanges(root, commit)).map(f => pathChange(root, f));
   const args = ['diff-tree', '-r', '-M', '--name-status', '-z', '--no-commit-id', ...(parent ? [parent, commit] : ['--root', commit]), '--'];
   return parseNameStatus((await git(args, root)).toString('utf8')).map(f => pathChange(root, f));
 }

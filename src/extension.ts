@@ -1189,7 +1189,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       const ref = await vscode.window.showInputBox({
         title: 'Compare with git ref',
         prompt: 'Branch, tag or commit to show on the left (working tree on the right)',
-        value: context.workspaceState.get<string>(lastRefKey, 'origin/develop'),
+        value: changesView.scope.kind === 'branch' ? changesView.scope.ref : context.workspaceState.get<string>(lastRefKey, 'origin/develop'),
         validateInput: async v => (v.trim() && (await verifyRef(t.fsPath, v.trim())) ? undefined : `'${v}' is not a commit in this repository`),
       });
       if (!ref) return;

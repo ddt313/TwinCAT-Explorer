@@ -3,7 +3,7 @@
 // GitHub's REST API, with the GitHub account VS Code is signed in with.
 
 import * as vscode from 'vscode';
-import { BlameCommit, FileLogEntry, NameStatus } from '../core/gitLog';
+import { BlameCommit, CommitInfo, FileLogEntry, NameStatus } from '../core/gitLog';
 import { BlameResult, RevisionSource } from '../vscode/git';
 import { blobId } from './crypto';
 import * as vfs from './vfs';
@@ -25,6 +25,8 @@ const API = 'https://api.github.com';
 const KEPT = 200;
 /** How long a merge base is kept: the branch compared with can move meanwhile. */
 const MERGE_BASE_MS = 60_000;
+/** Pages of 300 files read of a commit at most (GitHub lists 3000 at most). */
+const COMMIT_FILE_PAGES = 10;
 /** Pages of 100 commits read of a file's history at most: its commits since the 1000th last are not listed. */
 const LOG_PAGES = 10;
 
@@ -44,6 +46,26 @@ interface RestCommit {
   sha: string;
   parents: { sha: string }[];
   commit: { message: string; author: { name: string; email: string; date: string } | null };
+  /** In the answer of `commits/<sha>`: what it changed against its first parent, 300 a page. */
+  files?: { filename: string; status: string; previous_filename?: string }[];
+}
+
+function commitInfo(c: RestCommit): CommitInfo {
+  const [subject, ...rest] = c.commit.message.split('\n');
+  return {
+    sha: c.sha, parents: c.parents.map(p => p.sha), author: c.commit.author?.name ?? '', email: c.commit.author?.email ?? '',
+    date: Math.floor(Date.parse(c.commit.author?.date ?? '') / 1000) || 0, subject, body: rest.join('\n').trim(),
+  };
+}
+
+/** A file of a commit as git's name-status has it: a copy is an added file, a change of type a changed one. */
+function nameStatus(f: { filename: string; status: string; previous_filename?: string }): NameStatus {
+  switch (f.status) {
+    case 'added': case 'copied': return { status: 'A', path: f.filename };
+    case 'removed': return { status: 'D', path: f.filename };
+    case 'renamed': return f.previous_filename ? { status: 'R', path: f.filename, from: f.previous_filename } : { status: 'A', path: f.filename };
+    default: return { status: 'M', path: f.filename };
+  }
 }
 
 /** A ref in a URL path: its slashes kept (feature/x), the rest encoded. */
@@ -84,6 +106,9 @@ export class GitHubRevisions implements RevisionSource {
   /** The files of commits' trees (path → blob id), per repository root and commit. */
   private readonly trees = new Map<string, Promise<Map<string, string>>>();
   private readonly mergeBases = new Map<string, { at: number; commit: Promise<string | undefined> }>();
+  private readonly commits = new Map<string, Promise<RestCommit | undefined>>();
+  /** The commits of HEAD read so far, per repository root and HEAD. */
+  private readonly logs = new Map<string, { commits: CommitInfo[]; done: boolean }>();
   /** Blob ids of the working tree's files, per path and modification. */
   private readonly blobIds = new Map<string, { mtimeMs: number; id: string }>();
   /** Whether a repository answers without signing in (a public one), per owner/name. */
@@ -259,13 +284,9 @@ export class GitHubRevisions implements RevisionSource {
         'application/vnd.github+json', `Reading the history of ${relPath}`);
       const commits = ((await response?.json()) as RestCommit[] | undefined) ?? [];
       for (const c of commits) {
-        const [subject, ...rest] = c.commit.message.split('\n');
         const parent = c.parents[0]?.sha;
         out.push({
-          commit: {
-            sha: c.sha, parents: c.parents.map(p => p.sha), author: c.commit.author?.name ?? '', email: c.commit.author?.email ?? '',
-            date: Math.floor(Date.parse(c.commit.author?.date ?? '') / 1000) || 0, subject, body: rest.join('\n').trim(),
-          },
+          commit: commitInfo(c),
           status: 'M', oldBlob: parent && `${parent}:${relPath}`, newBlob: `${c.sha}:${relPath}`, oldPath: relPath, newPath: relPath,
         });
       }
@@ -275,8 +296,54 @@ export class GitHubRevisions implements RevisionSource {
   }
 
   async firstParent(root: string, sha: string): Promise<string | undefined> {
-    const response = await this.request(root, `commits/${sha}`, 'application/vnd.github+json', `Reading the commit ${sha.slice(0, 7)}`);
-    return ((await response?.json()) as RestCommit | undefined)?.parents[0]?.sha;
+    return (await this.commit(root, sha))?.parents[0]?.sha;
+  }
+
+  /** A commit with the files it changed (all their pages), kept: a commit never changes. */
+  private commit(root: string, sha: string): Promise<RestCommit | undefined> {
+    const key = `${root}|${sha}`;
+    let known = this.commits.get(key);
+    if (!known) {
+      known = (async () => {
+        let first: RestCommit | undefined;
+        for (let page = 1; page <= COMMIT_FILE_PAGES; page++) {
+          const response = await this.request(root, `commits/${sha}?per_page=300&page=${page}`, 'application/vnd.github+json',
+            `Reading the commit ${sha.slice(0, 7)}`);
+          const c = (await response?.json()) as RestCommit | undefined;
+          if (!c) return first;
+          if (!first) first = c;
+          else first.files!.push(...(c.files ?? []));
+          if ((c.files?.length ?? 0) < 300) break;
+        }
+        return first;
+      })();
+      this.commits.set(key, known);
+      if (this.commits.size > KEPT) this.commits.delete(this.commits.keys().next().value!);
+      void known.catch(() => this.commits.delete(key));
+    }
+    return known;
+  }
+
+  async commitChanges(root: string, commit: string): Promise<NameStatus[]> {
+    const c = await this.commit(root, commit);
+    if (!c) throw new Error(`GitHub does not have the commit ${commit.slice(0, 7)}`);
+    return (c.files ?? []).map(nameStatus);
+  }
+
+  /** The commits of HEAD, 100 a page: the pages read are kept while HEAD stays (Load more reads the next one). */
+  async commitLog(root: string, count: number): Promise<CommitInfo[]> {
+    const head = await this.head(root);
+    const key = `${root}|${head}`;
+    let log = this.logs.get(key);
+    if (!log) this.logs.set(key, log = { commits: [], done: false });
+    while (!log.done && log.commits.length < count) {
+      const page = Math.floor(log.commits.length / 100) + 1;
+      const response = await this.request(root, `commits?sha=${head}&per_page=100&page=${page}`, 'application/vnd.github+json', 'Reading the commits');
+      const commits = ((await response?.json()) as RestCommit[] | undefined) ?? [];
+      log.commits.push(...commits.map(commitInfo));
+      if (commits.length < 100) log.done = true;
+    }
+    return log.commits.slice(0, count);
   }
 
   /**

@@ -22,6 +22,10 @@ All notable changes to Explorer for TwinCAT. The format follows
   workspace are compared by their blob ids. A click shows an object's changes in the split editor, a deleted object
   as text, a project file as a text diff. Staging, and the list of uncommitted changes against the index, stay on
   the desktop.
+- In the browser the **TwinCAT Commits** view lists the commits of HEAD from GitHub (100 a page, *Load more*), each
+  with the files and objects it changed against its first parent, opened as on the desktop; and *Compare with Git
+  Ref as TwinCAT Notebook* compares a file with a branch, tag or commit of GitHub (the branch the TwinCAT Changes
+  view compares with first).
 - In the browser the **TwinCAT History** view lists the commits that changed an object, from GitHub's list of the
   commits of its file (renames not followed); a commit opens its changes in the commit diff panel. The line blame of
   the split editor comes from GitHub's GraphQL API, which needs a sign-in even for a public repository: until then

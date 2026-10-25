@@ -47,7 +47,7 @@
   "capabilities": {
     "virtualWorkspaces": {
       "supported": "limited",
-      "description": "In the browser (vscode.dev, github.dev) the TwinCAT tree, the editors, the Structured Text features, the comparisons with HEAD, the TwinCAT Changes view against a branch, the TwinCAT History view and blame (from GitHub) work; staging, the TwinCAT Commits view and the MCP server need VS Code on the desktop."
+      "description": "In the browser (vscode.dev, github.dev) the TwinCAT tree, the editors, the Structured Text features, the comparisons with HEAD, and the TwinCAT Changes, Commits and History views and blame (from GitHub) work; staging and the MCP server need VS Code on the desktop."
     },
     "untrustedWorkspaces": {
       "supported": true
@@ -166,7 +166,7 @@
           "name": "TwinCAT Commits",
           "icon": "media/twincat.svg",
           "contextualTitle": "TwinCAT",
-          "when": "twincatExplorer.hasProjects && !isWeb"
+          "when": "twincatExplorer.hasProjects"
         },
         {
           "id": "twincatExplorer.history",
@@ -624,7 +624,7 @@
         },
         {
           "command": "twincatExplorer.compareWithRef",
-          "when": "(resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat) && !isWeb"
+          "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
         },
         {
           "command": "twincatExplorer.showChanges",
@@ -708,7 +708,7 @@
         },
         {
           "command": "twincatExplorer.commits.refresh",
-          "when": "twincatExplorer.hasProjects && !isWeb"
+          "when": "twincatExplorer.hasProjects"
         },
         {
           "command": "twincatExplorer.commitDiff.openCurrent",
@@ -788,7 +788,7 @@
         },
         {
           "command": "twincatExplorer.commits.refresh",
-          "when": "view == twincatExplorer.commits && !isWeb",
+          "when": "view == twincatExplorer.commits",
           "group": "navigation@1"
         },
         {
@@ -825,7 +825,7 @@
         },
         {
           "command": "twincatExplorer.compareWithRef",
-          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/ && !isWeb",
+          "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
           "group": "navigation@4"
         },
         {
@@ -985,22 +985,22 @@
         },
         {
           "command": "twincatExplorer.commits.openNotebook",
-          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/ && !isWeb",
+          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/",
           "group": "inline@1"
         },
         {
           "command": "twincatExplorer.commits.openNotebook",
-          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/ && !isWeb",
+          "when": "view == twincatExplorer.commits && viewItem =~ /notebookDiff/",
           "group": "navigation@1"
         },
         {
           "command": "twincatExplorer.commits.copySha",
-          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/ && !isWeb",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/",
           "group": "9_copy@1"
         },
         {
           "command": "twincatExplorer.commits.copyMessage",
-          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/ && !isWeb",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^commit/",
           "group": "9_copy@2"
         },
         {
@@ -1010,7 +1010,7 @@
         },
         {
           "command": "twincatExplorer.history.show",
-          "when": "view == twincatExplorer.commits && viewItem =~ /^view/ && !isWeb",
+          "when": "view == twincatExplorer.commits && viewItem =~ /^view/",
           "group": "navigation@2"
         },
         {

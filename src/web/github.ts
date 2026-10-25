@@ -3,8 +3,8 @@
 // GitHub's REST API, with the GitHub account VS Code is signed in with.
 
 import * as vscode from 'vscode';
-import { NameStatus } from '../core/gitLog';
-import { RevisionSource } from '../vscode/git';
+import { BlameCommit, FileLogEntry, NameStatus } from '../core/gitLog';
+import { BlameResult, RevisionSource } from '../vscode/git';
 import { blobId } from './crypto';
 import * as vfs from './vfs';
 
@@ -25,6 +25,26 @@ const API = 'https://api.github.com';
 const KEPT = 200;
 /** How long a merge base is kept: the branch compared with can move meanwhile. */
 const MERGE_BASE_MS = 60_000;
+/** Pages of 100 commits read of a file's history at most: its commits since the 1000th last are not listed. */
+const LOG_PAGES = 10;
+
+const BLAME_QUERY = `query($owner: String!, $name: String!, $commit: String!, $path: String!) {
+  repository(owner: $owner, name: $name) {
+    object(expression: $commit) {
+      ... on Commit {
+        blame(path: $path) {
+          ranges { startingLine endingLine commit { oid authoredDate messageHeadline author { name email } } }
+        }
+      }
+    }
+  }
+}`;
+
+interface RestCommit {
+  sha: string;
+  parents: { sha: string }[];
+  commit: { message: string; author: { name: string; email: string; date: string } | null };
+}
 
 /** A ref in a URL path: its slashes kept (feature/x), the rest encoded. */
 function refPath(ref: string): string {
@@ -224,6 +244,74 @@ export class GitHubRevisions implements RevisionSource {
       void tree.catch(() => this.trees.delete(key));
     }
     return tree;
+  }
+
+  /**
+   * A file's history from GitHub's list of the commits that changed it (renames not followed). Each commit's
+   * versions are `<commit>:<path>` specs, the one before it at its first parent: git.ts's readBlobs reads them, only
+   * for the commits the History view looks at.
+   */
+  async fileLog(root: string, relPath: string): Promise<FileLogEntry[]> {
+    const head = await this.head(root);
+    const out: FileLogEntry[] = [];
+    for (let page = 1; page <= LOG_PAGES; page++) {
+      const response = await this.request(root, `commits?sha=${head}&path=${encodeURIComponent(relPath)}&per_page=100&page=${page}`,
+        'application/vnd.github+json', `Reading the history of ${relPath}`);
+      const commits = ((await response?.json()) as RestCommit[] | undefined) ?? [];
+      for (const c of commits) {
+        const [subject, ...rest] = c.commit.message.split('\n');
+        const parent = c.parents[0]?.sha;
+        out.push({
+          commit: {
+            sha: c.sha, parents: c.parents.map(p => p.sha), author: c.commit.author?.name ?? '', email: c.commit.author?.email ?? '',
+            date: Math.floor(Date.parse(c.commit.author?.date ?? '') / 1000) || 0, subject, body: rest.join('\n').trim(),
+          },
+          status: 'M', oldBlob: parent && `${parent}:${relPath}`, newBlob: `${c.sha}:${relPath}`, oldPath: relPath, newPath: relPath,
+        });
+      }
+      if (commits.length < 100) break;
+    }
+    return out;
+  }
+
+  async firstParent(root: string, sha: string): Promise<string | undefined> {
+    const response = await this.request(root, `commits/${sha}`, 'application/vnd.github+json', `Reading the commit ${sha.slice(0, 7)}`);
+    return ((await response?.json()) as RestCommit | undefined)?.parents[0]?.sha;
+  }
+
+  /**
+   * Blame from GitHub's GraphQL API, which needs a sign-in even for a public repository: without one VS Code's
+   * Accounts menu gets a sign-in request, and the lines have no blame.
+   */
+  async blame(root: string, commit: string, relPath: string, ranges: [number, number][]): Promise<BlameResult> {
+    const repo = await this.repository(root);
+    if (!repo) throw new Error('The repository of the workspace is not known (GitHub Repositories)');
+    const session = await this.session(true);
+    if (!session) {
+      void this.session(false);
+      throw new Error('Sign in with GitHub (the Accounts menu) to see who changed the lines');
+    }
+    const response = await fetch(`${API}/graphql`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: BLAME_QUERY, variables: { owner: repo.owner, name: repo.name, commit, path: relPath } }),
+    });
+    type Range = { startingLine: number; endingLine: number; commit: { oid: string; authoredDate: string; messageHeadline: string; author: { name: string; email: string } | null } };
+    const json = (await response.json()) as { data?: { repository?: { object?: { blame?: { ranges: Range[] } } } }; errors?: { message: string }[] };
+    const found = json.data?.repository?.object?.blame?.ranges;
+    if (!response.ok || !found) throw new Error(`Blame of ${relPath} from GitHub failed: ${json.errors?.[0]?.message ?? `${response.status} ${response.statusText}`}`);
+    const lines = new Map<number, string>();
+    const commits = new Map<string, BlameCommit>();
+    const wanted = (line: number) => ranges.some(([start, end]) => line >= start && line <= end);
+    for (const r of found) {
+      for (let line = r.startingLine; line <= r.endingLine; line++) if (wanted(line)) lines.set(line, r.commit.oid);
+      if (commits.has(r.commit.oid)) continue;
+      commits.set(r.commit.oid, {
+        sha: r.commit.oid, author: r.commit.author?.name ?? '', email: r.commit.author?.email ?? '',
+        time: Math.floor(Date.parse(r.commit.authoredDate) / 1000) || 0, summary: r.commit.messageHeadline, filename: relPath,
+      });
+    }
+    return { lines, commits };
   }
 
   /**

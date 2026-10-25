@@ -625,7 +625,9 @@ features and editing work as on the desktop; saving writes the repository's file
 - **TwinCAT Changes:** in the Source Control sidebar, what the branch changed since the base branch of the pull
   request open (press `.` on a pull request's page to open it in github.dev), else since the default branch, object
   by object, changes not committed included. *Compare Branch With* picks another branch, tag or commit.
-- **Not in the browser:** staging, the TwinCAT Commits and History views, blame and *Compare with Git Ref* need git,
+- **TwinCAT History and blame:** the commits that changed an object (a rename of its file ends the list there) and the
+  line blame of the split editor come from GitHub; blame needs a sign-in with GitHub, even for a public repository.
+- **Not in the browser:** staging, the TwinCAT Commits view and *Compare with Git Ref* need git,
   and the MCP server needs Node; they are hidden there. Libraries installed with TwinCAT are not found either:
   use stub files (`twincatExplorer.stubFiles`) from the repository.
 

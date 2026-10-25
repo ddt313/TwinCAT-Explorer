@@ -1,8 +1,8 @@
 // Entry point in the browser (vscode.dev, github.dev): the extension of the desktop, bundled with the modules of
 // this folder in place of Node's (scripts/build-web.js). The workspace's TwinCAT files are read into memory before
 // the projects load, so the synchronous reads of the rest of the extension find them (vfs.ts). No git: the
-// comparisons with HEAD and with a branch (the TwinCAT Changes view) read GitHub (github.ts); the Commits and History
-// views are hidden there.
+// comparisons with HEAD and with a branch (the TwinCAT Changes view), the TwinCAT History view and blame read GitHub
+// (github.ts); the TwinCAT Commits view is hidden there.
 // No MCP server: it runs in Node.
 
 import * as path from 'path';
@@ -82,6 +82,11 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     const ref = await revisions.defaultBase().catch(() => undefined);
     if (ref) await api.changes.setScope({ kind: 'branch', ref });
   });
+
+  // Signed in to GitHub (blame needs it; a private repository too): the open editors read HEAD and blame again.
+  context.subscriptions.push(vscode.authentication.onDidChangeSessions(e => {
+    if (e.provider.id === 'github') api.objectEditors.refreshBases();
+  }));
 
   const loadTheme = async () => {
     const file = activeThemeFile();

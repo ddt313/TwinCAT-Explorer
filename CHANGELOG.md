@@ -22,6 +22,10 @@ All notable changes to Explorer for TwinCAT. The format follows
   workspace are compared by their blob ids. A click shows an object's changes in the split editor, a deleted object
   as text, a project file as a text diff. Staging, and the list of uncommitted changes against the index, stay on
   the desktop.
+- In the browser the **TwinCAT History** view lists the commits that changed an object, from GitHub's list of the
+  commits of its file (renames not followed); a commit opens its changes in the commit diff panel. The line blame of
+  the split editor comes from GitHub's GraphQL API, which needs a sign-in even for a public repository: until then
+  the Accounts menu has a sign-in request, and the editors get the blame once signed in.
 - In the browser the repository is downloaded in one go (GitHub Repositories' tarball) before the TwinCAT files are
   read, instead of one request to GitHub's API per file, and the files left are read 32 at a time. Deleting a POU,
   DUT, GVL or empty folder deletes it there (Source Control can still discard that): GitHub Repositories has no

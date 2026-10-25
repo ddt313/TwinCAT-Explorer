@@ -52,6 +52,12 @@ function findThemeFile(name: string): string | undefined {
   return undefined;
 }
 
+/** The file of the active color theme, for the browser build to read beforehand (web/extension.ts). */
+export function activeThemeFile(): string | undefined {
+  const name = activeThemeName();
+  return name ? findThemeFile(name) : undefined;
+}
+
 function loadTokenColors(file: string, seen = new Set<string>()): TokenRule[] {
   if (seen.has(file)) return [];
   seen.add(file);

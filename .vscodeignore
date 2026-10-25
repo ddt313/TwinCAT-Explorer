@@ -13,6 +13,8 @@
 !out/src/extension.js
 !out/src/{core,lang,shared,vscode}/**/*.js
 !out/webview/**
+# The browser build (vscode.dev): one bundle, scripts/build-web.js.
+!out/web/extension.js
 # The MCP server ships bundled: its modules in out/src/mcp would need node_modules.
 !out/mcp/**
 !out/xae/**

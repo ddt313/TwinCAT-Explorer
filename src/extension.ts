@@ -39,7 +39,8 @@ import { LocationService } from './vscode/locations';
 import { checkMcpSetup, setUpMcpServer } from './vscode/mcpSetup';
 import {
   DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME,
-  ST_LANGUAGE, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf, viewKey,
+  ST_LANGUAGE, fileUri, isFileUri, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf,
+  viewKey,
 } from './vscode/uris';
 
 export interface TwinCatExplorerApi {
@@ -64,6 +65,17 @@ export interface TwinCatExplorerApi {
   openObject(fsPath: string, objectId: string, options?: OpenOptions): Promise<vscode.NotebookEditor | undefined>;
   /** Opens an object view in the split editor and returns its document. */
   openSplit(fsPath: string, objectId: string, options?: OpenOptions & { reveal?: RevealTarget }): Promise<vscode.TextDocument | undefined>;
+}
+
+/**
+ * What the browser build (web/extension.ts) adds: its workspace files are read into memory for the
+ * synchronous reads of the rest of the extension. The desktop passes none.
+ */
+export interface WebHost {
+  /** Reads the workspace's TwinCAT files, before the projects are loaded. */
+  beforeLoad(): Promise<void>;
+  /** Reads a created, changed or deleted file again, before the change is handled. */
+  sync(uri: vscode.Uri): Promise<void>;
 }
 
 interface OpenOptions {
@@ -96,7 +108,7 @@ function userStubs(): StubSource[] {
   return out;
 }
 
-export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
+export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinCatExplorerApi {
   const ws = new TcWorkspace();
   const index = new LanguageIndex(ws);
   // User stubs are read once projects are found, so windows without TwinCAT never warn about them.
@@ -314,6 +326,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   let reportedErrors = '';
   const loadProjects = async () => {
     try {
+      if (web) await web.beforeLoad();
       const exclude = config().get<string>('exclude') || undefined;
       const uris = await vscode.workspace.findFiles('**/*.tsproj', exclude);
       // Copies of the repository in hidden folders (git worktrees under .claude/worktrees, ...) are not projects of this workspace.
@@ -330,7 +343,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       index.invalidateAll();
       refreshOverlays();
       tree.rebuild();
-      if (hasProjects) void gitChanges.refreshAll();
+      if (hasProjects && !web) void gitChanges.refreshAll();
       changesView.schedule(0);
       commitsView.schedule(0);
       checkCollection.clear();
@@ -385,19 +398,24 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const onXti = (u: vscode.Uri) => {
     if (ws.isProjectFile(u.fsPath) || /[\\/]_Config[\\/]PLC[\\/][^\\/]+$/i.test(u.fsPath)) scheduleLoad();
   };
+  /** In the browser a change is handled once the file was read again. */
+  const synced = (handle: (u: vscode.Uri) => void) => (web ? (u: vscode.Uri) => void web.sync(u).then(() => handle(u)) : handle);
+  const onSource = synced(u => onSourceChanged(u.fsPath));
+  const onProject = synced(scheduleLoad);
+  const onXtiSynced = synced(onXti);
   context.subscriptions.push(
     sourceWatcher,
-    sourceWatcher.onDidChange(u => onSourceChanged(u.fsPath)),
-    sourceWatcher.onDidCreate(u => onSourceChanged(u.fsPath)),
-    sourceWatcher.onDidDelete(u => onSourceChanged(u.fsPath)),
+    sourceWatcher.onDidChange(onSource),
+    sourceWatcher.onDidCreate(onSource),
+    sourceWatcher.onDidDelete(onSource),
     projectWatcher,
-    projectWatcher.onDidChange(scheduleLoad),
-    projectWatcher.onDidCreate(scheduleLoad),
-    projectWatcher.onDidDelete(scheduleLoad),
+    projectWatcher.onDidChange(onProject),
+    projectWatcher.onDidCreate(onProject),
+    projectWatcher.onDidDelete(onProject),
     xtiWatcher,
-    xtiWatcher.onDidChange(onXti),
-    xtiWatcher.onDidCreate(onXti),
-    xtiWatcher.onDidDelete(onXti),
+    xtiWatcher.onDidChange(onXtiSynced),
+    xtiWatcher.onDidCreate(onXtiSynced),
+    xtiWatcher.onDidDelete(onXtiSynced),
     vscode.workspace.onDidChangeWorkspaceFolders(scheduleLoad),
   );
 
@@ -753,7 +771,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     }
     const d = parseDiffUri(uri);
     if (d) return tree.nodesForFile(d.fsPath);
-    if (uri.scheme === 'file' && isTwinCatPath(uri.fsPath)) {
+    if (isFileUri(uri) && isTwinCatPath(uri.fsPath)) {
       if (offset !== undefined) {
         const file = ws.getFile(uri.fsPath);
         const obj = file ? objectAtOffset(file, offset) : undefined;
@@ -822,10 +840,10 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       followInHistory(e?.notebook.uri);
     }),
     vscode.window.onDidChangeActiveTextEditor(e => {
-      if (e && e.document.uri.scheme === 'file') void reveal(e.document.uri, false, e.document.offsetAt(e.selection.active));
+      if (e && isFileUri(e.document.uri)) void reveal(e.document.uri, false, e.document.offsetAt(e.selection.active));
     }),
     vscode.window.onDidChangeTextEditorSelection(e => {
-      if (e.textEditor.document.uri.scheme !== 'file' || !isTwinCatPath(e.textEditor.document.uri.fsPath)) return;
+      if (!isFileUri(e.textEditor.document.uri) || !isTwinCatPath(e.textEditor.document.uri.fsPath)) return;
       if (selectionTimer) clearTimeout(selectionTimer);
       selectionTimer = setTimeout(() => {
         void reveal(e.textEditor.document.uri, false, e.textEditor.document.offsetAt(e.selections[0].active));
@@ -867,7 +885,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
   const openXml = async (arg: unknown) => {
     const t = target(arg);
     if (!t) return;
-    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(t.fsPath));
+    const doc = await vscode.workspace.openTextDocument(fileUri(t.fsPath));
     let selection: vscode.Range | undefined;
     if (t.objectId) {
       const obj = ws.getFile(t.fsPath)?.objects.get(t.objectId);
@@ -909,7 +927,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     for (const t of [...tabs].sort((a, b) => Number(a.active) - Number(b.active))) {
       const options = { viewColumn: t.viewColumn, preview: t.preview, preserveFocus: !t.active };
       if (t.kind === 'text') {
-        await vscode.window.showTextDocument(vscode.Uri.file(fsPath), options);
+        await vscode.window.showTextDocument(fileUri(fsPath), options);
         continue;
       }
       const obj = t.objectId ? file?.objects.get(t.objectId) : undefined;
@@ -1154,7 +1172,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       const ref = await vscode.window.showInputBox({
         title: 'Compare the branch with',
         prompt: 'Branch, tag or commit: the view shows what changed since HEAD left it, uncommitted changes included',
-        value: context.workspaceState.get<string>(lastRefKey, 'origin/develop'),
+        value: changesView.scope.kind === 'branch' ? changesView.scope.ref : context.workspaceState.get<string>(lastRefKey, 'origin/develop'),
         validateInput: async v => (v.trim() && (await verifyRef(probe, v.trim())) ? undefined : `'${v}' is not a commit in this repository`),
       });
       if (!ref) return;
@@ -1171,7 +1189,7 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
       const ref = await vscode.window.showInputBox({
         title: 'Compare with git ref',
         prompt: 'Branch, tag or commit to show on the left (working tree on the right)',
-        value: context.workspaceState.get<string>(lastRefKey, 'origin/develop'),
+        value: changesView.scope.kind === 'branch' ? changesView.scope.ref : context.workspaceState.get<string>(lastRefKey, 'origin/develop'),
         validateInput: async v => (v.trim() && (await verifyRef(t.fsPath, v.trim())) ? undefined : `'${v}' is not a commit in this repository`),
       });
       if (!ref) return;
@@ -1228,7 +1246,8 @@ export function activate(context: vscode.ExtensionContext): TwinCatExplorerApi {
     }),
     vscode.commands.registerCommand('twincatExplorer.setUpMcpServer', () => setUpMcpServer(context)),
   );
-  checkMcpSetup(context);
+  // The MCP server runs in Node, beside VS Code on the desktop.
+  if (!web) checkMcpSetup(context);
 
   void vscode.commands.executeCommand('setContext', 'twincatExplorer.historyPinned', false);
   const ready = loadProjects();

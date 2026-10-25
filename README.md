@@ -606,6 +606,33 @@ on a self-managed GitLab instance and what it reads is in [`browser/SPIKE.md`](b
 changes are in [`browser/CHANGELOG.md`](browser/CHANGELOG.md).
 <!-- browser-only:end -->
 
+## In the browser (vscode.dev)
+
+The extension also runs in VS Code in the browser: open a repository on [vscode.dev](https://vscode.dev) (for
+example `https://vscode.dev/github/<owner>/<repo>`) or press `.` on its GitHub page (github.dev), and install
+**Explorer for TwinCAT** there. The TwinCAT tree, the split editor, the object notebooks, the Structured Text
+features and editing work as on the desktop; saving writes the repository's files as VS Code in the browser does
+(GitHub Repositories keeps them until you commit them there).
+
+- The `.tsproj`, `.plcproj`, `.xti` and TwinCAT source files are read when the workspace opens (the status bar
+  shows *Reading the TwinCAT files*). The repository is downloaded in one go first, as GitHub Repositories does to
+  search it; a large repository takes a moment.
+- Deleting a POU, DUT, GVL or folder deletes it without the Recycle Bin: until it is committed, Source Control can
+  discard the deletion.
+- **Changes vs HEAD:** *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* compare
+  with HEAD as GitHub has it (the commit of the branch, tag or pull request open), read through GitHub's API. A
+  public repository needs no sign-in; a private one asks to sign in with GitHub (the Accounts menu) once.
+- **TwinCAT Changes:** in the Source Control sidebar, what the branch changed since the base branch of the pull
+  request open (press `.` on a pull request's page to open it in github.dev), else since the default branch, object
+  by object, changes not committed included. *Compare Branch With* picks another branch, tag or commit.
+- **TwinCAT Commits:** the commits of HEAD, each with the objects it changed, and *Compare with Git Ref* against a
+  branch, tag or commit, from GitHub.
+- **TwinCAT History and blame:** the commits that changed an object (a rename of its file ends the list there) and the
+  line blame of the split editor come from GitHub; blame needs a sign-in with GitHub, even for a public repository.
+- **Not in the browser:** staging needs git's index,
+  and the MCP server needs Node; they are hidden there. Libraries installed with TwinCAT are not found either:
+  use stub files (`twincatExplorer.stubFiles`) from the repository.
+
 ## MCP server for AI agents
 
 An [MCP](https://modelcontextprotocol.io) server gives an AI agent (Claude Code, or another MCP client)
@@ -973,6 +1000,10 @@ npm run package
 - The screenshots are in `docs/images`, outside the `.vsix`: vsce turns their relative links into
   links to the repository on GitHub, so a new image must be pushed before the version that shows it is
   published.
+- `npm run compile` also bundles the extension for the browser (`scripts/build-web.js`, the `browser` entry of
+  `package.json`) into `out/web/extension.js`: `src/web/extension.ts` with the rest of the extension, Node's `fs`,
+  `crypto` and `child_process` replaced by the modules of `src/web` (the TwinCAT files are read into memory before
+  the projects load). `npx vscode-test-web --extensionDevelopmentPath=. <folder>` runs it in VS Code in the browser.
 - `npm run compile` also bundles the MCP server (`src/mcp`, with the MCP SDK and zod) into
   `out/mcp/server.js`; `node out/mcp/server.js --root <repoDir>` runs it on a TwinCAT repository.
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser

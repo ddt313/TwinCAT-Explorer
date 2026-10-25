@@ -29,6 +29,7 @@ import { Loc } from '../lang/symbols';
 import { hasUnsavedEdits } from './openDocs';
 import { askRename, readFromDisk, reportRename } from './rename';
 import { ShownTab, closeTabs, shownTabs, tabsOf } from './tabs';
+import { fileUri } from './uris';
 
 /** Where a new object or folder goes: a PLC project and one of its folders (`POUs\Sub`, empty for the project). */
 export interface ObjectTarget {
@@ -67,6 +68,14 @@ const POU_KINDS: Choice<NewObjectKind>[] = [
   { label: 'Program', description: 'PROGRAM', value: 'prg' },
   { label: 'Function', description: 'FUNCTION', value: 'fun' },
 ];
+
+/**
+ * Whether deleted files go to the Recycle Bin: on the desktop. In the browser (vscode.dev) the repository's files have
+ * none, and a deletion is a change Source Control can discard until it is committed.
+ */
+function hasTrash(uri: vscode.Uri): boolean {
+  return uri.scheme === 'file';
+}
 
 const DUT_KINDS: Choice<NewObjectKind>[] = [
   { label: 'Structure', description: 'STRUCT', value: 'struct' },
@@ -237,7 +246,7 @@ export class ObjectCommands {
     if (!project || this.refuseUnsaved(project)) return;
     const uris = await vscode.window.showOpenDialog({
       title: this.title('Add Existing Item', project, target), openLabel: 'Add', canSelectMany: true,
-      defaultUri: vscode.Uri.file(this.dirOf(project, target)),
+      defaultUri: fileUri(this.dirOf(project, target)),
       filters: { 'POUs, DUTs, GVLs and interfaces': ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO'] },
     });
     if (uris?.length) await this.addExisting(project, target, uris.map(u => ({ path: u.fsPath, subfolder: '' })));
@@ -252,7 +261,7 @@ export class ObjectCommands {
     if (!project || this.refuseUnsaved(project)) return;
     const uris = await vscode.window.showOpenDialog({
       title: this.title('Add Existing Folder Content', project, target), openLabel: 'Add Its Content',
-      canSelectFiles: false, canSelectFolders: true, canSelectMany: false, defaultUri: vscode.Uri.file(this.dirOf(project, target)),
+      canSelectFiles: false, canSelectFolders: true, canSelectMany: false, defaultUri: fileUri(this.dirOf(project, target)),
     });
     const dir = uris?.[0]?.fsPath;
     if (!dir) return;
@@ -596,9 +605,11 @@ export class ObjectCommands {
     if (this.refuseUnsavedFiles([fsPath, project.path])) return;
     const upper = root.name.toUpperCase();
     const callers = root.pouKind === 'PRG' ? this.tasksOf(project).filter(t => t.calls.some(c => c.toUpperCase() === upper)) : [];
+    const uri = fileUri(fsPath);
     const choice = await vscode.window.showWarningMessage(`Delete the ${objectWord(root)} ${root.name}?`, {
       modal: true,
-      detail: `${path.basename(fsPath)} goes to the Recycle Bin and out of ${path.basename(project.path)}, as when it is deleted in TwinCAT XAE. `
+      detail: `${path.basename(fsPath)} ${hasTrash(uri) ? 'goes to the Recycle Bin' : 'is deleted (Source Control can still discard that)'} and out of `
+        + `${path.basename(project.path)}, as when it is deleted in TwinCAT XAE. `
         + `What uses it is not changed${callers.length ? `: ${ObjectCommands.taskNames(callers)} still call${callers.length === 1 ? 's' : ''} it` : ''}.`,
     }, 'Delete');
     if (choice !== 'Delete' || this.refuseUnsavedFiles([fsPath, project.path])) return;
@@ -612,7 +623,7 @@ export class ObjectCommands {
     }
     await closeTabs(tabsOf(fsPath));
     try {
-      await vscode.workspace.fs.delete(vscode.Uri.file(fsPath), { useTrash: true });
+      await vscode.workspace.fs.delete(uri, { useTrash: hasTrash(uri) });
       fs.writeFileSync(plcproj.fsPath, encodeText(plcproj.text, plcproj.bom));
     } catch (e) {
       void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
@@ -637,12 +648,13 @@ export class ObjectCommands {
     const choice = await vscode.window.showWarningMessage(`Delete the folder ${target.folder}?`, {
       modal: true,
       detail: `Its item leaves ${path.basename(project.path)}, `
-        + (inside.length ? 'and the folder stays on disk, where something the project does not list is in it.' : 'and the empty folder goes to the Recycle Bin.'),
+        + (inside.length ? 'and the folder stays on disk, where something the project does not list is in it.'
+          : `and the empty folder ${hasTrash(fileUri(dir)) ? 'goes to the Recycle Bin' : 'is deleted'}.`),
     }, 'Delete');
     if (choice !== 'Delete' || !this.write(project, text => removeItem(text, 'Folder', target.folder), () => undefined)) return;
     if (!inside.length && fs.existsSync(dir)) {
       try {
-        await vscode.workspace.fs.delete(vscode.Uri.file(dir), { recursive: false, useTrash: true });
+        await vscode.workspace.fs.delete(fileUri(dir), { recursive: false, useTrash: hasTrash(fileUri(dir)) });
       } catch (e) {
         void vscode.window.showErrorMessage(`TwinCAT: ${(e as Error).message}`);
       }

@@ -22,6 +22,67 @@ export type { CommitInfo } from '../core/gitLog';
 const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', GIT_OPTIONAL_LOCKS: '0' };
 
 let gitProgram: Promise<string> | undefined;
+let gitUnavailable: string | undefined;
+
+/** Turns git off: in the browser there is no git program to run. */
+export function disableGit(reason: string): void {
+  gitUnavailable = reason;
+}
+
+/**
+ * Commits read without git: in the browser, from the repository's host (web/github.ts). HEAD, the files of a
+ * commit, branches compared with the working tree, the history and blame of a file; no index, no renames.
+ */
+export interface RevisionSource {
+  /** Root folder of the repository a file or folder is in; undefined outside one. */
+  root(fsPath: string): string | undefined;
+  /** Commit of HEAD. */
+  head(root: string): Promise<string>;
+  /** A file at a commit, by its repository-relative path; undefined when the commit does not have it. */
+  read(root: string, relPath: string, commit: string): Promise<Uint8Array | undefined>;
+  /** Before a comparison the user asked for: false, said to the user, when the commits cannot be read (signed out). */
+  canRead(fsPath: string): Promise<boolean>;
+  /** The commit a branch, tag or commit id names; undefined when the repository has no such ref. */
+  resolve(root: string, ref: string): Promise<string | undefined>;
+  /** The commit HEAD and a ref have in common last; undefined when there is no such ref. */
+  mergeBase(root: string, ref: string): Promise<string | undefined>;
+  /** Files with the given extensions that differ between a commit and the working tree, uncommitted changes included. */
+  changesSince(root: string, base: string, extensions: string[]): Promise<NameStatus[]>;
+  /**
+   * The commits of HEAD that changed a file, newest first, as `git log -- <path>` lists them (renames not followed).
+   * Their blobs are `<commit>:<path>` specs, which readBlobs reads.
+   */
+  fileLog(root: string, relPath: string): Promise<FileLogEntry[]>;
+  /** The commit each line of ranges (1-based, inclusive) of a file in a commit comes from. */
+  blame(root: string, commit: string, relPath: string, ranges: [number, number][]): Promise<BlameResult>;
+  /** The first parent of a commit; undefined for the first commit of a repository. */
+  firstParent(root: string, sha: string): Promise<string | undefined>;
+  /** The first `count` commits of HEAD, newest first. */
+  commitLog(root: string, count: number): Promise<CommitInfo[]>;
+  /** Files a commit changed against its first parent (renames with the path they came from). */
+  commitChanges(root: string, commit: string): Promise<NameStatus[]>;
+}
+
+let revisions: RevisionSource | undefined;
+
+export function useRevisionSource(source: RevisionSource): void {
+  revisions = source;
+}
+
+/** Whether the commits of a file can be compared with (in the browser: asks to sign in when they cannot). */
+export function canReadRevisions(fsPath: string): Promise<boolean> {
+  return revisions ? revisions.canRead(fsPath) : Promise.resolve(true);
+}
+
+async function showAtRevision(source: RevisionSource, fsPath: string, ref: string, orig?: string): Promise<Buffer> {
+  if (ref === INDEX) throw new Error('There is no index in the browser');
+  const root = source.root(fsPath);
+  if (!root) throw new Error(`${fsPath} is not in a repository`);
+  const commit = ref === 'HEAD' ? await source.head(root) : ref;
+  const rel = orig ?? path.relative(root, fsPath).split(path.sep).join('/');
+  const bytes = commit ? await source.read(root, rel, commit) : undefined;
+  return bytes ? Buffer.from(bytes) : Buffer.alloc(0);
+}
 
 /**
  * Full path of the git program: the git extension's (it applies the `git.path` setting), else the first git
@@ -29,6 +90,7 @@ let gitProgram: Promise<string> | undefined;
  * repository would run instead of git.
  */
 function gitExecutable(): Promise<string> {
+  if (gitUnavailable) return Promise.reject(new Error(gitUnavailable));
   if (!gitProgram) {
     const found = (async () => {
       const known = (await gitApi())?.git?.path;
@@ -105,6 +167,7 @@ function specOf(ref: string, rel: string): string {
  * when the file was renamed since.
  */
 export async function showAtRef(fsPath: string, ref: string, orig?: string): Promise<Buffer> {
+  if (revisions) return showAtRevision(revisions, fsPath, ref, orig);
   const cwd = existingDir(fsPath);
   const spec = specOf(ref, orig ?? relFrom(cwd, fsPath));
   try {
@@ -117,6 +180,10 @@ export async function showAtRef(fsPath: string, ref: string, orig?: string): Pro
 }
 
 export async function verifyRef(fsPath: string, ref: string): Promise<boolean> {
+  if (revisions) {
+    const root = revisions.root(fsPath);
+    return !!root && !!(await revisions.resolve(root, ref).catch(() => undefined));
+  }
   try {
     await git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], existingDir(fsPath));
     return true;
@@ -189,6 +256,7 @@ async function sameObjectDeleted(fsPath: string, ref: string, staged: boolean): 
 
 /** Path at `ref` of the file now at `fsPath`, when it was renamed since (undefined when not renamed). */
 export async function originalPath(fsPath: string, ref: string, staged: boolean): Promise<string | undefined> {
+  if (revisions) return undefined;
   if (await existsAt(fsPath, ref)) return undefined;
   return (await renamedFrom(fsPath, ref, staged)) ?? (await sameObjectDeleted(fsPath, ref, staged));
 }
@@ -210,6 +278,7 @@ function folderOf(fsPath: string): string {
  * file paths joined to it would then not match the workspace's.
  */
 export async function repositoryRoot(fsPath: string): Promise<string | undefined> {
+  if (revisions) return revisions.root(fsPath);
   const cwd = folderOf(fsPath);
   try {
     const up = (await git(['rev-parse', '--show-cdup'], cwd)).toString('utf8').trim();
@@ -222,6 +291,8 @@ export async function repositoryRoot(fsPath: string): Promise<string | undefined
 
 /** Commit of HEAD, or '' in a repository without commits. */
 export async function headCommit(root: string): Promise<string> {
+  // Not '' when it cannot be read (offline, signed out): every object would show as added.
+  if (revisions) return revisions.head(root);
   try {
     return (await git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], root)).toString('utf8').trim();
   } catch {
@@ -234,6 +305,8 @@ export async function headCommit(root: string): Promise<string> {
  * renamed. Deleted files are left out (there is nothing to show for them).
  */
 export async function changedSourceFiles(root: string): Promise<string[]> {
+  // The browser knows no status of the working tree: a file is compared with HEAD once it is opened or saved.
+  if (revisions) return [];
   const args = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...extensionSpecs(SOURCE_EXTENSIONS)];
   const tokens = (await git(args, root)).toString('utf8').split('\0');
   const out: string[] = [];
@@ -275,6 +348,7 @@ function pathChange(root: string, f: NameStatus): PathChange {
  * not, plus the untracked ones.
  */
 export async function changesSince(root: string, base: string, extensions: string[]): Promise<PathChange[]> {
+  if (revisions) return (await revisions.changesSince(root, base, extensions)).map(f => pathChange(root, f));
   const specs = extensionSpecs(extensions);
   const byPath = new Map<string, PathChange>();
   const add = (c: PathChange) => {
@@ -328,6 +402,7 @@ export async function indexChanges(root: string, head: string, extensions: strin
 
 /** The commit where HEAD's branch left `ref` (what a merge request of this branch into `ref` compares with). */
 export async function mergeBase(root: string, ref: string): Promise<string | undefined> {
+  if (revisions) return revisions.mergeBase(root, ref);
   try {
     return (await git(['merge-base', ref, 'HEAD'], root)).toString('utf8').trim() || undefined;
   } catch {
@@ -337,6 +412,7 @@ export async function mergeBase(root: string, ref: string): Promise<string | und
 
 /** The first `count` commits reachable from HEAD, newest first, like `git log`. */
 export async function commitLog(root: string, count: number): Promise<CommitInfo[]> {
+  if (revisions) return revisions.commitLog(root, count);
   // No signature checks (log.showSignature): slow, and their text would land in the commit messages.
   const out = await git(['log', '--no-show-signature', `-n${count}`, `--format=${COMMIT_FORMAT}`, 'HEAD', '--'], root);
   return out.toString('utf8').split('\x1e').slice(1).map(parseCommit);
@@ -344,6 +420,8 @@ export async function commitLog(root: string, count: number): Promise<CommitInfo
 
 /** Files that a commit changed against `parent` (its first parent; none for the first commit of a repository). */
 export async function commitChanges(root: string, commit: string, parent: string | undefined): Promise<PathChange[]> {
+  // GitHub compares a commit with its first parent, the one the views pass.
+  if (revisions) return (await revisions.commitChanges(root, commit)).map(f => pathChange(root, f));
   const args = ['diff-tree', '-r', '-M', '--name-status', '-z', '--no-commit-id', ...(parent ? [parent, commit] : ['--root', commit]), '--'];
   return parseNameStatus((await git(args, root)).toString('utf8')).map(f => pathChange(root, f));
 }
@@ -354,6 +432,15 @@ export async function commitChanges(root: string, commit: string, parent: string
  */
 export async function readBlobs(root: string, specs: string[]): Promise<(Buffer | undefined)[]> {
   if (specs.length === 0) return [];
+  // In the browser, the `<commit>:<path>` specs of fileLog's blobs.
+  if (revisions) {
+    const source = revisions;
+    return Promise.all(specs.map(async spec => {
+      const at = spec.indexOf(':');
+      const bytes = at > 0 ? await source.read(root, spec.slice(at + 1), spec.slice(0, at)) : undefined;
+      return bytes && Buffer.from(bytes);
+    }));
+  }
   const out = await gitWithInput(['cat-file', '--batch'], root, specs.join('\n') + '\n');
   // Per object: `<id> <type> <size>\n<content>\n`, or `<name> missing\n`.
   const result: (Buffer | undefined)[] = [];
@@ -377,11 +464,13 @@ export async function readBlobs(root: string, specs: string[]): Promise<(Buffer 
 
 /** The commits of HEAD that changed a file (repository-relative path), newest first (see fileLogArgs). */
 export async function fileLog(root: string, relPath: string): Promise<FileLogEntry[]> {
+  if (revisions) return revisions.fileLog(root, relPath);
   return parseFileLog((await git(fileLogArgs(relPath), root)).toString('utf8'));
 }
 
 /** The first parent of a commit; undefined for the first commit of a repository. */
 export async function firstParent(root: string, sha: string): Promise<string | undefined> {
+  if (revisions) return revisions.firstParent(root, sha);
   try {
     return (await git(['rev-parse', '--verify', '--quiet', `${sha}^1`], root)).toString('utf8').trim() || undefined;
   } catch {
@@ -397,6 +486,7 @@ export interface BlameResult {
 
 /** `git blame` of line ranges of a file as it is in a commit, at its repository-relative path there (see blameArgs). */
 export async function blameLines(root: string, commit: string, relPath: string, ranges: [number, number][]): Promise<BlameResult> {
+  if (revisions) return revisions.blame(root, commit, relPath, ranges);
   return parseBlame((await git(blameArgs(commit, relPath, ranges), root)).toString('utf8'));
 }
 
@@ -405,12 +495,19 @@ export async function blameLines(root: string, commit: string, relPath: string, 
  * since (not committed yet), or undefined for a file that is not in that commit.
  */
 export async function pathAt(root: string, fsPath: string, ref: string): Promise<string | undefined> {
+  if (revisions) {
+    const rel = path.relative(root, fsPath).split(path.sep).join('/');
+    const commit = ref === 'HEAD' ? await revisions.head(root) : ref;
+    return (await revisions.read(root, rel, commit)) ? rel : undefined;
+  }
   if (await existsAt(fsPath, ref)) return path.relative(root, fsPath).split(path.sep).join('/');
   return originalPath(fsPath, ref, false);
 }
 
 /** Commits of HEAD that no remote-tracking branch has (not pushed yet). */
 export async function localOnlyCommits(root: string): Promise<Set<string>> {
+  // In the browser every commit is on GitHub.
+  if (revisions) return new Set();
   try {
     const out = await git(['rev-list', '-n500', 'HEAD', '--not', '--remotes'], root);
     return new Set(out.toString('utf8').split(/\s+/).filter(Boolean));
@@ -421,6 +518,7 @@ export async function localOnlyCommits(root: string): Promise<Set<string>> {
 
 /** The configured user.email of a repository ('' when none). */
 export async function userEmail(root: string): Promise<string> {
+  if (revisions) return '';
   try {
     return (await git(['config', 'user.email'], root)).toString('utf8').trim();
   } catch {
@@ -625,6 +723,7 @@ export async function revision(root: string, rel: string, ref: string | undefine
  * its parent), instead of looking renames up against the working tree.
  */
 export async function openNotebookDiff(fsPath: string, ref: string, right: string = WORKTREE, paths?: { left: string; right: string }): Promise<void> {
+  if (!(await canReadRevisions(fsPath))) return;
   const base = path.basename(fsPath);
   const orig = paths ? (paths.left !== paths.right ? paths.left : undefined) : await originalPath(fsPath, ref, right === INDEX);
   const leftName = orig ? path.posix.basename(orig) : base;

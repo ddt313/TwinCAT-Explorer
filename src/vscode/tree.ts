@@ -9,7 +9,7 @@ import { Accessor } from '../core/objectText';
 import { InnerFolder, ObjectKind, TcObject, TcSourceFile, stripTrivia } from '../core/tcfile';
 import { PlcProject, TsProject, libraryName, resolutionLibraryName } from '../core/project';
 import { KIND_WORD, accessorIconName, compareLabels, objectIconName, objectTreeLabel } from '../core/treeLabels';
-import { isSourcePath, objectUri } from './uris';
+import { fileUri, isSourcePath, objectUri } from './uris';
 
 export { KIND_WORD, compareLabels, objectTreeLabel };
 
@@ -99,8 +99,8 @@ function icon(id: string, color?: string): vscode.ThemeIcon {
 /** One of the extension's icons, in the colours of XAE's tree: `media/icons/{light,dark}/<name>.svg`. */
 function twincatIcon(name: string): TreeIcon {
   return {
-    light: vscode.Uri.file(path.join(ICONS, 'light', `${name}.svg`)),
-    dark: vscode.Uri.file(path.join(ICONS, 'dark', `${name}.svg`)),
+    light: fileUri(path.join(ICONS, 'light', `${name}.svg`)),
+    dark: fileUri(path.join(ICONS, 'dark', `${name}.svg`)),
   };
 }
 
@@ -387,12 +387,12 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     item.tooltip = node.tooltip;
     item.contextValue = node.contextValue;
     // A file keeps its file URI (the git extension colors it); members get their object URI (GitChanges marks them).
-    if (node.kind === 'file' && node.fsPath) item.resourceUri = vscode.Uri.file(node.fsPath);
+    if (node.kind === 'file' && node.fsPath) item.resourceUri = fileUri(node.fsPath);
     else if (node.resourceUri) item.resourceUri = node.resourceUri;
     if (node.openable) {
       item.command = { command: 'twincatExplorer.open', title: 'Open', arguments: [node] };
     } else if (node.kind === 'file' && node.fsPath) {
-      item.command = { command: 'vscode.open', title: 'Open', arguments: [vscode.Uri.file(node.fsPath), { preview: true }] };
+      item.command = { command: 'vscode.open', title: 'Open', arguments: [fileUri(node.fsPath), { preview: true }] };
     }
     return item;
   }

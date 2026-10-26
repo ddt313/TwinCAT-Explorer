@@ -23,7 +23,7 @@ import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
 import { DiffLine, FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile, splitRows } from '../../browser/src/model';
 import { ViewState, anchorId, leaveFor, lineOfAnchor, noteOfAnchor } from '../../browser/src/navigation';
-import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
+import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl, namesCommit } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
 import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
 import { parseTcText } from '../../src/core/tcfile';
@@ -1208,4 +1208,13 @@ test('bitbucket: the pages of a repository\'s files, the REST API of a commit an
     { type: 'commit_directory', path: 'POUs' }, { type: 'commit_file', path: 'POUs/MAIN.TcPOU' }, { type: 'commit_file' },
   ]), ['POUs/MAIN.TcPOU']);
   assert.deepEqual(filesFromSrc(undefined), []);
+});
+
+test('the files kept from before: only a URL that names its commit, whose file never changes', () => {
+  assert.equal(namesCommit(`https://gitlab.com/group/project/-/raw/${A}/POUs/MAIN.TcPOU`), true);
+  assert.equal(namesCommit(`https://bitbucket.org/esss/tc_generic/raw/${A}/POUs/New%20FB.TcPOU`), true);
+  assert.equal(namesCommit(`https://github.com/o/r/compare/${A}...${A}.diff`), false);
+  assert.equal(namesCommit('https://gitlab.com/group/project/-/raw/main/POUs/MAIN.TcPOU'), false);
+  assert.equal(namesCommit(`https://github.com/o/r/raw/main/POUs/MAIN.TcPOU?sha=${A}`), false);
+  assert.equal(namesCommit('not a url'), false);
 });

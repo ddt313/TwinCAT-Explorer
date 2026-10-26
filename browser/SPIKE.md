@@ -106,6 +106,7 @@ The browser extension is released on its own, from the same repository as the VS
 | `src/params.ts` | The frames' parameters, for any host: the page's origin, a raw-file URL template, the ways to read in order, the commits, the file. |
 | `src/lookup.ts` | Platform-free: the commits of a page looked for once and kept for all who ask, nothing found included; looked for again on a user's action only, some seconds apart at most. |
 | `src/reader.ts` | Reading a file in a frame, the three ways of question 1, in the order the host's adapter gives. |
+| `src/fileCache.ts` | The files read at a commit kept in the extension's Cache Storage, for the frames that read them again. |
 | `src/sites.ts`, `src/popup.ts` + `static/popup.html` | The sites the extension works on: github.com, gitlab.com, bitbucket.org, and the self-managed GitLab instances turned on from the popup. |
 | `src/lineDiff.ts` | Myers line diff (as git's default) with deletions before additions in each block, and the changed middle of a line. |
 | `src/highlight.ts` | Structured Text highlighting from `src/lang/lexer.ts`. |
@@ -266,7 +267,11 @@ the navigation rule (`L12`, `lines-12`).
   and the place asked for is kept in the page's `sessionStorage` for the next page to show (for 30 seconds). A page
   just loaded stops the scroll to it (GitLab's, still settling): the page scrolls once more, at once, a second later
   when it has not moved. The viewer tells its height before a scroll, so that the frame is as tall as the view. The app's
-  router does not follow a `history.pushState` it did not make: tried, the URL changed and the page did not.
+  router does not follow a `history.pushState` it did not make, a `popstate` dispatched after it included: tried, the
+  URL changed and the page did not. So a file whose row GitLab's tree does not show has its folders opened there
+  first, one by one (each folder row's `[data-testid="tree-toggle-button"]`, which loads its rows without going to
+  the folder's page), the tree scrolled under the TwinCAT tab until the next row is rendered, then the file's row
+  clicked: in the app. The page is loaded only when a row does not show within 3 seconds (GitLab's tree hidden).
 - **Hooks**: `body[data-page]`, `data-project-full-path`, `data-project-id` (low); `.file-holder`, `.js-file-title`,
   `[data-testid="file-title-content"]`, `.blob-viewer`, `#L<n>` (medium); `.file-tree-browser
   section[aria-labelledby="tree-list-heading"]`, `a[data-testid="file-row"]`, `a[data-testid="file-name-link"]`
@@ -276,8 +281,17 @@ the navigation rule (`L12`, `lines-12`).
   folder's page; a click on a method of a file the page did not list (the page loaded, the view opened at it) and on
   one it did (in the app); GitLab's own row to another file (the view of the file before gone); a file that is not a
   TwinCAT source file (no toggle). The merge request's pages as before.
+- **From file to file.** With a view on, the next file the page shows opens in its view too (`follow` in
+  `content.ts`, kept in the tab's `sessionStorage` for a page loaded), until a toggle turns it off; a view left for its
+  XML keeps its way back instead. The files read at a commit are kept in the extension's Cache Storage
+  (`fileCache.ts`, a URL that names a sha only, 3000 files at most, the oldest going first): the view of a file the
+  tree has read, and the tree of a page loaded again, read nothing from the host. Checked, headless Chromium signed
+  out, on the same repository (October 2026): GitLab's row to another file with the view on (in the app, the view
+  on), the TwinCAT tab's `MAIN` (its folder closed in GitLab's tree) and `FB_HydraulicWinch` (in the app, opened
+  folder by folder), the view's file read from the cache in 4 ms, the page loaded again (the view on), a toggle off
+  then GitLab's row to another file (the view off).
 - **Not tried**: signed in on a private project; a self-managed instance; a ref with slashes on a live page; a
-  repository with thousands of TwinCAT files (each read once on each page load while the tab is on).
+  repository with thousands of TwinCAT files (each read once while the tab is on, then kept).
 
 ### GitHub and Bitbucket
 
@@ -310,7 +324,16 @@ the navigation rule (`L12`, `lines-12`).
   navigation are GitHub's own: the view and its line link (`#L6`), the tree (131 files, 207 objects), a click on a Get
   of the file shown and of another file (in the app, the view at the accessor), a method of a file in a closed folder
   (loaded), GitHub's own row to another file with the view on, `README.md` (no toggle). The 25 files of that repository
-  read as objects without an error. Not tried on GitHub: its own TwinCAT repository pages, a private repository.
+  read as objects without an error. Not tried on GitHub: a private repository.
+- **A file not listed, in the app.** GitHub's tree: a closed folder's row (`<path>-item`, `aria-expanded="false"`)
+  opens with its chevron (`TreeView-item-toggle`, not the row, which goes to the folder's page), folder by folder down
+  to the file's row, clicked (the tree hidden under the TwinCAT tab). Bitbucket has no tree, but its router follows a
+  history entry it did not make: `history.pushState` then a `popstate` show the file in the app (the browser's Back
+  too). Checked, headless Chromium signed out (October 2026): GitHub on `tcunit/TcUnit` at `master` (97 files, 515
+  objects): the view on, GitHub's row to the next file (its view on), the TwinCAT tab's
+  `TcUnit-Verifier/…/Test/FB_PrimitiveTypes` five closed folders down (in the app, its view on); Bitbucket on
+  `tc_generic_structure`: the tab's `Axis_Template` and `MAIN` from `E_CPUType`'s page (in the app, the views on),
+  the browser's Back (the file before, its view on).
 
 ## Review comments
 

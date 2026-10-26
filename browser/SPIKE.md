@@ -304,10 +304,13 @@ the navigation rule (`L12`, `lines-12`).
   objects), a click on an action of `MAIN` from a folder's page (in the app, the view at the action) and on a file
   the page did not list (loaded), back to the folder; the pull request #98 as before. GitHub on
   `ddt313/TwinCAT-Explorer` at `develop`, the only repository this session's browser could open, which has no TwinCAT
-  file: a build that took `.ts` for a TwinCAT file and a fake POU for each raw file read (the page's DOM, its data,
-  `tree-list` and navigation are GitHub's own): the view and its line link (`#L6`), the tree (131 files), a click on a
-  method of a file in an open folder (in the app) and of one in a closed folder (loaded), GitHub's own row to another
-  file with the view on, `README.md` (no toggle). Not tried on GitHub: real TwinCAT files, a private repository.
+  file: a build that took `.ts` for a TwinCAT file, and for each raw file read one of the 25 TwinCAT files of
+  `Beckhoff/TE2000_Client_Samples` (cloned; its pages were not open to the browser), `model.ts` as `FB_Cylinder.TcPOU`
+  (13 objects: methods, properties with Get, an action, attributes). The page's DOM, its data, `tree-list` and its
+  navigation are GitHub's own: the view and its line link (`#L6`), the tree (131 files, 207 objects), a click on a Get
+  of the file shown and of another file (in the app, the view at the accessor), a method of a file in a closed folder
+  (loaded), GitHub's own row to another file with the view on, `README.md` (no toggle). The 25 files of that repository
+  read as objects without an error. Not tried on GitHub: its own TwinCAT repository pages, a private repository.
 
 ## Review comments
 

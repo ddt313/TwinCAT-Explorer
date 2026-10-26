@@ -5,7 +5,7 @@
 
 import { RepositoryPage, blobUrl, commitApi, filesFromTree, gitlabRawTemplate, gitlabTheme, nextPageUrl, refAndPath, repositoryTreeApi } from './gitlab';
 import { showTarget } from './host';
-import { RepositoryHost, SHA } from './hostRepository';
+import { RepositoryHost, SHA, decodedPath } from './hostRepository';
 import { Commits, Strategy, Theme } from './params';
 
 export class GitLabRepositoryHost extends RepositoryHost {
@@ -14,7 +14,7 @@ export class GitLabRepositoryHost extends RepositoryHost {
   readonly order: Strategy[] = ['page', 'frame', 'worker'];
   /** The page scrolls in a panel below GitLab's bars; the file's header is sticky in it. */
   readonly stickyTop = 64;
-  /** Over GitLab's tree, which stays rendered (its rows are clicked to go to a file). */
+  /** Over GitLab's tree, which stays rendered (its folders are opened and its rows clicked to go to a file). */
   readonly treeOverlay = true;
   private readonly project: string | number;
   /** The instance's root: its origin, and the path it is served under (`https://example.com/gitlab`). */
@@ -81,6 +81,19 @@ export class GitLabRepositoryHost extends RepositoryHost {
 
   protected fileUrl(path: string): string {
     return blobUrl(this.root, this.path, this.ref, path);
+  }
+
+  /** A row of GitLab's file tree: its link to the file's page, or to the folder's (`/-/tree/`). */
+  protected override treeRow(path: string, folder: boolean): HTMLElement | null {
+    const url = this.fileUrl(path);
+    const target = decodedPath(folder ? url.replace('/-/blob/', '/-/tree/') : url);
+    return [...this.treePanel()?.querySelectorAll<HTMLAnchorElement>('a[data-testid="file-row"]') ?? []].find(a => decodedPath(a.href) === target) ?? null;
+  }
+
+  /** Its toggle opens a folder without going to its page. */
+  protected override openFolder(row: HTMLElement): void {
+    if (row.getAttribute('aria-expanded') === 'true') return;
+    row.closest('[data-testid="file-row-container"]')?.querySelector<HTMLElement>('[data-testid="tree-toggle-button"]')?.click();
   }
 
   header(container: HTMLElement): HTMLElement | null {

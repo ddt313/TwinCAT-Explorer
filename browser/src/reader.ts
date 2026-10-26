@@ -2,6 +2,7 @@
 // order the host's adapter gave, until one works; and what each attempt gave, for the diagnostics.
 
 import { fetchText } from './fetchText';
+import { cachedText, keepText } from './fileCache';
 import { Strategy } from './params';
 import { FetchResult, FrameMessage, PageMessage } from './protocol';
 
@@ -10,7 +11,8 @@ export const ALL_WAYS: Strategy[] = ['frame', 'worker', 'page'];
 
 export interface Attempt {
   what: string;
-  strategy: Strategy;
+  /** `cache`: read before, kept by the extension (fileCache.ts). */
+  strategy: Strategy | 'cache';
   status: number;
   host?: string;
   ms: number;
@@ -32,6 +34,8 @@ export class Reader {
   readonly attempts: Attempt[] = [];
   /** The way that read a file of this repository: a 404 from it means the file is not in that version. */
   reader?: Strategy;
+  /** A file was kept from before (fileCache.ts). */
+  private kept = false;
   private readonly pending = new Map<number, (r: FetchResult) => void>();
   private nextId = 0;
 
@@ -86,14 +90,22 @@ export class Reader {
     return r;
   }
 
-  /** Reads a URL the way that worked before first, the others after it. */
+  /** Reads a URL: kept from before when it names its commit, else the way that worked before first, the others after it. */
   async read(what: string, url: string): Promise<Read> {
     const statuses = new Map<Strategy, number>();
+    const start = performance.now();
+    const cached = await cachedText(url);
+    if (cached !== undefined) {
+      this.kept = true;
+      this.attempts.push({ what, strategy: 'cache', status: 200, ms: Math.round(performance.now() - start), ok: true });
+      return { text: cached, statuses };
+    }
     for (const strategy of this.reader ? [this.reader, ...this.order.filter(s => s !== this.reader)] : this.order) {
       const r = await this.attempt(what, strategy, url);
       statuses.set(strategy, r.status);
       if (isFile(r)) {
         this.reader ??= strategy;
+        void keepText(url, r.text!);
         return { text: r.text, statuses };
       }
       if (strategy === this.reader && r.status === 404) return { absent: true, statuses };
@@ -105,8 +117,10 @@ export class Reader {
   textOf(r: Read | undefined): string | undefined | null {
     if (!r) return undefined;
     if (r.text !== undefined) return r.text;
-    // Read before the way that works was known: what that way answered tells.
-    if (r.absent || (this.reader && r.statuses.get(this.reader) === 404)) return undefined;
+    // Read before the way that works was known: what that way answered tells. None known, as the files read were kept
+    // from before (which says the repository is readable): every way's 404.
+    const all404 = r.statuses.size > 0 && [...r.statuses.values()].every(s => s === 404);
+    if (r.absent || (this.reader ? r.statuses.get(this.reader) === 404 : this.kept && all404)) return undefined;
     return null;
   }
 }

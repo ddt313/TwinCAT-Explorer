@@ -7,7 +7,7 @@
 // top, a newer release of the extension, when GitHub has one (updates.ts).
 
 import { BUILT_IN_SITES, grantedPatterns, isKnownSite, runsInTab, setStartsOnItsOwn, startInTab, startsOnItsOwn, syncContentScripts } from './sites';
-import { checkForUpdate, checksForUpdates, markSeen, setChecksForUpdates } from './updates';
+import { UPDATED_BY_STORE, checkForUpdate, checksForUpdates, markSeen, setChecksForUpdates } from './updates';
 
 const root = document.getElementById('root')!;
 document.getElementById('version')!.textContent = chrome.runtime.getManifest().version;
@@ -110,10 +110,7 @@ async function render(note = ''): Promise<void> {
   });
 }
 
-/** Firefox, which installs the release's signed .xpi, where Chrome and Edge load the zip's folder unpacked. */
-const FIREFOX = chrome.runtime.getURL('').startsWith('moz-extension:');
-
-/** A newer release: where to get it, and how the extension is updated. */
+/** A newer release: where to get it, and how an unpacked extension is updated. */
 async function renderUpdate(): Promise<void> {
   const box = document.getElementById('update')!;
   const newer = await checkForUpdate();
@@ -121,14 +118,14 @@ async function renderUpdate(): Promise<void> {
     box.innerHTML = '';
     return;
   }
-  const how = FIREFOX
-    ? 'Click its <code>.xpi</code> on the release\'s page: Firefox installs it over this version, and the sites turned on stay on.'
-    : 'Unzip it over this extension\'s folder, then click <b>Reload</b> on the extension in the browser\'s Extensions page: the sites turned on stay on.';
   box.innerHTML = `<p><b>Version ${esc(newer.version)} is out.</b> <a href="${esc(newer.url)}" target="_blank" rel="noopener">Download it</a></p>
-    <p class="muted">${how}</p>`;
+    <p class="muted">Unzip it over this extension's folder, then click <b>Reload</b> on the extension in the browser's
+    Extensions page: the sites turned on stay on.</p>`;
   await markSeen(newer);
 }
 
+// Firefox: addons.mozilla.org updates the extension.
+if (UPDATED_BY_STORE) document.querySelector('footer')!.remove();
 const updates = document.getElementById('updates') as HTMLInputElement;
 void checksForUpdates().then(on => {
   updates.checked = on;

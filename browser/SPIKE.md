@@ -76,7 +76,7 @@ The browser extension is released on its own, from the same repository as the VS
 | Changes | `CHANGELOG.md` | `browser/CHANGELOG.md` |
 | Tags | `v0.13.0` | `browser-v0.1.0` |
 | Workflow | `.github/workflows/release.yml` | `.github/workflows/release-browser.yml` |
-| Release | a `.vsix` on GitHub, and the Marketplace | a zip on GitHub and Firefox's signed `.xpi`, never marked as the latest release |
+| Release | a `.vsix` on GitHub, and the Marketplace | a zip on GitHub, never marked as the latest release; Firefox's on addons.mozilla.org |
 
 - **To release**: set the manifest's `version` (and `version_name` for a pre-release such as `0.2.0-beta.1`), turn
   the changelog's *Unreleased* into `## 0.1.0 - <date>`, merge, then tag that commit `browser-v0.1.0` and push the
@@ -88,12 +88,13 @@ The browser extension is released on its own, from the same repository as the VS
   is (`lhebeklloefnhcpmnolimpcnljneeijp`), so the sites turned on stay on. There is no private key: nothing is signed
   outside a store, and a store listing would get the store's ID (the sites would be turned on again). A build of
   `browser/dist` has the same ID: a browser holds either it or a release.
-- **Firefox** installs only add-ons signed by Mozilla. The workflow signs `browser/dist-firefox` on
-  addons.mozilla.org as an *unlisted* add-on (signed at once, not shown on the site, not reviewed before) with
-  `web-ext sign`, and attaches `explorer-for-twincat-browser-0.1.0.xpi`; it needs the account's API key as the
-  repository's secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` (Developer Hub, *Manage API Keys*), and without them
-  releases the zip only. A click on the `.xpi` installs it, a newer one installs over it; its ID is the manifest's
-  `explorer-for-twincat@ddt313.github.io`, which the first signing ties to that account. AMO signs a version once.
+- **Firefox** installs only add-ons signed by Mozilla: the extension is listed on addons.mozilla.org (AMO), which
+  signs and updates it (`browser/amo/README.md`). The workflow submits `browser/dist-firefox` there with
+  `web-ext sign --channel listed`, with the repository at the tag as the source archive its reviewers build from (the
+  build is reproducible); it needs the account's API key as the repository's secrets `AMO_JWT_ISSUER` and
+  `AMO_JWT_SECRET` (Developer Hub, *Manage API Keys*), and without them the version is submitted by hand. A version
+  may wait for a review before Firefox updates to it. AMO takes a version once. The ID is the manifest's
+  `explorer-for-twincat@ddt313.github.io`. In Firefox the extension never looks on GitHub for a newer release.
 - **Checks** (`.github/workflows/ci.yml`), on a pull request and on develop and master: the VS Code extension
   (tests, a `.vsix` without `browser/`) when a file outside the browser extension's changed; the browser extension
   (tests, build) when `browser/`, the core it is built on (`src/core`, `src/lang`), its tests or the build's setup
@@ -482,13 +483,15 @@ platform-free knowledge (`bitbucket.ts`). Bitbucket Cloud only (bitbucket.org); 
 ## Firefox
 
 The same bundles run in Firefox: `build.js` copies `browser/dist` to `browser/dist-firefox` with Firefox's
-manifest (`firefoxManifest`), and the code has no `if Firefox` but the popup's note on how to update.
+manifest (`firefoxManifest`), and the code has no `if Firefox` but the look for a newer release, which AMO makes
+needless there (`UPDATED_BY_STORE`).
 
 | Chrome's manifest | Firefox's |
 | --- | --- |
 | `background.service_worker` | `background.scripts`: Firefox runs an event page, not a service worker |
 | `key` (the ID unpacked) | left out; `browser_specific_settings.gecko.id` instead |
 | | `strict_min_version` 140 (the ESR that knows `data_collection_permissions`), `data_collection_permissions: none` (asked by addons.mozilla.org) |
+| `alarms` | left out: AMO updates the extension |
 
 What was in doubt, and what Firefox 158 did (headless, signed out, the build loaded as a temporary add-on over
 WebDriver BiDi, see [How it was tested](#how-it-was-tested)):
@@ -504,15 +507,17 @@ WebDriver BiDi, see [How it was tested](#how-it-was-tested)):
   (about:addons, *Permissions*). The popup then says the site is off and offers *Allow this site*, which asks again
   in the click itself (Firefox refuses `permissions.request` after an `await`); the popup's other requests did so
   already.
+- **The frames' APIs.** Firefox gives an extension page framed in a web page only some APIs (`runtime`, `storage`,
+  `i18n`, `extension`): no `permissions`, `tabs` or `scripting`. A frame asks the background whether it works on a
+  self-managed site (`frameKnowsSite`); the built-in sites need no asking. Found on a self-managed GitLab 19.4, where
+  the views and the tree refused to start; checked with a local site turned on, before and after.
 - **`scripting.registerContentScripts`** (the sites turned on): registered and updated, `persistAcrossSessions`
   on, as in Chrome. Turning a self-managed GitLab on from the popup asks the user, which a headless browser cannot answer:
   *not tried* end to end.
 - **`web-ext lint`** (in CI): no errors; warnings for `innerHTML` (the views' markup is built from escaped text),
   the icon's size (256 px given as 128), and `data_collection_permissions` on Firefox for Android before 142.
 
-Not done: Firefox for Android, a listing on addons.mozilla.org (a review of the source, the minified bundles with
-the build to make them), and Firefox's own updates of a signed `.xpi` (`update_url`): the badge and the popup tell
-of a newer release instead, as in Chrome.
+Not done: Firefox for Android.
 
 ## 1. Can both versions be fetched with the session, private repositories and renames included?
 

@@ -1,0 +1,12 @@
+{
+  "slug": "explorer-for-twincat",
+  "categories": { "firefox": ["web-development"] },
+  "summary": {
+    "en-US": "Review TwinCAT 3 PLC code as objects instead of XML: on GitHub, GitLab and Bitbucket pull requests, each changed POU, method, property or DUT shows its Declaration and Implementation diff, beside an XAE-like tree of the change."
+  },
+  "description": {
+    "en-US": "A TwinCAT 3 source file (.TcPOU, .TcDUT, .TcGVL, .TcIO) is XML with the Structured Text inside. Its diff in a pull request is hard to read: the code is mixed with XML, and a method's change shows far from its name.\n\nThis extension shows those files as TwinCAT objects, in the layout of the Explorer for TwinCAT extension for VS Code:\n\n- **TwinCAT view**: a toggle in the header of each TwinCAT file replaces the host's XML diff with the objects the change touched (POU, methods, properties and their Get/Set, actions, transitions), each marked modified, added or deleted, its Declaration diff above its Implementation diff. Unchanged objects and lines are folded.\n- **Review threads** show under the lines they are on; every line links to its line in the host's own diff, where comments are written.\n- **Unified or Split**, following the host's own setting, with Structured Text highlighting and word-level changes.\n- **TwinCAT tab**: above the host's file tree, the change as XAE's Solution Explorer shows a project. A click opens that object's view.\n- On a repository's files, the same view and tree of the files at that branch or commit.\n\nWorks on github.com, gitlab.com and bitbucket.org; a self-managed GitLab is turned on from the toolbar button, which asks to read that site.\n\nRead-only: the extension reads the files of the review the page shows, from the host, with your session. It sends nothing anywhere else, collects no data and has no account.\n\nNot made by or affiliated with Beckhoff Automation; TwinCAT is their trademark.\n\nSource code and issues: https://github.com/ddt313/TwinCAT-Explorer"
+  },
+  "homepage": { "en-US": "https://github.com/ddt313/TwinCAT-Explorer" },
+  "version": { "license": "MIT" }
+}

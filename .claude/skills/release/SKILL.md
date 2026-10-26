@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release a version of Explorer for TwinCAT, the VS Code extension (tag v0.16.1, a .vsix) or the browser extension (tag browser-v0.1.4, a zip for Chrome and Edge and an .xpi for Firefox signed on addons.mozilla.org). Turns the changelog's Unreleased section into the version's, bumps the version, merges release/x.y.z into develop and develop into master, tags master's merge commit, then builds, tests, packages (signs Firefox's .xpi) and creates the GitHub release by hand when GitHub Actions does not run. Use whenever the user wants to release, ship, tag or publish a version, bump the version, or fix a release that went out wrong.
+description: Release a version of Explorer for TwinCAT, the VS Code extension (tag v0.16.1, a .vsix) or the browser extension (tag browser-v0.1.4, a zip for Chrome and Edge, and Firefox's build submitted to its addons.mozilla.org listing). Turns the changelog's Unreleased section into the version's, bumps the version, merges release/x.y.z into develop and develop into master, tags master's merge commit, then builds, tests, packages (submits Firefox's build to addons.mozilla.org) and creates the GitHub release by hand when GitHub Actions does not run. Use whenever the user wants to release, ship, tag or publish a version, bump the version, or fix a release that went out wrong.
 ---
 
 # Release
@@ -13,7 +13,7 @@ Two products, released apart from the same repository (`browser/SPIKE.md`, *Rele
 | Changes | `CHANGELOG.md` | `browser/CHANGELOG.md` |
 | Tag | `v0.16.1` | `browser-v0.1.4` |
 | Workflow | `.github/workflows/release.yml` | `.github/workflows/release-browser.yml` |
-| Asset | `explorer-for-twincat-<version>.vsix` | `explorer-for-twincat-browser-<version>.zip` (Chrome, Edge) and `.xpi` (Firefox, signed) |
+| Asset | `explorer-for-twincat-<version>.vsix` | `explorer-for-twincat-browser-<version>.zip` (Chrome, Edge); Firefox's on addons.mozilla.org (`browser/amo/`) |
 | GitHub release | title `v0.16.1`, the latest release | title `Browser extension 0.1.4`, `--latest=false` |
 
 The workflows are the reference: when a step below and a workflow differ, do what the workflow does.
@@ -132,8 +132,8 @@ A pre-release's notes end instead with how to go back (see `release.yml`).
 
 ### Browser extension by hand
 
-One release for both browsers: the tag `browser-v<version>`, the zip for Chrome and Edge and the `.xpi` for Firefox,
-as `release-browser.yml` does.
+One release for both browsers, the tag `browser-v<version>`: the zip for Chrome and Edge on GitHub, and Firefox's
+build submitted to its listing on addons.mozilla.org (AMO), as `release-browser.yml` does.
 
 ```bash
 git switch --detach browser-v<version>
@@ -147,38 +147,41 @@ npx --yes web-ext@10.8.0 lint --source-dir browser/dist-firefox
    out/release/explorer-for-twincat-browser`, then Windows' own `/c/Windows/System32/tar.exe -a -c -f
    explorer-for-twincat-browser-<version>.zip -C out/release explorer-for-twincat-browser` (on Linux:
    `cd out/release && zip -qr ../../explorer-for-twincat-browser-<version>.zip explorer-for-twincat-browser`).
-2. **Sign Firefox's build** last, once all of the above passed: addons.mozilla.org signs a version **once**, so a
-   signed version that has to change is a new version, never a second signing.
+2. **Notes**: the section of `browser/CHANGELOG.md` (the same `awk`, on that file), then the *Install* text of
+   `release-browser.yml`, Firefox's paragraph included.
+3. **Release**:
+
+   ```bash
+   gh release create browser-v<version> explorer-for-twincat-browser-<version>.zip --verify-tag \
+     --title "Browser extension <version>" --notes-file <scratchpad>/notes.md \
+     --prerelease=false --latest=false     # true for a version with a -
+   ```
+
+4. **Submit Firefox's build to AMO**, last, once all of the above passed: AMO takes a version **once**, so a version
+   that has to change after it is a new version. The source archive is the repository at the tag; its reviewers build
+   from it as `browser/amo/README.md` says.
 
    ```bash
    test -n "$AMO_JWT_ISSUER" && test -n "$AMO_JWT_SECRET"
-   npx --yes web-ext@10.8.0 sign --source-dir browser/dist-firefox --artifacts-dir out/xpi --channel unlisted \
+   git archive --format=zip -o <scratchpad>/explorer-for-twincat-browser-<version>-source.zip HEAD
+   npx --yes web-ext@10.8.0 sign --source-dir browser/dist-firefox --channel listed --approval-timeout 0 \
+     --upload-source-code <scratchpad>/explorer-for-twincat-browser-<version>-source.zip \
      --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
-   mv out/xpi/*.xpi explorer-for-twincat-browser-<version>.xpi
-   ```
-
-   The key is the AMO account's (Developer Hub, *Manage API Keys*), the repository's secrets of the same names for
-   the workflow; by hand, the session's or shell's environment. Never write it into a file, a command's text or the
-   repository. Without it, release the zip alone and tell the user the release has no `.xpi`; once they give the key,
-   sign the same version and add it with `gh release upload browser-v<version> explorer-for-twincat-browser-<version>.xpi`,
-   and add the Firefox paragraph to the notes with `gh release edit`.
-   When signing fails on the AMO side (a validation error, the ID taken), release the zip alone too, and report the
-   error.
-3. **Notes**: the section of `browser/CHANGELOG.md` (the same `awk`, on that file), then the *Install* text of
-   `release-browser.yml`, then, with an `.xpi`, its Firefox paragraph with the file's name.
-4. **Release**:
-
-   ```bash
-   gh release create browser-v<version> explorer-for-twincat-browser-<version>.zip explorer-for-twincat-browser-<version>.xpi \
-     --verify-tag --title "Browser extension <version>" --notes-file <scratchpad>/notes.md \
-     --prerelease=false --latest=false     # true for a version with a -; no .xpi when it was not signed
    git switch develop
    ```
+
+   The key is the AMO account's (Developer Hub, *Manage API Keys*): the repository's secrets of the same names for
+   the workflow, the session's or shell's environment by hand. Never write it into a file, a command's text or the
+   repository. Without it, tell the user to submit `browser/dist-firefox` and the source archive on AMO themselves
+   (Developer Hub, the listing, *Upload New Version*), with the *Notes to the reviewers* of `browser/amo/README.md`.
+   The first version creates the listing: `--amo-metadata browser/amo/metadata.json` added, once (see
+   `browser/amo/README.md`); a later one never passes it, as the listing is edited on AMO. A version may wait for a
+   review there before Firefox updates to it; the release does not wait for it.
 
 The Marketplace is not published by hand.
 
 ## 8. Report
 
 Tell the user the version, the PRs, the tag and the release's link, that the tests passed, and that the Marketplace
-was not updated (when the workflow did not run). For the browser extension, say whether the release has Firefox's
-signed `.xpi`, and when not, why (no AMO key, a signing error) and how to add it.
+was not updated (when the workflow did not run). For the browser extension, say whether Firefox's build went to AMO
+(and that it may wait for a review there), and when not, why (no AMO key, an error of AMO's) and what the user does.

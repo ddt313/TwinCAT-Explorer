@@ -1,9 +1,25 @@
 # Changelog: browser extension
 
 All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge, Firefox). It is released apart from
-the VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked and, for Firefox, a signed
-`.xpi` (see `SPIKE.md`, *Releases*).
+the VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked and, for Firefox, a version on
+addons.mozilla.org (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## Unreleased
+
+### Changed
+- **Firefox**: the extension is listed on addons.mozilla.org, where Firefox installs and updates it; a release
+  submits its build there, with the source its reviewers build it from (`browser/amo/`), instead of attaching a signed
+  `.xpi`. In Firefox it no longer looks on GitHub for a newer version: no badge, no *Look for new versions on GitHub*
+  in the popup, and no `alarms` permission.
+- The extension's name is **Explorer for TwinCAT** (it was *Explorer for TwinCAT: review view (spike)*), with a
+  shorter description.
+
+### Fixed
+- **Firefox, on a self-managed GitLab**: the views said *This view did not get the file to show* and the TwinCAT tab
+  *The tree did not get the change to show*. Firefox gives the extension's frames inside a page no `permissions` API,
+  which they asked whether the extension works on the site; they ask the extension's background now. gitlab.com,
+  github.com and bitbucket.org were not affected.
 
 ## 0.4.0 - 2026-10-26
 

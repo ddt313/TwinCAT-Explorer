@@ -1,9 +1,9 @@
 # Releases a version of the browser extension when its tag (browser-v0.1.0) is pushed: builds and tests it, and
 # attaches it as a zip to a GitHub release whose notes come from browser/CHANGELOG.md. The extension is in no store:
-# Chrome and Edge load it unpacked from the zip's folder, as the release notes say. Firefox's build is attached as an
-# .xpi signed by addons.mozilla.org, unlisted there (Firefox installs only signed add-ons), when the repository has
-# the AMO API key as the secrets AMO_JWT_ISSUER and AMO_JWT_SECRET (addons.mozilla.org > Developer Hub > Manage API
-# Keys); without them the release has no .xpi.
+# Chrome and Edge load it unpacked from the zip's folder, as the release notes say. Firefox's build goes to its
+# listing on addons.mozilla.org (browser/amo/README.md), with the source archive its reviewers build it from, when
+# the repository has the AMO API key as the secrets AMO_JWT_ISSUER and AMO_JWT_SECRET (addons.mozilla.org >
+# Developer Hub > Manage API Keys); without them it is submitted by hand.
 #
 # The VS Code extension has its own tags (v0.13.0), changelog and workflow (release.yml). A browser release is
 # never marked as the repository's latest release, which stays the VS Code extension's.
@@ -40,7 +40,6 @@ jobs:
       TAG: ${{ inputs.tag || github.ref_name }}
     outputs:
       zip: ${{ steps.package.outputs.zip }}
-      xpi: ${{ steps.firefox.outputs.xpi }}
       prerelease: ${{ steps.package.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
@@ -89,26 +88,23 @@ jobs:
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 
-      # AMO signs a version once: a run again for the same tag fails here, and the release keeps its .xpi.
-      - name: Sign Firefox's build
-        id: firefox
+      # AMO takes a version once: a run again for the same tag fails here. The version may wait for a review on AMO
+      # before Firefox updates to it: the run does not wait.
+      - name: Submit Firefox's build to addons.mozilla.org
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
           if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
-            echo "::warning::No AMO_JWT_ISSUER and AMO_JWT_SECRET secrets: the release has no Firefox .xpi."
+            echo "::warning::No AMO_JWT_ISSUER and AMO_JWT_SECRET secrets: submit browser/dist-firefox to addons.mozilla.org by hand."
             exit 0
           fi
-          npx --yes web-ext@10.8.0 sign --source-dir browser/dist-firefox --artifacts-dir out/xpi --channel unlisted \
-            --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
-          xpi="explorer-for-twincat-browser-${TAG#browser-v}.xpi"
-          mv out/xpi/*.xpi "$xpi"
-          echo "xpi=$xpi" >> "$GITHUB_OUTPUT"
+          source="out/explorer-for-twincat-browser-${TAG#browser-v}-source.zip"
+          git archive --format=zip -o "$source" HEAD
+          npx --yes web-ext@10.8.0 sign --source-dir browser/dist-firefox --channel listed --approval-timeout 0 \
+            --upload-source-code "$source" --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
 
       - name: Release notes from the changelog
-        env:
-          XPI: ${{ steps.firefox.outputs.xpi }}
         run: |
           version="${TAG#browser-v}"
           notes="$(awk -v head="## $version" '
@@ -136,13 +132,12 @@ jobs:
           To update, replace that folder with the new zip's and click the extension's *Reload* on the same page. The
           extension keeps its ID, so the sites turned on stay on.
           EOF
-            if [ -n "$XPI" ]; then
-              cat <<EOF
+            cat <<'EOF'
 
-          In Firefox (140 or later), click the attached \`$XPI\` and allow the install: it is signed
-          by Mozilla, and a new version installs over the old one the same way.
+          In Firefox (140 or later), install it from
+          [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/explorer-for-twincat/): Firefox updates it
+          once Mozilla has published the version.
           EOF
-            fi
           } > release-notes.md
 
       - uses: actions/upload-artifact@v7
@@ -150,7 +145,6 @@ jobs:
           name: release-browser
           path: |
             ${{ steps.package.outputs.zip }}
-            ${{ steps.firefox.outputs.xpi }}
             release-notes.md
 
   github-release:
@@ -161,7 +155,6 @@ jobs:
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
       ZIP: ${{ needs.package.outputs.zip }}
-      XPI: ${{ needs.package.outputs.xpi }}
       PRERELEASE: ${{ needs.package.outputs.prerelease }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -172,11 +165,9 @@ jobs:
 
       - name: Create the GitHub release
         run: |
-          files=("$ZIP")
-          if [ -n "$XPI" ]; then files+=("$XPI"); fi
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release upload "$TAG" "${files[@]}" --clobber
+            gh release upload "$TAG" "$ZIP" --clobber
           else
-            gh release create "$TAG" "${files[@]}" --verify-tag --title "Browser extension ${TAG#browser-v}" \
+            gh release create "$TAG" "$ZIP" --verify-tag --title "Browser extension ${TAG#browser-v}" \
               --notes-file release-notes.md --prerelease="$PRERELEASE" --latest=false
           fi

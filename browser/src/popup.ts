@@ -3,7 +3,8 @@
 // while it asks), and the popup does it again whenever it opens on a site turned on: the content script registered
 // there, and running in the tab. github.com, gitlab.com and bitbucket.org need nothing. On any site it works on, it sets whether
 // the extension adds its toggles and tab to the review pages on its own, or only once started in a tab from here
-// (without a reload). On top, a newer release of the extension, when GitHub has one (updates.ts).
+// (without a reload); on a built-in site whose permission the user took back (Firefox lets them), allows it again. On
+// top, a newer release of the extension, when GitHub has one (updates.ts).
 
 import { BUILT_IN_SITES, grantedPatterns, isKnownSite, runsInTab, setStartsOnItsOwn, startInTab, startsOnItsOwn, syncContentScripts } from './sites';
 import { checkForUpdate, checksForUpdates, markSeen, setChecksForUpdates } from './updates';
@@ -61,6 +62,21 @@ async function render(note = ''): Promise<void> {
     return;
   }
   if (BUILT_IN_SITES.includes(origin)) {
+    // Firefox lets the user take the manifest's host permissions back (Chrome's "on click" site access too).
+    if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) {
+      root.innerHTML = `<p>Off for <code>${esc(origin)}</code>: the browser does not let the extension read this site.</p>
+        <button type="button" class="site">Allow this site</button>${notes}${others}`;
+      root.querySelector('button.site')!.addEventListener('click', () => {
+        // In the click itself, which lets the browser ask the user; then the page needs a reload.
+        void chrome.permissions.request({ origins: [`${origin}/*`] })
+          .then(async granted => {
+            if (granted && tab?.id !== undefined) await chrome.tabs.reload(tab.id);
+            return granted ? '' : 'The browser did not allow it.';
+          })
+          .then(render, e => render(`It did not work: ${problem(e)}`));
+      });
+      return;
+    }
     root.innerHTML = `<p>On for <code>${esc(origin)}</code>: open a pull or merge request's changes, and use the
       <b>TwinCAT view</b> toggles and the <b>TwinCAT</b> tab.</p>${await startHtml(origin, tab?.id)}${notes}${others}`;
     bindStart(origin, tab?.id);
@@ -94,7 +110,10 @@ async function render(note = ''): Promise<void> {
   });
 }
 
-/** A newer release: where to get it, and how an unpacked extension is updated. */
+/** Firefox, which installs the release's signed .xpi, where Chrome and Edge load the zip's folder unpacked. */
+const FIREFOX = chrome.runtime.getURL('').startsWith('moz-extension:');
+
+/** A newer release: where to get it, and how the extension is updated. */
 async function renderUpdate(): Promise<void> {
   const box = document.getElementById('update')!;
   const newer = await checkForUpdate();
@@ -102,9 +121,11 @@ async function renderUpdate(): Promise<void> {
     box.innerHTML = '';
     return;
   }
+  const how = FIREFOX
+    ? 'Click its <code>.xpi</code> on the release\'s page: Firefox installs it over this version, and the sites turned on stay on.'
+    : 'Unzip it over this extension\'s folder, then click <b>Reload</b> on the extension in the browser\'s Extensions page: the sites turned on stay on.';
   box.innerHTML = `<p><b>Version ${esc(newer.version)} is out.</b> <a href="${esc(newer.url)}" target="_blank" rel="noopener">Download it</a></p>
-    <p class="muted">Unzip it over this extension's folder, then click <b>Reload</b> on the extension in the browser's
-    Extensions page: the sites turned on stay on.</p>`;
+    <p class="muted">${how}</p>`;
   await markSeen(newer);
 }
 

@@ -5,7 +5,7 @@ the VS Code extension: its versions are `browser-v*` tags, each a zip to load un
 `.xpi` (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.4.0 - 2026-10-26
 
 ### Added
 - **Firefox** (140 or later): the build makes `browser/dist-firefox` beside `browser/dist`, the same extension with

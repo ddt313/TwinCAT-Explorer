@@ -1,10 +1,12 @@
 // Service worker: fetches a file for a frame with the user's session (the extension has host permissions for the
 // sites it works on, so its requests carry their cookies), one of the ways the frames try; and keeps the content
-// script registered on the sites the user granted, starting it at once in the tab a site was turned on in.
+// script registered on the sites the user granted, starting it at once in the tab a site was turned on in; looks for
+// a newer release on GitHub (updates.ts).
 
 import { fetchText } from './fetchText';
 import { WorkerRequest, fetchAllowed } from './protocol';
 import { BUILT_IN_SITES, isKnownSite, startInTab, syncContentScripts } from './sites';
+import { UPDATE_ALARM, checkForUpdate } from './updates';
 
 const warn = (e: unknown) => console.warn('[TwinCAT view]', e);
 
@@ -46,7 +48,15 @@ async function startInActiveTab(): Promise<void> {
 }
 
 const sync = () => void syncContentScripts().catch(warn);
+const look = () => void checkForUpdate().catch(warn);
 chrome.runtime.onInstalled.addListener(sync);
 chrome.runtime.onStartup.addListener(sync);
+chrome.runtime.onInstalled.addListener(look);
+chrome.runtime.onStartup.addListener(look);
+// A browser left open for days looks too: every hour, which looks on GitHub once a day.
+chrome.runtime.onInstalled.addListener(() => void chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 60 }).catch(warn));
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === UPDATE_ALARM) look();
+});
 chrome.permissions.onAdded.addListener(() => void syncContentScripts().then(startInActiveTab).catch(warn));
 chrome.permissions.onRemoved.addListener(sync);

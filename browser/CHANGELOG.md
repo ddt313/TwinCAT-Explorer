@@ -5,7 +5,7 @@ the VS Code extension: its versions are `browser-v*` tags, each a zip to load un
 addons.mozilla.org (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.4.1 - 2026-10-26
 
 ### Changed
 - **Firefox**: the extension is listed on addons.mozilla.org, where Firefox installs and updates it; a release

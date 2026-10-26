@@ -3,6 +3,7 @@
 // file whose TwinCAT view is on, that diff is hidden under the view, so the view goes off and the target shows. The
 // file's block itself and its header stay in view: a link to the file keeps its view. Platform-free.
 
+import { bitbucketLineOfAnchor } from './bitbucket';
 import { ReviewThread, Side, threadsOfFile } from './comments';
 
 /** A file of the page with a TwinCAT view: its block's id, its paths, whether its view is on. */
@@ -46,17 +47,21 @@ export function anchorId(hash: string): string | undefined {
   return id || undefined;
 }
 
-/** The note a comment's anchor names: GitLab's `note_12`, GitHub's `discussion_r12` (and `r12`). */
+/** The note a comment's anchor names: GitLab's `note_12`, GitHub's `discussion_r12` (and `r12`), Bitbucket's `comment-12`. */
 export function noteOfAnchor(id: string): string | undefined {
-  return /^(?:note_|discussion_r|r)(\d+)$/.exec(id)?.[1];
+  return /^(?:note_|discussion_r|r|comment-)(\d+)$/.exec(id)?.[1];
 }
 
 /**
  * The file and line a line anchor names, among the blocks' ids: GitHub's `diff-<sha256 of the path>R12` (or `L`),
  * GitLab's `line_<first 9 characters of the sha1 of the path>_A12` (an added line; without `A`, a removed one) of
- * Rapid Diffs and `<sha1>_11_12` (old and new line) of the classic page.
+ * Rapid Diffs and `<sha1>_11_12` (old and new line) of the classic page, Bitbucket's `L<path>F11T12` (`F11`: a removed
+ * line, `T12`: an added one); and in a file of a repository's page (`blob:<path>`, the block the element is in), its
+ * line `L12` (GitHub's, GitLab's) or `lines-12` (Bitbucket's).
  */
-export function lineOfAnchor(id: string, anchors: string[]): { anchor: string; side: Side; line: number } | undefined {
+export function lineOfAnchor(id: string, anchors: string[], within?: string): { anchor: string; side: Side; line: number } | undefined {
+  const blob = /^(?:L|lines-)(\d+)$/.exec(id);
+  if (blob && within?.startsWith('blob:')) return { anchor: within, side: 'R', line: Number(blob[1]) };
   let m = /^(diff-[0-9a-f]{64})([LR])(\d+)$/.exec(id);
   if (m && anchors.includes(m[1])) return { anchor: m[1], side: m[2] as Side, line: Number(m[3]) };
   m = /^line_([0-9a-f]{9})_(A?)(\d+)$/.exec(id);
@@ -64,7 +69,7 @@ export function lineOfAnchor(id: string, anchors: string[]): { anchor: string; s
   if (m && rapid) return { anchor: rapid, side: m[2] ? 'R' : 'L', line: Number(m[3]) };
   m = /^([0-9a-f]{40})_(\d+)_(\d+)$/.exec(id);
   if (m && anchors.includes(m[1])) return Number(m[3]) > 0 ? { anchor: m[1], side: 'R', line: Number(m[3]) } : { anchor: m[1], side: 'L', line: Number(m[2]) };
-  return undefined;
+  return id.startsWith('L') ? bitbucketLineOfAnchor(id, anchors) : undefined;
 }
 
 /**
@@ -76,7 +81,7 @@ export function leaveFor(hash: string, views: ViewState[], found: Found | undefi
   if (!id) return undefined;
   const note = noteOfAnchor(id);
   const thread = note ? threads.find(t => t.notes.some(n => n.id === note)) : undefined;
-  const line = lineOfAnchor(id, views.map(v => v.anchor));
+  const line = lineOfAnchor(id, views.map(v => v.anchor), found?.anchor);
   const back: Back = thread ? { thread: thread.id } : line ? { xml: { side: line.side, line: line.line } } : {};
   if (found) {
     const view = views.find(v => v.anchor === found.anchor);

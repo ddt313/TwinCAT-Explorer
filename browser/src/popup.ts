@@ -1,7 +1,7 @@
 // The extension's popup: on a self-managed GitLab instance, turns the extension on or off for that site. On asks
 // the browser for the permission to read the site; the service worker does the rest (the browser may close the popup
 // while it asks), and the popup does it again whenever it opens on a site turned on: the content script registered
-// there, and running in the tab. github.com and gitlab.com need nothing. On any site it works on, it sets whether
+// there, and running in the tab. github.com, gitlab.com and bitbucket.org need nothing. On any site it works on, it sets whether
 // the extension adds its toggles and tab to the review pages on its own, or only once started in a tab from here
 // (without a reload).
 
@@ -56,7 +56,7 @@ async function render(note = ''): Promise<void> {
   const patterns = await grantedPatterns();
   const others = patterns.length ? `<p class="muted">On for: ${patterns.map(p => `<code>${esc(p.replace(/\/\*$/, ''))}</code>`).join(', ')}</p>` : '';
   if (!origin || !/^https?:\/\//.test(origin)) {
-    root.innerHTML = `<p>Open a GitHub pull request or a GitLab merge request, at its changes.</p>${notes}${others}`;
+    root.innerHTML = `<p>Open a GitHub or Bitbucket pull request or a GitLab merge request, at its changes.</p>${notes}${others}`;
     return;
   }
   if (BUILT_IN_SITES.includes(origin)) {

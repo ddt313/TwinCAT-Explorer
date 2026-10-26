@@ -1,8 +1,11 @@
-// What the extension's frames are told in their URL's fragment, whatever the host (GitHub, GitLab): the page they
-// are in, how its files are read, which commits it compares, and the file (a viewer) or the list (the tree).
+// What the extension's frames are told in their URL's fragment, whatever the host (GitHub, GitLab, Bitbucket): the
+// page they are in, how its files are read, which commits it compares, and the file (a viewer) or the list (the tree).
 // Platform-free.
 
 export type Theme = 'light' | 'dark' | 'auto';
+
+export type HostKind = 'github' | 'gitlab' | 'bitbucket';
+const HOST_KINDS: HostKind[] = ['github', 'gitlab', 'bitbucket'];
 
 /**
  * The ways a frame reads a file, tried in the given order: from the frame itself (an extension page, with host
@@ -29,6 +32,8 @@ export interface FrameParams {
   head: string;
   theme: Theme;
   source?: string;
+  /** The files at one commit (`head`, which `base` is too), not a change: the objects as they are, without a diff. */
+  snapshot?: boolean;
 }
 
 export interface ViewerParams extends FrameParams {
@@ -44,7 +49,7 @@ export interface TreeParams extends FrameParams {
   /** The change's git diff, the list of its files (else the page sends the list). */
   diff?: string;
   /** The host whose page the tree is beside: its folders and files go in the order the page shows them. */
-  host?: 'github' | 'gitlab';
+  host?: HostKind;
 }
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -62,6 +67,7 @@ function encodeFrame(p: FrameParams, q: URLSearchParams): void {
   q.set('h', p.head);
   q.set('t', p.theme);
   if (p.source) q.set('s', p.source);
+  if (p.snapshot) q.set('v', '1');
 }
 
 /** The frame part of a fragment, checked: an origin, a template on that origin, commits. */
@@ -76,6 +82,7 @@ function decodeFrame(q: URLSearchParams): FrameParams | undefined {
   return {
     origin, raw, order: order.length ? order : STRATEGIES, base: get('b'), head: get('h'),
     theme: theme === 'light' || theme === 'dark' ? theme : 'auto', source: q.get('s') ?? undefined,
+    ...(q.get('v') === '1' ? { snapshot: true } : {}),
   };
 }
 
@@ -111,5 +118,5 @@ export function decodeTreeParams(fragment: string): TreeParams | undefined {
   const diff = q.get('diff') ?? undefined;
   if (!frame || (diff !== undefined && !diff.startsWith(`${frame.origin}/`))) return undefined;
   const host = q.get('k');
-  return { ...frame, diff, host: host === 'github' || host === 'gitlab' ? host : undefined };
+  return { ...frame, diff, host: (HOST_KINDS as (string | null)[]).includes(host) ? host as HostKind : undefined };
 }

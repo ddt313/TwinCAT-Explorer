@@ -5,16 +5,24 @@
 
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
+  bitbucketBlockId, bitbucketLineOfAnchor, bitbucketRawTemplate, bitbucketTheme, commentUrl, filesFromDiffstat, isLineAnchor, pullRequestPage, repositoryApi,
+  threadsFromBitbucket, commitPath, filesFromSrc, sourcePage, sourceTreePath, sourceUrl,
+} from '../../browser/src/bitbucket';
+import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
+import {
+  commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub,
+  githubBlobUrl, githubRepositoryPage, githubTreeListUrl, pathsOfTreeList, refInfoOf,
+} from '../../browser/src/github';
+import {
+  blobUrl, commitApi, filesFromTree, nextPageUrl, refAndPath, repositoryPage, repositoryTreeApi,
   commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
   mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
 import { DiffLine, FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile, splitRows } from '../../browser/src/model';
-import { ViewState, anchorId, leaveFor, noteOfAnchor } from '../../browser/src/navigation';
+import { ViewState, anchorId, leaveFor, lineOfAnchor, noteOfAnchor } from '../../browser/src/navigation';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
 import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
@@ -609,6 +617,96 @@ test('gitlab: the line anchors of the Rapid Diffs page and the color mode', () =
   assert.equal(gitlabTheme('gl-darker-sidebar'), 'light');
 });
 
+test('bitbucket: the pull request of a "Files changed" page, its raw files, its REST API and its comments\' links', () => {
+  const pr = { workspace: 'europeanspallationsource', repo: 'tc_generic_structure', id: 98 };
+  assert.deepEqual(pullRequestPage('/europeanspallationsource/tc_generic_structure/pull-requests/98/diff'), pr);
+  assert.deepEqual(pullRequestPage('/europeanspallationsource/tc_generic_structure/pull-requests/98/diff/'), pr);
+  // Its other tabs, and other pages.
+  assert.equal(pullRequestPage('/europeanspallationsource/tc_generic_structure/pull-requests/98'), undefined);
+  assert.equal(pullRequestPage('/europeanspallationsource/tc_generic_structure/pull-requests/98/commits'), undefined);
+  assert.equal(pullRequestPage('/europeanspallationsource/tc_generic_structure/src/master/'), undefined);
+  assert.equal(fileUrl(bitbucketRawTemplate(pr), A, 'solution/POUs/MAIN.TcPOU'), `https://bitbucket.org/europeanspallationsource/tc_generic_structure/raw/${A}/solution/POUs/MAIN.TcPOU`);
+  assert.equal(repositoryApi('https://bitbucket.org/!api/2.0', pr), 'https://bitbucket.org/!api/2.0/repositories/europeanspallationsource/tc_generic_structure');
+  assert.equal(commentUrl(pr, '585868006'), 'https://bitbucket.org/europeanspallationsource/tc_generic_structure/pull-requests/98/diff#comment-585868006');
+  assert.ok(fetchAllowed('https://bitbucket.org/w/r/raw/x/y') && fetchAllowed('https://api.bitbucket.org/2.0/repositories/w/r'));
+  assert.equal(bitbucketTheme('dark'), 'dark');
+  assert.equal(bitbucketTheme('light'), 'light');
+  assert.equal(bitbucketTheme(undefined), 'light');
+});
+
+test('bitbucket: the files of a diffstat, added, removed and renamed ones included', () => {
+  const files = filesFromDiffstat([
+    { status: 'modified', old: { path: 'POUs/MAIN.TcPOU' }, new: { path: 'POUs/MAIN.TcPOU' } },
+    { status: 'added', old: null, new: { path: 'POUs/FB_New.TcPOU' } },
+    { status: 'removed', old: { path: 'POUs/FB_Old.TcPOU' }, new: null },
+    { status: 'renamed', old: { path: 'POUs/Old/FB_Pump.TcPOU' }, new: { path: 'POUs/FB_Pump.TcPOU' } },
+    { status: 'modified' },
+  ]);
+  assert.deepEqual(files, [
+    { path: 'POUs/MAIN.TcPOU' },
+    { path: 'POUs/FB_New.TcPOU', added: true },
+    { path: 'POUs/FB_Old.TcPOU', deleted: true },
+    { path: 'POUs/FB_Pump.TcPOU', oldPath: 'POUs/Old/FB_Pump.TcPOU' },
+  ]);
+  assert.deepEqual(filesFromDiffstat('not a list'), []);
+});
+
+test('bitbucket: the comments make threads with their replies, resolved or not; an outdated one is not on the head', () => {
+  const user = (name: string) => ({ display_name: name });
+  const comment = (id: number, more: Record<string, unknown>) => ({ id, created_on: `2025-01-13T15:${String(id % 60).padStart(2, '0')}:00Z`, user: user('Federico Rojas'), content: { raw: `note ${id}` }, ...more });
+  const inline = (from: number | null, to: number | null, more: Record<string, unknown> = {}) => ({ path: 'POUs/MAIN.TcPOU', from, to, outdated: false, ...more });
+  const threads = threadsFromBitbucket([
+    comment(1, { inline: inline(7, null), resolution: { type: 'comment_resolution' } }),
+    comment(2, { inline: inline(null, 12) }),
+    comment(3, { parent: { id: 2 }, user: user('Israa Ali'), inline: inline(null, 12) }),
+    comment(4, { parent: { id: 3 }, inline: inline(null, 12) }),
+    comment(5, { inline: inline(null, null) }),
+    comment(6, { inline: inline(30, null, { outdated: true }) }),
+    comment(7, { inline: inline(null, 20, { start_to: 18 }) }),
+    comment(8, { deleted: true, inline: inline(null, 40) }),
+    // A comment on the pull request itself.
+    comment(9, {}),
+  ], B, id => `#comment-${id}`);
+  assert.deepEqual(threads.map(t => [t.id, t.anchor, t.notes.map(n => n.id), t.resolved]), [
+    ['1', 'comment-1', ['1'], true],
+    ['2', 'comment-2', ['2', '3', '4'], false],
+    ['5', 'comment-5', ['5'], false],
+    ['6', 'comment-6', ['6'], false],
+    ['7', 'comment-7', ['7'], false],
+  ]);
+  assert.equal(threads[1].notes[1].author, 'Israa Ali');
+  assert.equal(threads[0].url, '#comment-1');
+  const [old7, new12, file, outdated, range] = threads.map(t => t.positions[0]);
+  // `from`: a line of the base file (an unchanged line too), `to`: a line of the head file.
+  assert.deepEqual(old7, { oldPath: 'POUs/MAIN.TcPOU', newPath: 'POUs/MAIN.TcPOU', oldLine: 7, head: B });
+  assert.deepEqual(new12, { oldPath: 'POUs/MAIN.TcPOU', newPath: 'POUs/MAIN.TcPOU', newLine: 12, head: B });
+  assert.equal(file.file, true);
+  assert.deepEqual(range.start, { side: 'R', line: 18 });
+  assert.equal(outdated.head, undefined);
+  assert.ok(currentPosition(threads[0], { base: A, head: B }));
+  assert.equal(currentPosition(threads[3], { base: A, head: B }), undefined);
+  assert.deepEqual(threadsOfFile(threads, 'POUs/MAIN.TcPOU').length, 5);
+});
+
+test('bitbucket: the line anchors of its diff, on the base, on the head, or both', () => {
+  const block = bitbucketBlockId('POUs/MAIN.TcPOU');
+  assert.equal(block, 'tcx-chg-POUs/MAIN.TcPOU');
+  const other = bitbucketBlockId('POUs/MAIN.TcPOU2');
+  assert.deepEqual(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOUF6T7', [block]), { anchor: block, side: 'R', line: 7 });
+  assert.deepEqual(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOUF6', [block]), { anchor: block, side: 'L', line: 6 });
+  assert.deepEqual(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOUT6', [block]), { anchor: block, side: 'R', line: 6 });
+  // A path that starts like another one: the anchor that fits.
+  assert.deepEqual(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOU2T3', [block, other]), { anchor: other, side: 'R', line: 3 });
+  assert.equal(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOU', [block]), undefined);
+  assert.equal(bitbucketLineOfAnchor('LPOUs/Other.TcPOUT3', [block]), undefined);
+  assert.ok(isLineAnchor('LPOUs/MAIN.TcPOUF6T7', 'POUs/MAIN.TcPOU', 'L', 6) && isLineAnchor('LPOUs/MAIN.TcPOUF6T7', 'POUs/MAIN.TcPOU', 'R', 7));
+  assert.ok(!isLineAnchor('LPOUs/MAIN.TcPOUF6', 'POUs/MAIN.TcPOU', 'R', 6) && !isLineAnchor('LPOUs/MAIN.TcPOU2T7', 'POUs/MAIN.TcPOU', 'R', 7));
+  // The navigation knows them, and Bitbucket's comments' anchors.
+  const views: ViewState[] = [{ anchor: block, path: 'POUs/MAIN.TcPOU', on: true }];
+  assert.deepEqual(leaveFor('#LPOUs%2FMAIN.TcPOUT74', views, undefined, []), { anchor: block, back: { xml: { side: 'R', line: 74 } }, line: { side: 'R', line: 74 } });
+  assert.equal(noteOfAnchor('comment-585871005'), '585871005');
+});
+
 // ------------------------------------------------------------------ the tree of the changes
 
 /** A function block without members, to fill a folder. */
@@ -989,4 +1087,125 @@ test('tree: the review threads on an object and on its file', () => {
   assert.equal(file.children.find(n => n.label === 'Open')?.comments, 2);
   const state = file.children.find(n => n.label === 'State')!;
   assert.deepEqual([state.comments, state.children[0].comments], [undefined, 1]);
+});
+
+// ------------------------------------------------------------------ a repository's files
+
+test('gitlab: the pages of a repository\'s files, their ref and path, and the REST API of a commit and its files', () => {
+  assert.deepEqual(repositoryPage('/group/sub/machine/-/blob/main/PLC/POUs/New%20FB.TcPOU'),
+    { project: 'group/sub/machine', kind: 'blob', rest: 'main/PLC/POUs/New FB.TcPOU' });
+  assert.deepEqual(repositoryPage('/plc/machine/-/tree/main/'), { project: 'plc/machine', kind: 'tree', rest: 'main' });
+  assert.equal(repositoryPage('/plc/machine/-/merge_requests/7/diffs'), undefined);
+  assert.equal(repositoryPage('/plc/machine'), undefined);
+  // A ref with slashes, as the page names it; else the URL's first part.
+  assert.deepEqual(refAndPath('feature/x/PLC/MAIN.TcPOU', [undefined, 'feature/x']), { ref: 'feature/x', path: 'PLC/MAIN.TcPOU' });
+  assert.deepEqual(refAndPath('feature/x/PLC/MAIN.TcPOU', ['main']), { ref: 'feature', path: 'x/PLC/MAIN.TcPOU' });
+  assert.deepEqual(refAndPath('main', ['main']), { ref: 'main', path: '' });
+  assert.deepEqual(refAndPath('mainline/a.TcPOU', ['main']), { ref: 'mainline', path: 'a.TcPOU' });
+  assert.equal(commitApi('https://gitlab.com', 58170678, 'feature/x'), 'https://gitlab.com/api/v4/projects/58170678/repository/commits/feature%2Fx');
+  assert.equal(repositoryTreeApi('https://gitlab.example.com/gitlab', 'plc/machine', A),
+    `https://gitlab.example.com/gitlab/api/v4/projects/plc%2Fmachine/repository/tree?ref=${A}&recursive=true&per_page=100&pagination=keyset`);
+  const next = 'https://gitlab.com/api/v4/projects/1/repository/tree?page_token=abc&pagination=keyset';
+  assert.equal(nextPageUrl(`<${next}>; rel="next", <https://gitlab.com/x>; rel="first"`), next);
+  assert.equal(nextPageUrl('<https://gitlab.com/x>; rel="first"'), undefined);
+  assert.equal(nextPageUrl(null), undefined);
+  assert.deepEqual(filesFromTree([
+    { type: 'tree', path: 'PLC' }, { type: 'blob', path: 'PLC/MAIN.TcPOU' }, { type: 'blob' }, { type: 'commit', path: 'lib' },
+  ]), ['PLC/MAIN.TcPOU']);
+  assert.deepEqual(filesFromTree({ message: '404 Not Found' }), []);
+  assert.equal(blobUrl('https://gitlab.com', 'plc/machine', 'feature/x', 'PLC/New FB.TcPOU'),
+    'https://gitlab.com/plc/machine/-/blob/feature/x/PLC/New%20FB.TcPOU');
+});
+
+test('a file at one commit: compared with itself, every object is unchanged with all its lines, each on its XML line', () => {
+  const text = valve();
+  const v = view({ before: text, after: text });
+  assert.deepEqual(v.counts, { added: 0, modified: 0, deleted: 0, unchanged: 8 });
+  const open = object(v, 'FB_Valve.Open');
+  const impl = open.sections.find(s => s.role === 'impl')!;
+  assert.deepEqual(impl.lines.map(l => [l.kind, l.text, l.newXml]),
+    [['same', 'nCycles := nCycles + 1;', lineOf(text, 'nCycles := nCycles + 1;')], ['same', 'bOpened := TRUE;', lineOf(text, 'bOpened := TRUE;')]]);
+});
+
+test('tree of the files at one commit: every object of each file, without changes; no build output', () => {
+  const path = 'PLC/POUs/FB_Valve.TcPOU';
+  const text = valve();
+  const files = [
+    { path, view: buildFileView({ path, before: text, after: text }) },
+    { path: 'PLC/DUTs/E_Mode.TcDUT', view: buildFileView({ path: 'PLC/DUTs/E_Mode.TcDUT', before: ENUM, after: ENUM }) },
+  ];
+  assert.deepEqual(treeText(buildTree(files, undefined, true)), [
+    'PLC',
+    '  DUTs',
+    '    E_Mode (ENUM)',
+    '  POUs',
+    '    FB_Valve (FB)',
+    '      A_Draw',
+    '      Close',
+    '      Init',
+    '      Open',
+    '      State',
+    '        Get',
+    '        Set',
+  ]);
+  // Of a change, the same files have no code changes.
+  assert.deepEqual(treeText(buildTree(files)).slice(0, 1), ['Build output (no code changes) · 2']);
+  assert.deepEqual(treeSummary(files, true), { files: 2, objects: 9, reading: 0 });
+  assert.deepEqual(treeSummary(files), { files: 2, objects: 0, reading: 0 });
+});
+
+test('frames and navigation: a file at one commit; its line anchor `L12` in its page', () => {
+  const p: ViewerParams = {
+    origin: 'https://gitlab.com', raw: 'https://gitlab.com/plc/machine/-/raw/{sha}/{path}', order: ['page', 'frame', 'worker'],
+    base: A, head: A, path: 'PLC/MAIN.TcPOU', deleted: false, added: false, theme: 'light', source: 'REST API, session: main', snapshot: true,
+  };
+  assert.deepEqual(decodeViewerParams(`#${encodeViewerParams(p)}`), { ...p, oldPath: undefined });
+  const t: TreeParams = { ...p, host: 'gitlab', diff: undefined };
+  delete (t as Partial<ViewerParams>).path;
+  delete (t as Partial<ViewerParams>).deleted;
+  delete (t as Partial<ViewerParams>).added;
+  assert.deepEqual(decodeTreeParams(`#${encodeTreeParams(t)}`), t);
+  assert.equal(decodeTreeParams(`#${encodeTreeParams({ ...t, snapshot: false })}`)?.snapshot, undefined);
+  const anchor = 'blob:PLC/MAIN.TcPOU';
+  assert.deepEqual(lineOfAnchor('L12', [anchor, 'blob:PLC/GVL.TcGVL'], anchor), { anchor, side: 'R', line: 12 });
+  assert.equal(lineOfAnchor('L12', [anchor]), undefined);
+  assert.deepEqual(lineOfAnchor('lines-12', [anchor], anchor), { anchor, side: 'R', line: 12 });
+  const views: ViewState[] = [{ anchor, path: 'PLC/MAIN.TcPOU', on: true }];
+  assert.deepEqual(leaveFor('#L12', views, { anchor, inDiff: true }, []), { anchor, back: { xml: { side: 'R', line: 12 } } });
+});
+
+test('github: the pages of a repository\'s files, their ref and commit in the page\'s data, the files at a commit', () => {
+  assert.deepEqual(githubRepositoryPage('/acme/plc/blob/feature/x/PLC/New%20FB.TcPOU'),
+    { owner: 'acme', repo: 'plc', kind: 'blob', rest: 'feature/x/PLC/New FB.TcPOU' });
+  assert.deepEqual(githubRepositoryPage('/acme/plc/tree/main/'), { owner: 'acme', repo: 'plc', kind: 'tree', rest: 'main' });
+  assert.equal(githubRepositoryPage('/acme/plc/pull/7/files'), undefined);
+  assert.equal(githubRepositoryPage('/acme/plc'), undefined);
+  assert.equal(githubBlobUrl('acme', 'plc', 'feature/x', 'PLC/New FB.TcPOU'), 'https://github.com/acme/plc/blob/feature/x/PLC/New%20FB.TcPOU');
+  assert.equal(githubRawTemplate({ owner: 'acme', repo: 'plc' }), 'https://github.com/acme/plc/raw/{sha}/{path}');
+  assert.equal(githubTreeListUrl('acme', 'plc', A), `https://github.com/acme/plc/tree-list/${A}`);
+  assert.deepEqual(pathsOfTreeList({ paths: ['PLC/MAIN.TcPOU', 3, 'README.md'] }), ['PLC/MAIN.TcPOU', 'README.md']);
+  assert.deepEqual(pathsOfTreeList({ message: 'Not Found' }), []);
+  // The page's routes: the first with a refInfo.
+  const page = { payload: { codeViewBlobRoute: { csv: null }, codeViewLayoutRoute: { refInfo: { name: 'feature/x', currentOid: A } } } };
+  assert.deepEqual(refInfoOf(page), { name: 'feature/x', oid: A });
+  assert.deepEqual(refInfoOf({ payload: { codeViewTreeRoute: { refInfo: { name: 'main', currentOid: 'main' } } } }), { name: 'main', oid: undefined });
+  assert.equal(refInfoOf({ payload: { route: null } }), undefined);
+  assert.equal(refInfoOf('not json'), undefined);
+});
+
+test('bitbucket: the pages of a repository\'s files, the REST API of a commit and of the files at it', () => {
+  assert.deepEqual(sourcePage('/esss/tc_generic/src/master/solution/POUs/MAIN.TcPOU'),
+    { workspace: 'esss', repo: 'tc_generic', ref: 'master', path: 'solution/POUs/MAIN.TcPOU' });
+  assert.deepEqual(sourcePage(`/esss/tc_generic/src/${A}/New%20FB.TcPOU`), { workspace: 'esss', repo: 'tc_generic', ref: A, path: 'New FB.TcPOU' });
+  assert.deepEqual(sourcePage('/esss/tc_generic/src/master/'), { workspace: 'esss', repo: 'tc_generic', ref: 'master', path: '' });
+  assert.equal(sourcePage('/esss/tc_generic/pull-requests/98/diff'), undefined);
+  assert.equal(sourceUrl({ workspace: 'esss', repo: 'tc_generic' }, 'master', 'POUs/New FB.TcPOU'), 'https://bitbucket.org/esss/tc_generic/src/master/POUs/New%20FB.TcPOU');
+  assert.equal(bitbucketRawTemplate({ workspace: 'esss', repo: 'tc_generic' }), 'https://bitbucket.org/esss/tc_generic/raw/{sha}/{path}');
+  assert.equal(`${repositoryApi('https://api.bitbucket.org/2.0', { workspace: 'esss', repo: 'tc_generic' })}${commitPath('feature/x')}`,
+    'https://api.bitbucket.org/2.0/repositories/esss/tc_generic/commit/feature%2Fx');
+  assert.equal(sourceTreePath(A), `/src/${A}/?max_depth=100&pagelen=100`);
+  assert.deepEqual(filesFromSrc([
+    { type: 'commit_directory', path: 'POUs' }, { type: 'commit_file', path: 'POUs/MAIN.TcPOU' }, { type: 'commit_file' },
+  ]), ['POUs/MAIN.TcPOU']);
+  assert.deepEqual(filesFromSrc(undefined), []);
 });

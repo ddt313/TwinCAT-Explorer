@@ -1,10 +1,11 @@
-# Spike: TwinCAT objects in GitHub's and GitLab's diffs
+# Spike: TwinCAT objects in GitHub's, GitLab's and Bitbucket's diffs
 
 A read-only browser extension (Chromium, Manifest V3) that shows a changed `.TcPOU`, `.TcDUT`, `.TcGVL` or
-`.TcIO` file of a GitHub pull request or a GitLab merge request as TwinCAT objects instead of XML, in the layout of
+`.TcIO` file of a GitHub or Bitbucket pull request or a GitLab merge request as TwinCAT objects instead of XML, in the layout of
 the VS Code extension's commit diff (`src/vscode/commitDiff.ts`): each changed object with its Declaration diff
 above its Implementation diff. This document answers the spike's questions (asked for GitHub), then tells how GitLab
-was added ([GitLab](#gitlab)) and how the review threads show in the view ([Review comments](#review-comments)).
+was added ([GitLab](#gitlab)), how the review threads show in the view ([Review comments](#review-comments)), and how
+Bitbucket Cloud was added ([Bitbucket](#bitbucket)).
 Tested on 2026-10-20 and 2026-10-21 with Edge 155 and Chrome 155.
 
 **Live test on a signed-in browser (React "Files changed" page, private repository): pending.** The answers
@@ -49,8 +50,12 @@ Above GitHub's file tree, **Files | TwinCAT** tabs (the choice is remembered): *
 request's changes as XAE's Solution Explorer shows a project (see [The tree of the changes](#the-tree-of-the-changes)).
 A click on an object opens its file's TwinCAT view at that object.
 
+On the pages of a repository's files and folders (GitHub, GitLab, Bitbucket), a file's **TwinCAT view** and the **Files | TwinCAT** tabs show
+the repository at that ref, without a diff (see [A repository's files](#a-repositorys-files)).
+
 The same on a GitLab merge request's *Changes* tab: on gitlab.com right away; on a self-managed instance once the
-extension's popup (its toolbar button, on a page of the instance) has turned it on for that site.
+extension's popup (its toolbar button, on a page of the instance) has turned it on for that site. And on a Bitbucket
+Cloud pull request's *Files changed* tab (`bitbucket.org/<workspace>/<repo>/pull-requests/<id>/diff`), right away.
 
 On any of these sites the popup's *Add the toggles and the TwinCAT tab to its review pages on its own* (on by
 default) can be unchecked: the pages then show nothing of the extension (its content script stays idle) until its
@@ -90,18 +95,18 @@ The browser extension is released on its own, from the same repository as the VS
 | File | Role |
 | --- | --- |
 | `src/content.ts` | Content script, for any host: finds the TwinCAT files' blocks, adds the toggle, puts the viewer frame in place of the diff, passes the change's coordinates and review threads, scrolls to a line or a thread, offers the way back, turns a view off for an anchor in its hidden diff; adds the tabs and the tree's frame above the host's file tree, takes the tree's clicks to the files. |
-| `src/host.ts`, `hostGithub.ts`, `hostGitlab.ts` | The host adapters, the only code that knows a host's DOM: the blocks and their paths, the header, where the viewer goes, the commits, the file list, the review threads, the line and thread anchors, the file tree's panel, the theme. |
+| `src/host.ts`, `hostGithub.ts`, `hostGitlab.ts`, `hostBitbucket.ts`; `hostRepository.ts`, `hostGithubRepo.ts`, `hostGitlabRepo.ts`, `hostBitbucketRepo.ts` | The host adapters (a repository's pages: `hostRepository.ts`, what they have in common, and one per host), the only code that knows a host's DOM: the blocks and their paths, the header, where the viewer goes, the commits, the file list, the review threads, the line and thread anchors, the file tree's panel, the theme. |
 | `src/viewer.ts` + `static/viewer.html`, `viewer.css` | The viewer, an extension page in an iframe (`web_accessible_resources`): reads the two versions, builds the model, renders it with the threads, opens an object, a line or a thread asked for. |
 | `src/tree.ts` + `static/tree.html`, `tree.css` | The tree panel, another extension page in an iframe: lists the pull request's TwinCAT files, reads them all, renders the tree with the number of threads. |
 | `src/model.ts` | Platform-free model of one file: object views, section line diffs, XML line of each section line, XML lines of each object and section. |
 | `src/comments.ts` | Platform-free review threads: one shape for both hosts, and where each goes in a file's view (a section line, a graphical section, the comments on the XML, the outdated ones). |
 | `src/navigation.ts` | Platform-free rule for a navigation to an anchor: which view goes off, and where its way back goes. |
 | `src/treeModel.ts` | Platform-free tree of the changes: folders, files as their objects, changed members, groups for build output and project files. |
-| `src/github.ts`, `src/gitlab.ts` | Platform-free host knowledge: URLs, the commits in GitHub's markup, the files of a git diff, the threads of GitHub's review comments; GitLab's merge request URLs, REST API, `data-file-data`, line anchors, the threads of its discussions. |
+| `src/github.ts`, `src/gitlab.ts`, `src/bitbucket.ts` | Platform-free host knowledge: URLs, the commits in GitHub's markup, the files of a git diff, the threads of GitHub's review comments; GitLab's merge request URLs, REST API, `data-file-data`, line anchors, the threads of its discussions; Bitbucket's pull request URLs, REST API, diffstat, line anchors, the threads of its comments. |
 | `src/params.ts` | The frames' parameters, for any host: the page's origin, a raw-file URL template, the ways to read in order, the commits, the file. |
 | `src/lookup.ts` | Platform-free: the commits of a page looked for once and kept for all who ask, nothing found included; looked for again on a user's action only, some seconds apart at most. |
 | `src/reader.ts` | Reading a file in a frame, the three ways of question 1, in the order the host's adapter gives. |
-| `src/sites.ts`, `src/popup.ts` + `static/popup.html` | The sites the extension works on: github.com, gitlab.com, and the self-managed GitLab instances turned on from the popup. |
+| `src/sites.ts`, `src/popup.ts` + `static/popup.html` | The sites the extension works on: github.com, gitlab.com, bitbucket.org, and the self-managed GitLab instances turned on from the popup. |
 | `src/lineDiff.ts` | Myers line diff (as git's default) with deletions before additions in each block, and the changed middle of a line. |
 | `src/highlight.ts` | Structured Text highlighting from `src/lang/lexer.ts`. |
 | `src/background.ts` | Service worker: one of the ways to read a file (see question 1); registers the content script on the sites turned on. |
@@ -120,7 +125,7 @@ The model adds two things on top of `viewChanges`: unchanged objects are listed 
 object whose graphical implementation (CFC, SFC, FBD/LD) changed is *modified* even though its Structured Text
 did not (`viewChanges` compares ST only; its XML is compared here). Graphical code itself is not drawn.
 
-Unit tests: `test/unit/browserView.test.ts` (30 tests, part of `npm test`) on made-up files: a modified method,
+Unit tests: `test/unit/browserView.test.ts` (46 tests, part of `npm test`) on made-up files: a modified method,
 an added and a deleted method, a changed property Get, a deleted accessor and property, a renamed method, a
 metadata-only change, project files, a new, deleted and renamed file, CRLF files, a changed CFC action, a broken
 file, the line diff (checked against an LCS on random inputs), the GitHub helpers, the frames' parameters, the tree
@@ -130,7 +135,9 @@ base file, `new_line` in the head file, an unchanged line by either), notes on L
 whole file and graphical code, an outdated note and one GitLab carried to the merge ref, GitLab's two formats
 (`discussions.json`, the REST API) and GitHub's review comments, the rule for a navigation to an anchor, and the
 threads in the tree. And how often a page's commits are looked for: one attempt for all who ask, its result kept,
-another only on demand and some seconds after.
+another only on demand and some seconds after. Of a repository's pages: their URLs, ref and path on the three hosts,
+GitLab's and Bitbucket's REST API of a commit and of its files, GitHub's page data (`refInfo`) and `tree-list`, a
+file's view and the tree at one commit, the frames' `snapshot`, the line anchors `L12` and `lines-12`.
 
 ## The tree of the changes
 
@@ -229,6 +236,82 @@ template and the order of the ways to read, and know no host.
 - **Not tried**: a merge request compared with its merge ref after its target branch moved on; the frame's reads on
   a self-managed instance (its session cookie's `SameSite` matters there; the page reads first).
 
+## A repository's files
+
+Added after the merge requests: the same view and tree on GitLab's pages of a repository's files, for the files at
+one commit instead of a change (`snapshot` in the frames' parameters); then on GitHub's and Bitbucket's (see
+[GitHub and Bitbucket](#github-and-bitbucket) below). What the three have in common is in `hostRepository.ts`: one
+page per repository and ref, a block named by the file's path and the page's file only while its title names it, the
+way to a file's page (a link or a row of the host's tree, else a page load with the place kept), the line anchors in
+the navigation rule (`L12`, `lines-12`).
+
+- **Pages.** A folder (`/<project>/-/tree/<ref>/<path>`, `data-page="projects:tree:show"`) and a file
+  (`/-/blob/<ref>/<path>`, `projects:blob:show`): one Vue app that goes from one to the other without loading a page,
+  so `data-page` stays the first page's and the URL is what says which. One page for the content script per project
+  and ref (`GitLabRepositoryHost`, `hostGitlabRepo.ts`): the tree stays while the user goes from file to file.
+- **The ref and the commit.** A ref may have slashes (`feature/x`): the URL's ref is the first of the refs the page
+  names that it starts with (the file header's `currentref`, `#js-ambiguous-ref-modal`'s `data-ref`), else its first
+  part. Its commit from the REST API (`repository/commits/:ref`, with the session); a sha in the URL is the commit.
+- **A file's view.** The toggle goes in the file's header (`.js-file-title`), the view in place of `.blob-viewer`. The
+  viewer reads the file once and builds its model from the file and itself: every object unchanged, with all its
+  lines and their XML lines; it shows each object open, without badges, diff marks or the *Unified | Split* switch, and
+  each line's link is `L12`, GitLab's own line anchor (marked by GitLab), with the way back to the view. The app
+  shows file after file in the same `.file-holder`: a block is named by the file's path (`blob:<path>`, `blockId` and
+  `blockById` of the adapter) and is the page's file only while the header's title is that file's name (a folder's
+  README has none); a view of the file before is taken away.
+- **The tree.** The repository's TwinCAT source files at the commit, from the REST API (`repository/tree`, recursive,
+  keyset pages of 100), each read once, a few at a time; each file as its object with all its members (no letters, no
+  build output group), in XAE's order, the files folded. A click on an object goes to its file's page: through
+  GitLab's own row of the file (or the folder's table) when the page shows it, in the app; else the page is loaded,
+  and the place asked for is kept in the page's `sessionStorage` for the next page to show (for 30 seconds). A page
+  just loaded stops the scroll to it (GitLab's, still settling): the page scrolls once more, at once, a second later
+  when it has not moved. The viewer tells its height before a scroll, so that the frame is as tall as the view. The app's
+  router does not follow a `history.pushState` it did not make: tried, the URL changed and the page did not.
+- **Hooks**: `body[data-page]`, `data-project-full-path`, `data-project-id` (low); `.file-holder`, `.js-file-title`,
+  `[data-testid="file-title-content"]`, `.blob-viewer`, `#L<n>` (medium); `.file-tree-browser
+  section[aria-labelledby="tree-list-heading"]`, `a[data-testid="file-row"]`, `a[data-testid="file-name-link"]`
+  (medium: GitLab's file tree browser is new). Without GitLab's file tree (hidden), the tabs float at the bottom left.
+- **Checked**, headless Chromium signed out, on gitlab.com's `mobile-crane/mobile-crane-twincat3` at `main`
+  (October 2026): a POU's view and its line links (`#L7`) and the way back; the tree (26 files, 57 objects) from a
+  folder's page; a click on a method of a file the page did not list (the page loaded, the view opened at it) and on
+  one it did (in the app); GitLab's own row to another file (the view of the file before gone); a file that is not a
+  TwinCAT source file (no toggle). The merge request's pages as before.
+- **Not tried**: signed in on a private project; a self-managed instance; a ref with slashes on a live page; a
+  repository with thousands of TwinCAT files (each read once on each page load while the tab is on).
+
+### GitHub and Bitbucket
+
+- **GitHub** (`hostGithubRepo.ts`): a folder (`/<owner>/<repo>/tree/<ref>/<path>`) and a file (`…/blob/<ref>/<path>`),
+  one React app. The ref and its commit are the page's `refInfo` (the JSON it embeds,
+  `script[data-target="react-app.embeddedData"]`, as the page was loaded), else the `refInfo` of the JSON the ref's
+  folder URL answers (`Accept: application/json`, with the session); the files at the commit are those of *Go to
+  file*, `/<owner>/<repo>/tree-list/<sha>` (`{ paths }`, with the session: a private repository needs no token, and
+  the API's 60 requests an hour are not spent). The file is the parent of its sticky header (`#repos-sticky-header`),
+  the toggle beside the header's buttons, the view in place of what follows the header (the code, or a rendered file);
+  its title `[data-testid="breadcrumbs-filename"] h1`. A line is `#L12`, which the app scrolls to and marks (its lines
+  are rendered as they show). The tabs go above GitHub's file tree (`#repos-file-tree`), which they hide; a click in
+  the TwinCAT tree clicks GitHub's row of the file (`<path>-item`, rendered while its folder is open, hidden or not),
+  else loads the file's page. React keeps the header from file to file: a file without a view loses the toggle of the
+  one before.
+- **Bitbucket** (`hostBitbucketRepo.ts`): `/<workspace>/<repo>/src/<ref>/<path>`, a folder or a file; the ref is one
+  part (a branch with slashes is shown at its commit, `?at=` naming it). The commit (`/commit/<ref>`) and the files
+  (`/src/<sha>/?max_depth=100`, pages of 100) from the REST API, the page's `/!api/2.0` with the session, else
+  api.bitbucket.org. The file is the parent of `[data-qa="bk-file__header"]` and `[data-qa="bk-file__content"]` (a
+  Monaco editor), the toggle beside *Blame* (`bk-file__actions`), the title the page's `<h1>`; a line is `#lines-12`,
+  which Bitbucket marks. Its source pages have no file tree: the tabs float at the bottom left, over its sidebar.
+- **Checked**, headless Chromium signed out. Bitbucket on `europeanspallationsource/tc_generic_structure` at `master`
+  (October 2026): `MAIN.TcPOU`'s view (7 objects), a line link (`#lines-9`) and the way back, the tree (7 files, 13
+  objects), a click on an action of `MAIN` from a folder's page (in the app, the view at the action) and on a file
+  the page did not list (loaded), back to the folder; the pull request #98 as before. GitHub on
+  `ddt313/TwinCAT-Explorer` at `develop`, the only repository this session's browser could open, which has no TwinCAT
+  file: a build that took `.ts` for a TwinCAT file, and for each raw file read one of the 25 TwinCAT files of
+  `Beckhoff/TE2000_Client_Samples` (cloned; its pages were not open to the browser), `model.ts` as `FB_Cylinder.TcPOU`
+  (13 objects: methods, properties with Get, an action, attributes). The page's DOM, its data, `tree-list` and its
+  navigation are GitHub's own: the view and its line link (`#L6`), the tree (131 files, 207 objects), a click on a Get
+  of the file shown and of another file (in the app, the view at the accessor), a method of a file in a closed folder
+  (loaded), GitHub's own row to another file with the view on, `README.md` (no toggle). The 25 files of that repository
+  read as objects without an error. Not tried on GitHub: its own TwinCAT repository pages, a private repository.
+
 ## Review comments
 
 Added after GitLab, read-only, GitLab first: the review threads of the merge request (or pull request) show in the
@@ -310,6 +393,58 @@ view's links go to and come back from.
     their lines, resolved and with replies, the outdated ones listed, the counts in the TwinCAT tree. The tabs above
     the tree were still in light colors there; they now take GitLab's (see *Colors* under [GitLab](#gitlab)).
   - *Not tried*: a merge request with threads on gitlab.com in the headless browser.
+
+## Bitbucket
+
+Added after the review comments, with the same viewer, tree and model: one more adapter (`hostBitbucket.ts`) and its
+platform-free knowledge (`bitbucket.ts`). Bitbucket Cloud only (bitbucket.org); Bitbucket Data Center is another page.
+
+- **Pages.** A pull request's *Files changed* tab, `/<workspace>/<repo>/pull-requests/<id>/diff`, a React page that
+  scrolls in a panel, not in the window. One `<article data-qa="branch-diff-file" aria-label="Diff of file <path>">`
+  per file, after Bitbucket's empty marker `<div id="chg-<path>">` (what its file tree links to). The marker has the
+  id, not the article: the adapter gives the article an id of its own, `tcx-chg-<path>`, which the content script
+  knows the block by (`getElementById`); a block Bitbucket renders again gets it back at the next scan. The header is
+  `[data-qa="bk-file__header"]` (sticky), the toggle goes beside its `[data-qa="bk-filepath"]`, the diff hidden is
+  `[data-qa="bk-file__content"]`. A click on the header folds the file: the toggle's click, taken on the document in
+  the capture phase, does not reach it.
+- **The REST API**, the page's own first: `https://bitbucket.org/!api/2.0/…`, same origin, with the session (a
+  private repository needs no token, as on GitLab); else `https://api.bitbucket.org/2.0/…`, without the session,
+  which answers for public repositories (`Access-Control-Allow-Origin: *`). Both answer signed out on a public one.
+- **Commits.** `…/pullrequests/<id>` gives the source and destination commits, short (12 characters): the base is
+  their `…/merge-base/<source>..<destination>` and the head `…/commit/<source>`, both full. Bitbucket's diff of a pull
+  request is from that merge base (its diffstat's `topic=true`). On #98 below: `5f3246d → dd25c6f`.
+- **Files.** `…/pullrequests/<id>/diffstat` (`added`, `removed`, `modified`, `renamed`, with `old.path` and
+  `new.path`), page by page: the tree's list, and whether a block's file was added, deleted or renamed.
+- **Reading.** `https://bitbucket.org/<workspace>/<repo>/raw/<sha>/<path>` answers `200` directly: from the page
+  first (same origin, the session goes with it), then the frame, then the service worker.
+- **Review threads.** `…/pullrequests/<id>/comments` (`fields=+values.resolution.type`: the list leaves the
+  resolution out otherwise): an inline comment and its replies (`parent`, at any depth) make a thread. Its `inline`
+  has `path`, `from` (a line of the base file: a removed line, and an unchanged one too) and `to` (a line of the head
+  file: an added one), neither for the whole file, and `outdated`. A comment has no commits of its own: one that is
+  not outdated is on the commits the page compares, an outdated one goes to *Outdated comments*. Resolved: its first
+  comment has a `resolution`. A comment on the pull request itself, and a deleted one, is left out.
+- **Line links.** A line's anchor is `L<path>F<old line>T<new line>` (an unchanged line), `L<path>F<old line>`
+  (removed) or `L<path>T<new line>` (added), on `[data-qa="code-line-permalink"]`; a comment's is `comment-<id>`.
+  Both are known to the navigation rule too (a hash set to one in a hidden diff turns its view off).
+- **Tree.** In the place of Bitbucket's file tree, `#file-tree`, which renders all its rows (no overlay needed); a
+  click on an object clicks Bitbucket's link to the file (`#chg-<path>`) when its block is not in the page.
+- **Colors.** Atlassian's design tokens (`--ds-text`, `--ds-surface`, `--ds-border`, …), which follow
+  `<html data-color-mode>`; the frames get that mode. The diff's layout (Bitbucket's unified or side-by-side) is not
+  read: the views keep the last choice of their switch.
+- **A fix it needed in the viewer**: a revealed object was posted for scrolling before the frame's new height, so the
+  panel could not scroll that far when the file was the page's last (the page ends with it on Bitbucket). The viewer
+  now posts its height first.
+- **Hooks**, and how brittle: `data-qa="branch-diff-file"`, `bk-file__header`, `bk-filepath`, `bk-file__content`,
+  `code-line-permalink` (medium: QA hooks, kept for Atlassian's own tests); the `chg-<path>` marker and the line and
+  comment anchors (low: links rely on them); `#file-tree` (medium); `/!api/2.0` (medium: internal, what the page reads;
+  the public API is the fallback for public repositories).
+- **Checked**, headless Chromium signed out, on `europeanspallationsource/tc_generic_structure` #98 (a `.TcGVL` and a
+  `.TcPOU` modified, a submodule; 8 resolved inline comments): toggles on both files, the views (`MAIN`: 2 actions
+  modified, 5 unchanged objects folded), the files read from the page, the 7 threads of `MAIN.TcPOU` under their
+  lines (one on an unchanged line, by its `from`), the tree (3 files, 3 objects, 8 threads), a click on `CHECK_UPS`
+  in the tree, an XML line link to `#L…MAIN.TcPOUT74` and back, *Show in the diff* to `#comment-585871005` and back,
+  in light and dark mode. **Not tried**: signed in, a private repository, renamed and deleted files, a pull request
+  with outdated comments, a large one.
 
 ## 1. Can both versions be fetched with the session, private repositories and renames included?
 
@@ -425,7 +560,9 @@ toggle says so. The coupling is GitHub's public line-link format only. React pag
 **GitLab, about 1 more week**: its adapter is here (see [GitLab](#gitlab)); left for an MVP are a test fixture of
 both diff pages' markup, the check on the self-managed versions in use (an older one may mark its lines
 differently) and on a private project, and the page's choice of versions and comparison checked against what the
-views show. The viewer, the tree and the packaging are GitHub's. Bitbucket would be another adapter, 1 to 2 weeks.
+views show. The viewer, the tree and the packaging are GitHub's. Bitbucket Cloud's adapter is here too (see
+[Bitbucket](#bitbucket)); left for it are the checks signed in, on a private repository and on larger pull requests;
+Bitbucket Data Center would be another adapter.
 
 **What I would do differently:**
 

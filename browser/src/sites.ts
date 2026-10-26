@@ -1,10 +1,10 @@
-// The sites the extension works on: github.com and gitlab.com always (the manifest's host permissions), and the
+// The sites the extension works on: github.com, gitlab.com and bitbucket.org always (the manifest's host permissions), and the
 // sites the user lets it read at run time (its optional host permissions: self-managed GitLab instances), granted
 // from its popup or from the browser's own settings of the extension. The browser's permissions are the list: the
 // service worker keeps the content script registered on those sites. On a site the user set to start by hand, the
 // content script does nothing until the popup starts it in a tab.
 
-export const BUILT_IN_SITES = ['https://github.com', 'https://gitlab.com'];
+export const BUILT_IN_SITES = ['https://github.com', 'https://gitlab.com', 'https://bitbucket.org'];
 const SCRIPT_ID = 'tcx-sites';
 /** The sites where the extension starts only when the user starts it in a tab, from the popup. */
 const MANUAL_KEY = 'tcxManual';

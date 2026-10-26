@@ -1,21 +1,27 @@
-// Content script on review pages: GitHub's "Files changed", GitLab's "Changes" (gitlab.com, and the self-managed
-// instances the user turned the extension on for). It finds the blocks of the TwinCAT files, adds a "TwinCAT view"
-// toggle to their headers and, when on, shows the extension's viewer in a frame in place of the host's diff, with
-// the change's coordinates and the review threads on the file. Above the host's file tree it adds a "TwinCAT" tab,
-// the extension's tree of the changed objects in a frame, and takes a click there to the object's view. A jump from
-// a view to the host's diff (an XML line, a thread), and a navigation to an anchor in the diff a view hides, turn
-// that view off, with a button beside the toggle to come back. It reads no files itself, except for a frame that
-// asks it to (the page has the user's session). On a site the user set to start by hand (sites.ts), it does nothing
-// until the popup starts it in the tab. Everything that knows a host's DOM is in its adapter (host.ts).
+// Content script on review pages: GitHub's "Files changed", GitLab's "Changes" and the pages of a GitLab repository's
+// files (gitlab.com, and the self-managed instances the user turned the extension on for), Bitbucket's "Files changed".
+// It finds the blocks of the TwinCAT files, adds a "TwinCAT view" toggle to their headers and, when on, shows the
+// extension's viewer in a frame in place of the host's diff, with the change's coordinates and the review threads on
+// the file. Above the host's file tree it adds a "TwinCAT" tab, the extension's tree of the changed objects in a frame,
+// and takes a click there to the object's view. A jump from a view to the host's diff (an XML line, a thread), and a
+// navigation to an anchor in the diff a view hides, turn that view off, with a button beside the toggle to come back.
+// It reads no files itself, except for a frame that asks it to (the page has the user's session). On a site the user
+// set to start by hand (sites.ts), it does nothing until the popup starts it in the tab. Everything that knows a
+// host's DOM is in its adapter (host.ts).
 
 import { Accessor } from '../../src/core/objectText';
+import { pullRequestPage, sourcePage } from './bitbucket';
 import { ReviewThread, Side, ThreadsResult, currentPosition, threadsOfFile } from './comments';
 import { fetchText } from './fetchText';
-import { filesPage } from './github';
-import { isChangesTab, mergeRequestPage } from './gitlab';
+import { filesPage, githubRepositoryPage } from './github';
+import { isChangesTab, mergeRequestPage, repositoryPage } from './gitlab';
 import { Host } from './host';
+import { BitbucketHost } from './hostBitbucket';
+import { BitbucketRepositoryHost } from './hostBitbucketRepo';
 import { GitHubHost } from './hostGithub';
+import { GitHubRepositoryHost } from './hostGithubRepo';
 import { GitLabHost } from './hostGitlab';
+import { GitLabRepositoryHost } from './hostGitlabRepo';
 import { Lookup } from './lookup';
 import { hasObjectView } from './model';
 import { startsOnItsOwn } from './sites';
@@ -33,12 +39,22 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /** The adapter of the page, when it is a review page. */
 function detectHost(): Host | undefined {
+  // A repository's folder or file: its app goes from one to the other without loading a page.
   if (location.hostname === 'github.com') {
     const pr = filesPage(location.pathname);
-    return pr ? new GitHubHost(pr) : undefined;
+    const repo = pr ? undefined : githubRepositoryPage(location.pathname);
+    return pr ? new GitHubHost(pr) : repo ? new GitHubRepositoryHost(repo) : undefined;
+  }
+  if (location.hostname === 'bitbucket.org') {
+    const pr = pullRequestPage(location.pathname);
+    const repo = pr ? undefined : sourcePage(location.pathname);
+    return pr ? new BitbucketHost(pr) : repo ? new BitbucketRepositoryHost(repo) : undefined;
   }
   const mr = mergeRequestPage(location.pathname);
   if (mr && isChangesTab(location.pathname) && document.body?.dataset.page?.startsWith('projects:merge_requests')) return new GitLabHost(mr);
+  // A GitLab repository's folder or file (its app does not change `data-page` as it goes from one to the other).
+  const repo = repositoryPage(location.pathname);
+  if (repo && /^projects:(tree|blob):show$/.test(document.body?.dataset.page ?? '')) return new GitLabRepositoryHost(repo);
   return undefined;
 }
 
@@ -153,8 +169,13 @@ function checkStyle(): void {
 
 // ------------------------------------------------------------------ the blocks of the files
 
+/** The block of an id: the element with that id, or the one the host names by it. */
+function byId(anchor: string): HTMLElement | null {
+  return host?.blockById ? host.blockById(anchor) : document.getElementById(anchor);
+}
+
 function containerOf(block: Block): HTMLElement | null {
-  return document.getElementById(block.anchor);
+  return byId(block.anchor);
 }
 
 /** The viewer's frame in a block, in place of what its host element had (nothing yet, or the message of no commits). */
@@ -162,7 +183,7 @@ function addViewer(block: Block, frameHost: HTMLElement, c: Commits): void {
   if (!host) return;
   const params: ViewerParams = {
     origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source,
-    path: block.path, oldPath: block.oldPath, deleted: block.deleted, added: block.added,
+    path: block.path, oldPath: block.oldPath, deleted: block.deleted, added: block.added, snapshot: host.snapshot,
   };
   const frame = document.createElement('iframe');
   frame.className = 'tcx-frame';
@@ -180,6 +201,11 @@ async function apply(block: Block): Promise<void> {
   if (!host || !container || !header) return;
   const { after, hide } = host.layout(container, header);
   let frameHost = after.parentElement?.querySelector<HTMLElement>(':scope > .tcx-host');
+  // The host showed another file in the same element: the view of the one before goes.
+  if (frameHost && frameHost.dataset.anchor !== block.anchor) {
+    frameHost.remove();
+    frameHost = null;
+  }
   if (!block.on) {
     frameHost?.classList.add('tcx-hidden');
     for (const el of hide) el.classList.remove('tcx-hidden');
@@ -188,6 +214,7 @@ async function apply(block: Block): Promise<void> {
   if (!frameHost) {
     frameHost = document.createElement('div');
     frameHost.className = 'tcx-host';
+    frameHost.dataset.anchor = block.anchor;
     after.after(frameHost);
     const c = await currentCommits();
     if (c) addViewer(block, frameHost, c);
@@ -221,6 +248,8 @@ function setOn(block: Block, on: boolean): void {
 
 function addToggle(block: Block, header: HTMLElement): void {
   const existing = header.querySelector('.tcx-toggle');
+  // The header of another file before (the host showed another one in the same element): its back button goes.
+  for (const el of header.querySelectorAll<HTMLElement>('.tcx-back')) if (el.dataset.anchor !== block.anchor) el.remove();
   if (existing) {
     existing.setAttribute('aria-pressed', String(block.on));
     addBack(block);
@@ -272,6 +301,7 @@ function addBack(block: Block): void {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'tcx-back';
+  button.dataset.anchor = block.anchor;
   button.textContent = '↩ Back to the TwinCAT view';
   button.title = 'Show this file\'s TwinCAT view again, where you left it';
   toggle.after(button);
@@ -289,14 +319,21 @@ function note(block: Block, text: string): void {
   setTimeout(() => span.remove(), 6000);
 }
 
+/** What the extension added to an element that shows another file now, one without a TwinCAT view. */
+function clearBlock(container: HTMLElement): void {
+  for (const el of container.querySelectorAll('.tcx-toggle, .tcx-back, .tcx-note, .tcx-host')) el.remove();
+  for (const el of container.querySelectorAll('.tcx-hidden')) el.classList.remove('tcx-hidden');
+}
+
 /**
  * The block of a file's container: identified the first time, with its toggle. Undefined for a file without a TwinCAT
  * view (not TwinCAT, or a project file such as a `.tsproj`, which keeps the host's diff).
  */
 async function blockOf(container: HTMLElement): Promise<Block | undefined> {
-  const anchor = container.id;
   const header = host?.header(container);
-  if (!host || skipped.has(anchor) || !header) return undefined;
+  if (!host || !header) return undefined;
+  const anchor = host.blockId ? host.blockId(container) : container.id;
+  if (skipped.has(anchor)) return undefined;
   let block = blocks.get(anchor);
   if (!block) {
     const file = await host.identify(container, header);
@@ -372,9 +409,10 @@ async function ensureTreePanel(): Promise<void> {
       box.querySelector('.tcx-message')?.remove();
       const frame = document.createElement('iframe');
       frame.className = 'tcx-tree-frame';
-      frame.title = 'TwinCAT changes';
+      frame.title = host.snapshot ? 'TwinCAT objects' : 'TwinCAT changes';
       frame.src = `${TREE}#${encodeTreeParams({
         origin: location.origin, raw: host.raw, order: host.order, base: c.base, head: c.head, theme: host.theme(), source: c.source, diff: host.diff, host: host.kind,
+        snapshot: host.snapshot,
       })}`;
       box.append(frame);
       treeFrame = frame;
@@ -406,14 +444,53 @@ async function postFiles(): Promise<void> {
   treeFrame.contentWindow?.postMessage(message, EXTENSION);
 }
 
+/** A place the tree asked for, kept while the host loads the file's page (GitLab's repository): the next page shows it. */
+interface Kept {
+  page: string;
+  path: string;
+  objectId?: string;
+  accessor?: Accessor;
+  at: number;
+}
+const KEPT = 'tcxReveal';
+
+function keep(kept: Kept | undefined): void {
+  try {
+    if (kept) sessionStorage.setItem(KEPT, JSON.stringify(kept));
+    else sessionStorage.removeItem(KEPT);
+  } catch {
+    // Without the page's storage, a page loaded shows the file without the view.
+  }
+}
+
+/** The place kept for this page, once its file is there (for some seconds after it was asked for). */
+async function revealKept(): Promise<void> {
+  let kept: Kept | undefined;
+  try {
+    kept = JSON.parse(sessionStorage.getItem(KEPT) ?? 'null') ?? undefined;
+  } catch {
+    return;
+  }
+  if (!host || !kept) return;
+  if (kept.page !== page || Date.now() - kept.at > 30000) {
+    if (Date.now() - kept.at > 30000) keep(undefined);
+    return;
+  }
+  if (!byId(await host.anchorOf(kept.path))) return;
+  keep(undefined);
+  void reveal(kept.path, kept.objectId, kept.accessor);
+}
+
 /** From the tree: the file's view, at the object view when one was clicked. */
 async function reveal(path: string, objectId?: string, accessor?: Accessor): Promise<void> {
   if (!host) return;
   const anchor = await host.anchorOf(path);
-  let container = document.getElementById(anchor);
+  let container = byId(anchor);
   if (!container) {
+    keep({ page, path, objectId, accessor, at: Date.now() });
     host.goToFile(anchor);
-    for (let i = 0; i < 40 && !(container = document.getElementById(anchor)); i++) await sleep(250);
+    for (let i = 0; i < 40 && !(container = byId(anchor)); i++) await sleep(250);
+    if (container) keep(undefined);
   }
   if (!container) return;
   const block = await blockOf(container);
@@ -475,11 +552,14 @@ async function scan(): Promise<void> {
     const known = blocks.size;
     for (const container of host.containers()) {
       const block = await blockOf(container);
-      // The host may have rendered the block or its diff again: the viewer comes back, the diff goes.
-      if (block?.on) void apply(block);
+      // The host may have rendered the block or its diff again: the viewer comes back, the diff goes. An element that
+      // shows file after file may have the view of the file before, whose view was on, or its toggle (this one has none).
+      if (block?.on || (block && host.blockId)) void apply(block);
+      else if (!block && host.blockId) clearBlock(container);
     }
     checkStyle();
     if (blocks.size > known) log(`${blocks.size - known} more TwinCAT file(s); ${blocks.size} in all, ${skipped.size} other file(s)`);
+    await revealKept();
     await ensureTreePanel();
     await postFiles();
     // A hash set without a hashchange (history.pushState) shows here, with the page's next change.
@@ -628,8 +708,14 @@ function onFrameMessage(e: MessageEvent): void {
     case 'scroll': {
       block.reveal = undefined;
       const scroller = scrollerOf(frame);
-      const top = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
-      scroller.scrollBy({ top: frame.getBoundingClientRect().top + m.top - top - (host?.stickyTop ?? 0), behavior: 'smooth' });
+      const by = () => frame.getBoundingClientRect().top + m.top - (scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top) - (host?.stickyTop ?? 0);
+      const from = scroller.scrollTop;
+      const distance = by();
+      scroller.scrollBy({ top: distance, behavior: 'smooth' });
+      // A page that is still settling (GitLab's, just loaded) stops the scroll: once more, at once.
+      setTimeout(() => {
+        if (Math.abs(distance) > 1 && Math.abs(scroller.scrollTop - from) < 1) scroller.scrollBy({ top: by() });
+      }, 1000);
       return;
     }
     case 'fetch':

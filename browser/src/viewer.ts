@@ -3,6 +3,8 @@
 // shows its objects in the layout of the VS Code extension's commit diff: each changed object with its
 // Declaration diff above its Implementation diff (unified or split, as the host's own diffs), unchanged objects collapsed,
 // and the review threads on the file under the lines they are on (comments.ts), which the page sends. Read-only.
+// On a page of a repository's file (`snapshot`), the file at that one commit: each object with its Declaration above
+// its Implementation, as they are, each line with the line of the file it is on.
 
 import { KIND_WORD } from '../../src/core/treeLabels';
 import { LineRef, PlacedThread, Placement, ReviewNote, Side, ThreadsResult, placeThreads, unresolvedCount, xmlLineIndex } from './comments';
@@ -44,9 +46,10 @@ async function main(): Promise<void> {
   }
   post({ tcx: 'ready' });
   const head = params.deleted ? undefined : await files.read('head', fileUrl(params.raw, params.head, params.path));
-  const base = params.added ? undefined : await files.read('base', fileUrl(params.raw, params.base, params.oldPath ?? params.path));
+  const base = params.added || params.snapshot ? undefined : await files.read('base', fileUrl(params.raw, params.base, params.oldPath ?? params.path));
   const after = files.textOf(head);
-  const before = files.textOf(base);
+  // One version: compared with itself, every object is unchanged and shows all its lines.
+  const before = params.snapshot ? after : files.textOf(base);
   if (after === null || before === null || (after === undefined && before === undefined)) {
     view = undefined;
     root.innerHTML = `<p class="notice error">The file could not be read with this browser's session (see
@@ -76,6 +79,8 @@ function place(): void {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const short = (sha: string) => sha.slice(0, 7);
+const snapshot = !!params?.snapshot;
+const split = () => diffStyle === 'split' && !snapshot;
 
 const BADGE: Record<string, string> = { added: 'A', modified: 'M', deleted: 'D' };
 /** A speech bubble, before a count of threads. */
@@ -93,8 +98,8 @@ const sectionHasThreads = (i: number, s: number) => view!.objects[i].sections[s]
 function render(): void {
   const v = view!;
   const parts = [summaryHtml(v)];
-  // An unchanged object with threads is shown on its own, open, not in a group.
-  const grouped = (i: number) => v.objects[i].change === 'unchanged' && !(placement?.perObject[i]);
+  // An unchanged object with threads is shown on its own, open, not in a group; each object of one version too.
+  const grouped = (i: number) => !snapshot && v.objects[i].change === 'unchanged' && !(placement?.perObject[i]);
   for (let i = 0; i < v.objects.length;) {
     if (!grouped(i)) {
       parts.push(objectHtml(i, true));
@@ -133,6 +138,14 @@ function rerender(): void {
 }
 
 function summaryHtml(v: FileView): string {
+  if (snapshot) {
+    const n = v.objects.length;
+    let out = `<div class="summary"><span class="title">TwinCAT objects</span>${n ? ` · ${n} object${n === 1 ? '' : 's'}` : ''}
+      <span class="muted right">read-only · ${params ? `<code>${short(params.head)}</code>` : ''}</span></div>`;
+    if (v.note) out += `<p class="notice">${esc(v.note)}</p>`;
+    if (v.error) out += `<p class="notice error">${esc(v.error)}</p>`;
+    return out;
+  }
   const counts = (['modified', 'added', 'deleted'] as const).filter(k => v.counts[k] > 0).map(k => `${v.counts[k]} ${k}`);
   if (v.counts.unchanged > 0) counts.push(`${v.counts.unchanged} unchanged`);
   const file = v.change === 'added' ? 'New file' : v.change === 'deleted' ? 'Deleted file' : v.oldPath ? `Renamed from <code>${esc(v.oldPath)}</code>` : '';
@@ -189,7 +202,7 @@ function objectHtml(i: number, open: boolean): string {
   const o = view!.objects[i];
   const badge = BADGE[o.change];
   return `<div class="obj obj-${o.change} d${o.depth}${open ? ' open' : ''}" data-o="${i}">
-    <div class="obj-head" role="button" tabindex="0" aria-expanded="${open}"><span class="chev"></span>${badge ? `<span class="badge b-${o.change}" title="${o.change}">${badge}</span>` : ''}<span class="name">${esc(o.label)}</span><span class="kind">${o.accessor ? `${o.accessor} accessor` : KIND_WORD[o.kind]}</span>${o.renamedFrom ? `<span class="renamed">renamed from ${esc(o.renamedFrom)}</span>` : ''}${countHtml(objectThreads(i))}${o.change === 'unchanged' ? '<span class="muted">unchanged</span>' : stat(o.added, o.deleted)}</div>
+    <div class="obj-head" role="button" tabindex="0" aria-expanded="${open}"><span class="chev"></span>${badge ? `<span class="badge b-${o.change}" title="${o.change}">${badge}</span>` : ''}<span class="name">${esc(o.label)}</span><span class="kind">${o.accessor ? `${o.accessor} accessor` : KIND_WORD[o.kind]}</span>${o.renamedFrom ? `<span class="renamed">renamed from ${esc(o.renamedFrom)}</span>` : ''}${countHtml(objectThreads(i))}${snapshot ? '' : o.change === 'unchanged' ? '<span class="muted">unchanged</span>' : stat(o.added, o.deleted)}</div>
     <div class="obj-body">${open ? o.sections.map((_, s) => sectionHtml(i, s)).join('') : ''}</div></div>`;
 }
 
@@ -198,8 +211,9 @@ function sectionHtml(i: number, s: number): string {
   const sec = o.sections[s];
   const label = `<span class="sec-label">${esc(sec.label)}</span>`;
   if (!sec.text) {
-    const note = sec.status === 'same' ? 'unchanged' : `${sec.status}: graphical code is not shown, the page's diff has its XML`;
-    const link = sec.status === 'deleted' ? xmlLink('L', sec.oldXml) : sec.status !== 'same' ? xmlLink('R', sec.newXml) : '';
+    const note = snapshot ? 'graphical code is not shown, the page\'s file has its XML'
+      : sec.status === 'same' ? 'unchanged' : `${sec.status}: graphical code is not shown, the page's diff has its XML`;
+    const link = sec.status === 'deleted' ? xmlLink('L', sec.oldXml) : sec.status !== 'same' || snapshot ? xmlLink('R', sec.newXml) : '';
     const threads = placement?.sections.get(`${i}:${s}`);
     return `<div class="sec sec-${sec.status}"><div class="sec-head">${label}<span class="muted">${note}</span>${link}</div>${
       threads ? `<div class="sec-threads">${threads.map(p => threadHtml(p)).join('')}</div>` : ''}</div>`;
@@ -207,7 +221,7 @@ function sectionHtml(i: number, s: number): string {
   if (sec.lines.length === 0) return `<div class="sec"><div class="sec-head">${label}<span class="muted">empty</span></div></div>`;
   // In a changed object an unchanged section is folded, unless a thread is on it; an unchanged object, once opened, shows its code.
   const folded = sec.status === 'same' && o.change !== 'unchanged' && !sectionHasThreads(i, s);
-  const status = sec.status === 'changed' ? stat(sec.added, sec.deleted) : `<span class="muted">${sec.status === 'same' ? 'unchanged' : sec.status}</span>`;
+  const status = snapshot ? '' : sec.status === 'changed' ? stat(sec.added, sec.deleted) : `<span class="muted">${sec.status === 'same' ? 'unchanged' : sec.status}</span>`;
   return `<div class="sec sec-${sec.status}${folded ? '' : ' open'}" data-o="${i}" data-s="${s}">
     <div class="sec-head"${folded ? ' role="button" tabindex="0" aria-expanded="false"' : ''}>${folded ? '<span class="chev"></span>' : ''}${label}${status}</div>
     <div class="sec-body">${folded ? '' : tableHtml(i, s)}</div></div>`;
@@ -234,13 +248,12 @@ function tableHtml(i: number, s: number): string {
     rows.push(show[k] || end - k === 1 ? rowsHtml(i, s, k, end) : foldHtml(i, s, k, end));
     k = end;
   }
-  const split = diffStyle === 'split';
   // Split: the number, mark, code and XML link of each side, both halves as wide.
-  const cols = split ? '<colgroup><col class="cn"><col class="cm"><col><col class="cx"><col class="cn"><col class="cm"><col><col class="cx"></colgroup>' : '';
-  return `<table class="diff${split ? ' split' : ''}">${cols}<tbody>${rows.join('')}</tbody></table>`;
+  const cols = split() ? '<colgroup><col class="cn"><col class="cm"><col><col class="cx"><col class="cn"><col class="cm"><col><col class="cx"></colgroup>' : '';
+  return `<table class="diff${split() ? ' split' : snapshot ? ' snapshot' : ''}">${cols}<tbody>${rows.join('')}</tbody></table>`;
 }
 
-const columns = () => (diffStyle === 'split' ? 8 : 5);
+const columns = () => (split() ? 8 : snapshot ? 4 : 5);
 
 function foldHtml(i: number, s: number, from: number, to: number): string {
   return `<tr class="fold" data-o="${i}" data-s="${s}" data-from="${from}" data-to="${to}"><td colspan="${columns()}">⋯ ${to - from} unchanged lines</td></tr>`;
@@ -248,7 +261,7 @@ function foldHtml(i: number, s: number, from: number, to: number): string {
 
 /** The rows of the section lines `[from, to)`: one a line, or in a split diff, a deleted line beside an added one. */
 function rowsHtml(i: number, s: number, from: number, to: number): string {
-  if (diffStyle === 'unified') {
+  if (!split()) {
     let out = '';
     for (let k = from; k < to; k++) out += rowHtml(i, s, k);
     return out;
@@ -262,6 +275,7 @@ function rowsHtml(i: number, s: number, from: number, to: number): string {
  */
 function xmlLink(side: Side, line: number | undefined, oldLine?: number): string {
   if (!line) return '';
+  if (snapshot) return `<a class="xml same" href="#" data-side="R" data-line="${line}" title="Line ${line} of the file: show it in the page">L${line}</a>`;
   const version = side === 'L' ? 'base' : 'head';
   return `<a class="xml${oldLine ? ' same' : ''}" href="#" data-side="${side}" data-line="${line}"${oldLine ? ` data-old="${oldLine}"` : ''} title="Line ${line} of the XML file at the ${version}: show it in the page's diff">${side}${line}</a>`;
 }
@@ -359,6 +373,7 @@ function rowHtml(i: number, s: number, k: number): string {
   const link = l.kind === 'del' ? xmlLink('L', l.oldXml) : xmlLink('R', l.newXml, l.kind === 'same' ? l.oldXml : undefined);
   const mark = l.kind === 'del' ? '−' : l.kind === 'add' ? '+' : '';
   const threads = threadsAt(i, s, k);
+  if (snapshot) return `<tr class="l-same" data-k="${k}"><td class="n">${l.newLine ?? ''}</td><td class="m"></td><td class="c">${codeHtml(l.text, spans ?? [], undefined)}</td><td class="x">${link}</td></tr>`;
   return `<tr class="l-${l.kind}" data-k="${k}"><td class="n">${l.oldLine ?? ''}</td><td class="n">${l.newLine ?? ''}</td><td class="m">${mark}</td><td class="c">${codeHtml(l.text, spans ?? [], h.pairs.get(k))}</td><td class="x">${link}</td></tr>${
     threads ? `<tr class="threads"><td colspan="5">${threads.map(p => threadHtml(p)).join('')}</td></tr>` : ''}`;
 }
@@ -429,7 +444,7 @@ function attemptsHtml(list: Attempt[]): string {
 function diagnosticsHtml(): string {
   const p = params;
   return `<details class="diag"><summary>Diagnostics</summary><ul>
-    ${p ? `<li>Commits: base <code>${p.base}</code>, head <code>${p.head}</code> <span class="muted">(${esc(p.source ?? 'unknown source')})</span></li>
+    ${p ? `<li>${p.snapshot ? `Commit <code>${p.head}</code>` : `Commits: base <code>${p.base}</code>, head <code>${p.head}</code>`} <span class="muted">(${esc(p.source ?? 'unknown source')})</span></li>
     <li>Paths: <code>${esc(p.path)}</code>${p.oldPath ? ` (base: <code>${esc(p.oldPath)}</code>)` : ''}</li>
     <li>Page: <code>${esc(p.origin)}</code>, ways to read in order: ${esc(p.order.join(', '))}</li>` : ''}
     ${attemptsHtml(files.attempts)}
@@ -533,6 +548,9 @@ async function reveal(r: Reveal): Promise<void> {
   flash.classList.add('flash');
   // A frame just shown again is laid out late (a second and more, seen on GitHub): measure once the target has a box.
   for (let n = 0; n < 60 && target.getBoundingClientRect().height === 0; n++) await new Promise(done => setTimeout(done, 50));
+  // The height first, before the resize observer tells it: the page can scroll only as far as the frame reaches (the
+  // last file of a page, on Bitbucket).
+  post({ tcx: 'height', height: Math.ceil(document.body.getBoundingClientRect().height) });
   post({ tcx: 'scroll', top: target.getBoundingClientRect().top + window.scrollY });
 }
 

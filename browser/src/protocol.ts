@@ -1,4 +1,4 @@
-// Messages between the content script (on GitHub or GitLab), the extension's frames inside the page (a viewer per
+// Messages between the content script (on GitHub, GitLab or Bitbucket), the extension's frames inside the page (a viewer per
 // file, the tree) and the service worker.
 
 import { Accessor } from '../../src/core/objectText';
@@ -69,8 +69,8 @@ export interface FetchResult {
   error?: string;
 }
 
-/** GitHub's and gitlab.com's hosts: pages, raw files, diffs, API. */
-const BUILT_IN_HOSTS = ['github.com', 'raw.githubusercontent.com', 'patch-diff.githubusercontent.com', 'api.github.com', 'gitlab.com'];
+/** GitHub's, gitlab.com's and Bitbucket's hosts: pages, raw files, diffs, API. */
+const BUILT_IN_HOSTS = ['github.com', 'raw.githubusercontent.com', 'patch-diff.githubusercontent.com', 'api.github.com', 'gitlab.com', 'bitbucket.org', 'api.bitbucket.org'];
 
 /** Only these are fetched for a frame: the built-in hosts over HTTPS, and the sites the user turned the extension on for. */
 export function fetchAllowed(url: string, sites: readonly string[] = []): boolean {

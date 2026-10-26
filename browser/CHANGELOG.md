@@ -4,6 +4,32 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.2.0 - 2026-10-26
+
+### Added
+- Bitbucket Cloud: on a pull request's *Files changed* tab (bitbucket.org), the **TwinCAT view** toggles on the
+  TwinCAT files, the **TwinCAT** tab beside Bitbucket's file tree, and the review threads under their lines, resolved
+  or not, as on GitHub and GitLab. The commits, files and comments come from Bitbucket's REST API with the session
+  (a private repository needs no token), else from its public API. The extension asks for bitbucket.org and
+  api.bitbucket.org: the browser may ask again to allow it after the update.
+- GitLab's pages of a repository's files (`/-/tree/<ref>/…`, `/-/blob/<ref>/…`), on gitlab.com and the self-managed
+  instances turned on:
+  - a **TwinCAT view** toggle in a `.TcPOU`, `.TcDUT`, `.TcGVL` or `.TcIO` file's header, which shows the file's
+    objects as they are at that ref: each with its Declaration above its Implementation, Structured Text highlighted,
+    each line with a link to its line of the file (`L12`) and the way back to the view;
+  - **Files | TwinCAT** tabs above GitLab's file tree: *TwinCAT* lists the repository's TwinCAT files at that ref as
+    XAE's Solution Explorer does, each file with all its methods, properties, actions and transitions; a click on an
+    object opens its file's view at that object.
+- The same on GitHub's pages of a repository's files (`/<owner>/<repo>/tree/<ref>/…`, `…/blob/<ref>/…`), the tabs above
+  GitHub's file tree, and on Bitbucket's (`/<workspace>/<repo>/src/<ref>/…`), where the tabs float at the bottom left
+  (Bitbucket's source pages have no file tree). A line's link goes to the host's own line (`#L12`, `#lines-12`).
+
+### Fixed
+- An object revealed from the TwinCAT tab is scrolled to also when its file is the last of the page: the page could
+  not scroll that far before the view's new height was known.
+- The extension builds again: the core's `textHash` (Node's `crypto`), which the extension does not call, is stubbed
+  out of its bundles.
+
 ## 0.1.4 - 2026-10-22
 
 ### Fixed

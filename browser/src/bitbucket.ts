@@ -7,9 +7,12 @@ import { ReviewNote, ReviewThread, Side, ThreadPosition } from './comments';
 import { Theme } from './params';
 import { ChangedFile } from './protocol';
 
-export interface BitbucketPullRequest {
+export interface BitbucketRepository {
   workspace: string;
   repo: string;
+}
+
+export interface BitbucketPullRequest extends BitbucketRepository {
   id: number;
 }
 
@@ -22,7 +25,7 @@ export function pullRequestPage(pathname: string): BitbucketPullRequest | undefi
 const encodeSegments = (path: string) => path.split('/').map(encodeURIComponent).join('/');
 
 /** A file at a commit as bitbucket.org serves it, with the session, as a template (`{sha}`, `{path}`). */
-export function bitbucketRawTemplate(pr: BitbucketPullRequest): string {
+export function bitbucketRawTemplate(pr: BitbucketRepository): string {
   return `https://bitbucket.org/${encodeSegments(pr.workspace)}/${encodeSegments(pr.repo)}/raw/{sha}/{path}`;
 }
 
@@ -30,7 +33,7 @@ export function bitbucketRawTemplate(pr: BitbucketPullRequest): string {
  * The REST API of a repository: the page's own (`https://bitbucket.org/!api/2.0`, same origin, with the session: a
  * private repository needs no token), or the public one (`https://api.bitbucket.org/2.0`, public repositories only).
  */
-export function repositoryApi(apiRoot: string, pr: BitbucketPullRequest): string {
+export function repositoryApi(apiRoot: string, pr: BitbucketRepository): string {
   return `${apiRoot}/repositories/${encodeURIComponent(pr.workspace)}/${encodeURIComponent(pr.repo)}`;
 }
 
@@ -164,4 +167,53 @@ export function threadsFromBitbucket(comments: unknown, head: string, urlOf: (co
 /** Bitbucket's color mode, from `<html data-color-mode>` (Atlassian's design tokens follow it). */
 export function bitbucketTheme(colorMode: string | undefined): Theme {
   return colorMode === 'dark' ? 'dark' : 'light';
+}
+
+// ------------------------------------------------------------------ the repository's pages
+
+/**
+ * A page of a repository's files, `/workspace/repo/src/<ref>/<path>`: a folder or a file. The ref is one part (a branch
+ * with slashes is shown at its commit, `/src/<sha>/<path>?at=feature/x`).
+ */
+export interface BitbucketSourcePage extends BitbucketRepository {
+  ref: string;
+  /** The path after the ref, decoded; empty at the top. */
+  path: string;
+}
+
+export function sourcePage(pathname: string): BitbucketSourcePage | undefined {
+  const m = /^\/([^/]+)\/([^/]+)\/src\/([^/]+)(?:\/(.*?))?\/?$/.exec(pathname);
+  if (!m) return undefined;
+  try {
+    return {
+      workspace: decodeURIComponent(m[1]), repo: decodeURIComponent(m[2]), ref: decodeURIComponent(m[3]),
+      path: (m[4] ?? '').split('/').map(decodeURIComponent).join('/'),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The page of a file at a ref. */
+export function sourceUrl(r: BitbucketRepository, ref: string, path: string): string {
+  return `https://bitbucket.org/${encodeSegments(r.workspace)}/${encodeSegments(r.repo)}/src/${encodeURIComponent(ref)}/${encodeSegments(path)}`;
+}
+
+/** The REST API's commit of a ref (its `hash`), from a repository's API (`repositoryApi`). */
+export function commitPath(ref: string): string {
+  return `/commit/${encodeURIComponent(ref)}`;
+}
+
+/** The REST API's files at a commit, its folders' too, a page of 100 at a time (`next`). */
+export function sourceTreePath(sha: string): string {
+  return `/src/${sha}/?max_depth=100&pagelen=100`;
+}
+
+/** The files (not the folders) of a page of `src`. */
+export function filesFromSrc(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return list.flatMap(e => {
+    const x = e as Record<string, unknown>;
+    return x.type === 'commit_file' && typeof x.path === 'string' ? [x.path] : [];
+  });
 }

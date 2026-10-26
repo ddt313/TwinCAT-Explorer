@@ -10,14 +10,16 @@
 // host's DOM is in its adapter (host.ts).
 
 import { Accessor } from '../../src/core/objectText';
-import { pullRequestPage } from './bitbucket';
+import { pullRequestPage, sourcePage } from './bitbucket';
 import { ReviewThread, Side, ThreadsResult, currentPosition, threadsOfFile } from './comments';
 import { fetchText } from './fetchText';
-import { filesPage } from './github';
+import { filesPage, githubRepositoryPage } from './github';
 import { isChangesTab, mergeRequestPage, repositoryPage } from './gitlab';
 import { Host } from './host';
 import { BitbucketHost } from './hostBitbucket';
+import { BitbucketRepositoryHost } from './hostBitbucketRepo';
 import { GitHubHost } from './hostGithub';
+import { GitHubRepositoryHost } from './hostGithubRepo';
 import { GitLabHost } from './hostGitlab';
 import { GitLabRepositoryHost } from './hostGitlabRepo';
 import { Lookup } from './lookup';
@@ -37,17 +39,20 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /** The adapter of the page, when it is a review page. */
 function detectHost(): Host | undefined {
+  // A repository's folder or file: its app goes from one to the other without loading a page.
   if (location.hostname === 'github.com') {
     const pr = filesPage(location.pathname);
-    return pr ? new GitHubHost(pr) : undefined;
+    const repo = pr ? undefined : githubRepositoryPage(location.pathname);
+    return pr ? new GitHubHost(pr) : repo ? new GitHubRepositoryHost(repo) : undefined;
   }
   if (location.hostname === 'bitbucket.org') {
     const pr = pullRequestPage(location.pathname);
-    return pr ? new BitbucketHost(pr) : undefined;
+    const repo = pr ? undefined : sourcePage(location.pathname);
+    return pr ? new BitbucketHost(pr) : repo ? new BitbucketRepositoryHost(repo) : undefined;
   }
   const mr = mergeRequestPage(location.pathname);
   if (mr && isChangesTab(location.pathname) && document.body?.dataset.page?.startsWith('projects:merge_requests')) return new GitLabHost(mr);
-  // A folder or a file of a repository; the app goes from one to the other without loading a page (`data-page` stays).
+  // A GitLab repository's folder or file (its app does not change `data-page` as it goes from one to the other).
   const repo = repositoryPage(location.pathname);
   if (repo && /^projects:(tree|blob):show$/.test(document.body?.dataset.page ?? '')) return new GitLabRepositoryHost(repo);
   return undefined;
@@ -314,6 +319,12 @@ function note(block: Block, text: string): void {
   setTimeout(() => span.remove(), 6000);
 }
 
+/** What the extension added to an element that shows another file now, one without a TwinCAT view. */
+function clearBlock(container: HTMLElement): void {
+  for (const el of container.querySelectorAll('.tcx-toggle, .tcx-back, .tcx-note, .tcx-host')) el.remove();
+  for (const el of container.querySelectorAll('.tcx-hidden')) el.classList.remove('tcx-hidden');
+}
+
 /**
  * The block of a file's container: identified the first time, with its toggle. Undefined for a file without a TwinCAT
  * view (not TwinCAT, or a project file such as a `.tsproj`, which keeps the host's diff).
@@ -542,8 +553,9 @@ async function scan(): Promise<void> {
     for (const container of host.containers()) {
       const block = await blockOf(container);
       // The host may have rendered the block or its diff again: the viewer comes back, the diff goes. An element that
-      // shows file after file may have the view of the file before, whose view was on.
+      // shows file after file may have the view of the file before, whose view was on, or its toggle (this one has none).
       if (block?.on || (block && host.blockId)) void apply(block);
+      else if (!block && host.blockId) clearBlock(container);
     }
     checkStyle();
     if (blocks.size > known) log(`${blocks.size - known} more TwinCAT file(s); ${blocks.size} in all, ${skipped.size} other file(s)`);

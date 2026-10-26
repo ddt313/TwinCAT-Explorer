@@ -7,10 +7,13 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
   bitbucketBlockId, bitbucketLineOfAnchor, bitbucketRawTemplate, bitbucketTheme, commentUrl, filesFromDiffstat, isLineAnchor, pullRequestPage, repositoryApi,
-  threadsFromBitbucket,
+  threadsFromBitbucket, commitPath, filesFromSrc, sourcePage, sourceTreePath, sourceUrl,
 } from '../../browser/src/bitbucket';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
-import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
+import {
+  commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub,
+  githubBlobUrl, githubRepositoryPage, githubTreeListUrl, pathsOfTreeList, refInfoOf,
+} from '../../browser/src/github';
 import {
   blobUrl, commitApi, filesFromTree, nextPageUrl, refAndPath, repositoryPage, repositoryTreeApi,
   commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
@@ -1166,6 +1169,43 @@ test('frames and navigation: a file at one commit; its line anchor `L12` in its 
   const anchor = 'blob:PLC/MAIN.TcPOU';
   assert.deepEqual(lineOfAnchor('L12', [anchor, 'blob:PLC/GVL.TcGVL'], anchor), { anchor, side: 'R', line: 12 });
   assert.equal(lineOfAnchor('L12', [anchor]), undefined);
+  assert.deepEqual(lineOfAnchor('lines-12', [anchor], anchor), { anchor, side: 'R', line: 12 });
   const views: ViewState[] = [{ anchor, path: 'PLC/MAIN.TcPOU', on: true }];
   assert.deepEqual(leaveFor('#L12', views, { anchor, inDiff: true }, []), { anchor, back: { xml: { side: 'R', line: 12 } } });
+});
+
+test('github: the pages of a repository\'s files, their ref and commit in the page\'s data, the files at a commit', () => {
+  assert.deepEqual(githubRepositoryPage('/acme/plc/blob/feature/x/PLC/New%20FB.TcPOU'),
+    { owner: 'acme', repo: 'plc', kind: 'blob', rest: 'feature/x/PLC/New FB.TcPOU' });
+  assert.deepEqual(githubRepositoryPage('/acme/plc/tree/main/'), { owner: 'acme', repo: 'plc', kind: 'tree', rest: 'main' });
+  assert.equal(githubRepositoryPage('/acme/plc/pull/7/files'), undefined);
+  assert.equal(githubRepositoryPage('/acme/plc'), undefined);
+  assert.equal(githubBlobUrl('acme', 'plc', 'feature/x', 'PLC/New FB.TcPOU'), 'https://github.com/acme/plc/blob/feature/x/PLC/New%20FB.TcPOU');
+  assert.equal(githubRawTemplate({ owner: 'acme', repo: 'plc' }), 'https://github.com/acme/plc/raw/{sha}/{path}');
+  assert.equal(githubTreeListUrl('acme', 'plc', A), `https://github.com/acme/plc/tree-list/${A}`);
+  assert.deepEqual(pathsOfTreeList({ paths: ['PLC/MAIN.TcPOU', 3, 'README.md'] }), ['PLC/MAIN.TcPOU', 'README.md']);
+  assert.deepEqual(pathsOfTreeList({ message: 'Not Found' }), []);
+  // The page's routes: the first with a refInfo.
+  const page = { payload: { codeViewBlobRoute: { csv: null }, codeViewLayoutRoute: { refInfo: { name: 'feature/x', currentOid: A } } } };
+  assert.deepEqual(refInfoOf(page), { name: 'feature/x', oid: A });
+  assert.deepEqual(refInfoOf({ payload: { codeViewTreeRoute: { refInfo: { name: 'main', currentOid: 'main' } } } }), { name: 'main', oid: undefined });
+  assert.equal(refInfoOf({ payload: { route: null } }), undefined);
+  assert.equal(refInfoOf('not json'), undefined);
+});
+
+test('bitbucket: the pages of a repository\'s files, the REST API of a commit and of the files at it', () => {
+  assert.deepEqual(sourcePage('/esss/tc_generic/src/master/solution/POUs/MAIN.TcPOU'),
+    { workspace: 'esss', repo: 'tc_generic', ref: 'master', path: 'solution/POUs/MAIN.TcPOU' });
+  assert.deepEqual(sourcePage(`/esss/tc_generic/src/${A}/New%20FB.TcPOU`), { workspace: 'esss', repo: 'tc_generic', ref: A, path: 'New FB.TcPOU' });
+  assert.deepEqual(sourcePage('/esss/tc_generic/src/master/'), { workspace: 'esss', repo: 'tc_generic', ref: 'master', path: '' });
+  assert.equal(sourcePage('/esss/tc_generic/pull-requests/98/diff'), undefined);
+  assert.equal(sourceUrl({ workspace: 'esss', repo: 'tc_generic' }, 'master', 'POUs/New FB.TcPOU'), 'https://bitbucket.org/esss/tc_generic/src/master/POUs/New%20FB.TcPOU');
+  assert.equal(bitbucketRawTemplate({ workspace: 'esss', repo: 'tc_generic' }), 'https://bitbucket.org/esss/tc_generic/raw/{sha}/{path}');
+  assert.equal(`${repositoryApi('https://api.bitbucket.org/2.0', { workspace: 'esss', repo: 'tc_generic' })}${commitPath('feature/x')}`,
+    'https://api.bitbucket.org/2.0/repositories/esss/tc_generic/commit/feature%2Fx');
+  assert.equal(sourceTreePath(A), `/src/${A}/?max_depth=100&pagelen=100`);
+  assert.deepEqual(filesFromSrc([
+    { type: 'commit_directory', path: 'POUs' }, { type: 'commit_file', path: 'POUs/MAIN.TcPOU' }, { type: 'commit_file' },
+  ]), ['POUs/MAIN.TcPOU']);
+  assert.deepEqual(filesFromSrc(undefined), []);
 });

@@ -6,7 +6,7 @@
 import { fetchText } from './fetchText';
 import { WorkerRequest, fetchAllowed } from './protocol';
 import { BUILT_IN_SITES, isKnownSite, startInTab, syncContentScripts } from './sites';
-import { UPDATE_ALARM, checkForUpdate } from './updates';
+import { UPDATED_BY_STORE, UPDATE_ALARM, checkForUpdate } from './updates';
 
 const warn = (e: unknown) => console.warn('[TwinCAT view]', e);
 
@@ -51,12 +51,14 @@ const sync = () => void syncContentScripts().catch(warn);
 const look = () => void checkForUpdate().catch(warn);
 chrome.runtime.onInstalled.addListener(sync);
 chrome.runtime.onStartup.addListener(sync);
-chrome.runtime.onInstalled.addListener(look);
-chrome.runtime.onStartup.addListener(look);
-// A browser left open for days looks too: every hour, which looks on GitHub once a day.
-chrome.runtime.onInstalled.addListener(() => void chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 60 }).catch(warn));
-chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === UPDATE_ALARM) look();
-});
+if (!UPDATED_BY_STORE) {
+  chrome.runtime.onInstalled.addListener(look);
+  chrome.runtime.onStartup.addListener(look);
+  // A browser left open for days looks too: every hour, which looks on GitHub once a day.
+  chrome.runtime.onInstalled.addListener(() => void chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 60 }).catch(warn));
+  chrome.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name === UPDATE_ALARM) look();
+  });
+}
 chrome.permissions.onAdded.addListener(() => void syncContentScripts().then(startInActiveTab).catch(warn));
 chrome.permissions.onRemoved.addListener(sync);

@@ -59,12 +59,14 @@ const bundles = ['content', 'viewer', 'tree', 'popup', 'background'];
 /**
  * Chrome's manifest made Firefox's: Firefox runs the background as an event page (`scripts`), not a service worker;
  * it needs an add-on ID of its own (its `key` is Chrome's) and, to be signed by addons.mozilla.org, says what data
- * the extension collects (none). 140, Firefox's ESR, is the first to know data_collection_permissions.
+ * the extension collects (none). 140, Firefox's ESR, is the first to know data_collection_permissions. No `alarms`:
+ * addons.mozilla.org updates the extension, which never looks for a newer release there (src/updates.ts).
  */
 function firefoxManifest(chrome) {
-  const { key, background, ...rest } = chrome;
+  const { key, background, permissions, ...rest } = chrome;
   return {
     ...rest,
+    permissions: permissions.filter(p => p !== 'alarms'),
     background: { scripts: [background.service_worker] },
     browser_specific_settings: {
       gecko: {

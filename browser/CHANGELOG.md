@@ -12,6 +12,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   or not, as on GitHub and GitLab. The commits, files and comments come from Bitbucket's REST API with the session
   (a private repository needs no token), else from its public API. The extension asks for bitbucket.org and
   api.bitbucket.org: the browser may ask again to allow it after the update.
+- GitLab's pages of a repository's files (`/-/tree/<ref>/…`, `/-/blob/<ref>/…`), on gitlab.com and the self-managed
+  instances turned on:
+  - a **TwinCAT view** toggle in a `.TcPOU`, `.TcDUT`, `.TcGVL` or `.TcIO` file's header, which shows the file's
+    objects as they are at that ref: each with its Declaration above its Implementation, Structured Text highlighted,
+    each line with a link to its line of the file (`L12`) and the way back to the view;
+  - **Files | TwinCAT** tabs above GitLab's file tree: *TwinCAT* lists the repository's TwinCAT files at that ref as
+    XAE's Solution Explorer does, each file with all its methods, properties, actions and transitions; a click on an
+    object opens its file's view at that object.
 
 ### Fixed
 - An object revealed from the TwinCAT tab is scrolled to also when its file is the last of the page: the page could

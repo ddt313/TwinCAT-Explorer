@@ -56,9 +56,12 @@ export function noteOfAnchor(id: string): string | undefined {
  * The file and line a line anchor names, among the blocks' ids: GitHub's `diff-<sha256 of the path>R12` (or `L`),
  * GitLab's `line_<first 9 characters of the sha1 of the path>_A12` (an added line; without `A`, a removed one) of
  * Rapid Diffs and `<sha1>_11_12` (old and new line) of the classic page, Bitbucket's `L<path>F11T12` (`F11`: a removed
- * line, `T12`: an added one).
+ * line, `T12`: an added one); and in a file of a GitLab repository's page (`blob:<path>`, the block the element is in),
+ * its line `L12`.
  */
-export function lineOfAnchor(id: string, anchors: string[]): { anchor: string; side: Side; line: number } | undefined {
+export function lineOfAnchor(id: string, anchors: string[], within?: string): { anchor: string; side: Side; line: number } | undefined {
+  const blob = /^L(\d+)$/.exec(id);
+  if (blob && within?.startsWith('blob:')) return { anchor: within, side: 'R', line: Number(blob[1]) };
   let m = /^(diff-[0-9a-f]{64})([LR])(\d+)$/.exec(id);
   if (m && anchors.includes(m[1])) return { anchor: m[1], side: m[2] as Side, line: Number(m[3]) };
   m = /^line_([0-9a-f]{9})_(A?)(\d+)$/.exec(id);
@@ -78,7 +81,7 @@ export function leaveFor(hash: string, views: ViewState[], found: Found | undefi
   if (!id) return undefined;
   const note = noteOfAnchor(id);
   const thread = note ? threads.find(t => t.notes.some(n => n.id === note)) : undefined;
-  const line = lineOfAnchor(id, views.map(v => v.anchor));
+  const line = lineOfAnchor(id, views.map(v => v.anchor), found?.anchor);
   const back: Back = thread ? { thread: thread.id } : line ? { xml: { side: line.side, line: line.line } } : {};
   if (found) {
     const view = views.find(v => v.anchor === found.anchor);

@@ -32,6 +32,8 @@ export interface FrameParams {
   head: string;
   theme: Theme;
   source?: string;
+  /** The files at one commit (`head`, which `base` is too), not a change: the objects as they are, without a diff. */
+  snapshot?: boolean;
 }
 
 export interface ViewerParams extends FrameParams {
@@ -65,6 +67,7 @@ function encodeFrame(p: FrameParams, q: URLSearchParams): void {
   q.set('h', p.head);
   q.set('t', p.theme);
   if (p.source) q.set('s', p.source);
+  if (p.snapshot) q.set('v', '1');
 }
 
 /** The frame part of a fragment, checked: an origin, a template on that origin, commits. */
@@ -79,6 +82,7 @@ function decodeFrame(q: URLSearchParams): FrameParams | undefined {
   return {
     origin, raw, order: order.length ? order : STRATEGIES, base: get('b'), head: get('h'),
     theme: theme === 'light' || theme === 'dark' ? theme : 'auto', source: q.get('s') ?? undefined,
+    ...(q.get('v') === '1' ? { snapshot: true } : {}),
   };
 }
 

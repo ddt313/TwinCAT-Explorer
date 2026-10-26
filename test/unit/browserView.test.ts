@@ -12,13 +12,14 @@ import {
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
 import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
+  blobUrl, commitApi, filesFromTree, nextPageUrl, refAndPath, repositoryPage, repositoryTreeApi,
   commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
   mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
 import { DiffLine, FileInput, FileView, ObjectView, buildFileView, hasObjectView, isTwinCatFile, splitRows } from '../../browser/src/model';
-import { ViewState, anchorId, leaveFor, noteOfAnchor } from '../../browser/src/navigation';
+import { ViewState, anchorId, leaveFor, lineOfAnchor, noteOfAnchor } from '../../browser/src/navigation';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
 import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
@@ -1083,4 +1084,88 @@ test('tree: the review threads on an object and on its file', () => {
   assert.equal(file.children.find(n => n.label === 'Open')?.comments, 2);
   const state = file.children.find(n => n.label === 'State')!;
   assert.deepEqual([state.comments, state.children[0].comments], [undefined, 1]);
+});
+
+// ------------------------------------------------------------------ a repository's files
+
+test('gitlab: the pages of a repository\'s files, their ref and path, and the REST API of a commit and its files', () => {
+  assert.deepEqual(repositoryPage('/group/sub/machine/-/blob/main/PLC/POUs/New%20FB.TcPOU'),
+    { project: 'group/sub/machine', kind: 'blob', rest: 'main/PLC/POUs/New FB.TcPOU' });
+  assert.deepEqual(repositoryPage('/plc/machine/-/tree/main/'), { project: 'plc/machine', kind: 'tree', rest: 'main' });
+  assert.equal(repositoryPage('/plc/machine/-/merge_requests/7/diffs'), undefined);
+  assert.equal(repositoryPage('/plc/machine'), undefined);
+  // A ref with slashes, as the page names it; else the URL's first part.
+  assert.deepEqual(refAndPath('feature/x/PLC/MAIN.TcPOU', [undefined, 'feature/x']), { ref: 'feature/x', path: 'PLC/MAIN.TcPOU' });
+  assert.deepEqual(refAndPath('feature/x/PLC/MAIN.TcPOU', ['main']), { ref: 'feature', path: 'x/PLC/MAIN.TcPOU' });
+  assert.deepEqual(refAndPath('main', ['main']), { ref: 'main', path: '' });
+  assert.deepEqual(refAndPath('mainline/a.TcPOU', ['main']), { ref: 'mainline', path: 'a.TcPOU' });
+  assert.equal(commitApi('https://gitlab.com', 58170678, 'feature/x'), 'https://gitlab.com/api/v4/projects/58170678/repository/commits/feature%2Fx');
+  assert.equal(repositoryTreeApi('https://gitlab.example.com/gitlab', 'plc/machine', A),
+    `https://gitlab.example.com/gitlab/api/v4/projects/plc%2Fmachine/repository/tree?ref=${A}&recursive=true&per_page=100&pagination=keyset`);
+  const next = 'https://gitlab.com/api/v4/projects/1/repository/tree?page_token=abc&pagination=keyset';
+  assert.equal(nextPageUrl(`<${next}>; rel="next", <https://gitlab.com/x>; rel="first"`), next);
+  assert.equal(nextPageUrl('<https://gitlab.com/x>; rel="first"'), undefined);
+  assert.equal(nextPageUrl(null), undefined);
+  assert.deepEqual(filesFromTree([
+    { type: 'tree', path: 'PLC' }, { type: 'blob', path: 'PLC/MAIN.TcPOU' }, { type: 'blob' }, { type: 'commit', path: 'lib' },
+  ]), ['PLC/MAIN.TcPOU']);
+  assert.deepEqual(filesFromTree({ message: '404 Not Found' }), []);
+  assert.equal(blobUrl('https://gitlab.com', 'plc/machine', 'feature/x', 'PLC/New FB.TcPOU'),
+    'https://gitlab.com/plc/machine/-/blob/feature/x/PLC/New%20FB.TcPOU');
+});
+
+test('a file at one commit: compared with itself, every object is unchanged with all its lines, each on its XML line', () => {
+  const text = valve();
+  const v = view({ before: text, after: text });
+  assert.deepEqual(v.counts, { added: 0, modified: 0, deleted: 0, unchanged: 8 });
+  const open = object(v, 'FB_Valve.Open');
+  const impl = open.sections.find(s => s.role === 'impl')!;
+  assert.deepEqual(impl.lines.map(l => [l.kind, l.text, l.newXml]),
+    [['same', 'nCycles := nCycles + 1;', lineOf(text, 'nCycles := nCycles + 1;')], ['same', 'bOpened := TRUE;', lineOf(text, 'bOpened := TRUE;')]]);
+});
+
+test('tree of the files at one commit: every object of each file, without changes; no build output', () => {
+  const path = 'PLC/POUs/FB_Valve.TcPOU';
+  const text = valve();
+  const files = [
+    { path, view: buildFileView({ path, before: text, after: text }) },
+    { path: 'PLC/DUTs/E_Mode.TcDUT', view: buildFileView({ path: 'PLC/DUTs/E_Mode.TcDUT', before: ENUM, after: ENUM }) },
+  ];
+  assert.deepEqual(treeText(buildTree(files, undefined, true)), [
+    'PLC',
+    '  DUTs',
+    '    E_Mode (ENUM)',
+    '  POUs',
+    '    FB_Valve (FB)',
+    '      A_Draw',
+    '      Close',
+    '      Init',
+    '      Open',
+    '      State',
+    '        Get',
+    '        Set',
+  ]);
+  // Of a change, the same files have no code changes.
+  assert.deepEqual(treeText(buildTree(files)).slice(0, 1), ['Build output (no code changes) · 2']);
+  assert.deepEqual(treeSummary(files, true), { files: 2, objects: 9, reading: 0 });
+  assert.deepEqual(treeSummary(files), { files: 2, objects: 0, reading: 0 });
+});
+
+test('frames and navigation: a file at one commit; its line anchor `L12` in its page', () => {
+  const p: ViewerParams = {
+    origin: 'https://gitlab.com', raw: 'https://gitlab.com/plc/machine/-/raw/{sha}/{path}', order: ['page', 'frame', 'worker'],
+    base: A, head: A, path: 'PLC/MAIN.TcPOU', deleted: false, added: false, theme: 'light', source: 'REST API, session: main', snapshot: true,
+  };
+  assert.deepEqual(decodeViewerParams(`#${encodeViewerParams(p)}`), { ...p, oldPath: undefined });
+  const t: TreeParams = { ...p, host: 'gitlab', diff: undefined };
+  delete (t as Partial<ViewerParams>).path;
+  delete (t as Partial<ViewerParams>).deleted;
+  delete (t as Partial<ViewerParams>).added;
+  assert.deepEqual(decodeTreeParams(`#${encodeTreeParams(t)}`), t);
+  assert.equal(decodeTreeParams(`#${encodeTreeParams({ ...t, snapshot: false })}`)?.snapshot, undefined);
+  const anchor = 'blob:PLC/MAIN.TcPOU';
+  assert.deepEqual(lineOfAnchor('L12', [anchor, 'blob:PLC/GVL.TcGVL'], anchor), { anchor, side: 'R', line: 12 });
+  assert.equal(lineOfAnchor('L12', [anchor]), undefined);
+  const views: ViewState[] = [{ anchor, path: 'PLC/MAIN.TcPOU', on: true }];
+  assert.deepEqual(leaveFor('#L12', views, { anchor, inDiff: true }, []), { anchor, back: { xml: { side: 'R', line: 12 } } });
 });

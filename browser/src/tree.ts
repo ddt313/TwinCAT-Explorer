@@ -3,7 +3,9 @@
 // the page, which has them from the host's API (GitLab) or, failing that, from its own list. It reads each file at
 // the base and at the head, a few at a time, and fills the tree as they come, with the number of review threads on
 // each object and file (the page sends the threads). A click shows the object in its file's TwinCAT view. The change's
-// other files are in the tree too, not read: a click shows the host's diff of the file.
+// other files are in the tree too, not read: a click shows the host's diff of the file. Of a repository's page
+// (`snapshot`), the TwinCAT files at its commit, which the page lists from the host's API, each read once and shown
+// with all its objects, the files folded; a click shows the file's page, at the object.
 
 import { ThreadsResult, placeThreads, threadsOfFile } from './comments';
 import { DiffFile, compareGithubPaths, filesInDiff } from './github';
@@ -24,8 +26,9 @@ const post = (m: FrameMessage) => {
   if (params) window.parent.postMessage(m, params.origin);
 };
 const reader = new Reader(post, params?.origin ?? '', params?.order ?? []);
-/** The folders and files in the order of the host's page. */
-const pathOrder = params?.host === 'gitlab' ? compareGitlabPaths : params?.host === 'github' ? compareGithubPaths : undefined;
+const snapshot = !!params?.snapshot;
+/** The folders and files in the order of the host's page (of a change); XAE's, of the files at a commit. */
+const pathOrder = snapshot ? undefined : params?.host === 'gitlab' ? compareGitlabPaths : params?.host === 'github' ? compareGithubPaths : undefined;
 
 interface Entry extends TreeFile {
   status?: DiffFile['status'];
@@ -44,6 +47,9 @@ let problem: string | undefined;
 const PAGE_LIST = 'The change\'s diff or the host\'s API could not be read: the files are the ones the page lists.';
 const reading = new Set<Entry>();
 const collapsed = new Set<string>();
+/** Of the files at a commit, the files are folded: these are not. */
+const expanded = new Set<string>();
+const isOpen = (n: TreeNode) => (snapshot && n.kind === 'file' ? expanded.has(n.id) : !collapsed.has(n.id));
 let selected: string | undefined;
 let nodes = new Map<string, TreeNode>();
 
@@ -74,9 +80,10 @@ async function readEntry(e: Entry): Promise<void> {
   const p = params!;
   try {
     const head = e.status === 'deleted' ? undefined : await reader.read(`head ${e.path}`, fileUrl(p.raw, p.head, e.path));
-    const base = e.status === 'added' ? undefined : await reader.read(`base ${e.path}`, fileUrl(p.raw, p.base, e.oldPath ?? e.path));
+    const base = e.status === 'added' || snapshot ? undefined : await reader.read(`base ${e.path}`, fileUrl(p.raw, p.base, e.oldPath ?? e.path));
     const after = reader.textOf(head);
-    const before = reader.textOf(base);
+    // One version: compared with itself, all its objects are there, unchanged.
+    const before = snapshot ? after : reader.textOf(base);
     if (after === null || before === null) e.error = 'cannot be read';
     else if (after === undefined && before === undefined) e.error = 'in neither version';
     else e.view = buildFileView({ path: e.path, oldPath: e.oldPath, before, after });
@@ -180,7 +187,7 @@ function scheduleRender(): void {
 function rowsHtml(list: TreeNode[], depth: number, out: string[]): void {
   for (const n of list) {
     nodes.set(n.id, n);
-    const open = !collapsed.has(n.id);
+    const open = isOpen(n);
     const twisty = n.children.length ? `<span class="twisty${open ? ' open' : ''}"></span>` : '<span class="twisty none"></span>';
     const icon = n.icon ? `<img class="icon" src="${iconSrc(n.icon)}" alt="">` : '';
     const letter = n.change ? `<span class="letter l-${n.change}" title="${n.change}">${LETTER[n.change]}</span>` : '';
@@ -197,13 +204,13 @@ function render(): void {
   const scroll = document.scrollingElement?.scrollTop ?? 0;
   nodes = new Map();
   countThreads();
-  const s = treeSummary(entries);
+  const s = treeSummary(entries, snapshot);
   const threads = entries.reduce((n, e) => n + (e.comments?.total ?? 0), 0);
   const counts = source ? `${s.files} file${s.files === 1 ? '' : 's'} · ${s.objects} object${s.objects === 1 ? '' : 's'}${
     threads ? ` · ${threads} thread${threads === 1 ? '' : 's'}` : ''}${s.reading ? ` · reading ${s.reading}…` : ''}` : 'reading the list of files…';
   const rows: string[] = [];
-  rowsHtml(buildTree(entries, pathOrder), 0, rows);
-  const empty = source && !entries.some(e => !e.other) ? '<p class="note">No TwinCAT file in this change.</p>' : '';
+  rowsHtml(buildTree(entries, pathOrder, snapshot), 0, rows);
+  const empty = source && !entries.some(e => !e.other) ? `<p class="note">No TwinCAT file ${snapshot ? 'at this commit' : 'in this change'}.</p>` : '';
   const notes = [problem, threadInfo?.problem && `Comments: ${threadInfo.problem}`].filter(Boolean).map(n => `<p class="note">${esc(n!)}</p>`).join('');
   root.innerHTML = `<div class="head"><span class="title">TwinCAT</span><span class="counts">${counts}</span></div>
     ${notes}${empty}<div class="tree" role="tree">${rows.join('')}</div>`;
@@ -218,8 +225,9 @@ root.addEventListener('click', e => {
   if (!row || !node) return;
   const onTwisty = (e.target as Element).classList.contains('twisty');
   if (node.children.length && (onTwisty || !node.file)) {
-    if (collapsed.has(node.id)) collapsed.delete(node.id);
-    else collapsed.add(node.id);
+    const set = snapshot && node.kind === 'file' ? expanded : collapsed;
+    if (set.has(node.id)) set.delete(node.id);
+    else set.add(node.id);
     render();
     return;
   }

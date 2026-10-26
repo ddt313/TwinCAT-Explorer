@@ -3,6 +3,12 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.16.1 - 2026-10-26
+
+### Fixed
+- The changelog of 0.16.0 (the extension's Changelog tab) has one section for that version. It also had the same
+  changes under *Unreleased*, written a second time.
+
 ## 0.16.0 - 2026-10-25
 
 ### Added

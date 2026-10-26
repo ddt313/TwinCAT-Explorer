@@ -4,6 +4,21 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- Bitbucket Cloud: on a pull request's *Files changed* tab (bitbucket.org), the **TwinCAT view** toggles on the
+  TwinCAT files, the **TwinCAT** tab beside Bitbucket's file tree, and the review threads under their lines, resolved
+  or not, as on GitHub and GitLab. The commits, files and comments come from Bitbucket's REST API with the session
+  (a private repository needs no token), else from its public API. The extension asks for bitbucket.org and
+  api.bitbucket.org: the browser may ask again to allow it after the update.
+
+### Fixed
+- An object revealed from the TwinCAT tab is scrolled to also when its file is the last of the page: the page could
+  not scroll that far before the view's new height was known.
+- The extension builds again: the core's `textHash` (Node's `crypto`), which the extension does not call, is stubbed
+  out of its bundles.
+
 ## 0.1.4 - 2026-10-22
 
 ### Fixed

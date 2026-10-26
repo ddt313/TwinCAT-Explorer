@@ -69,3 +69,8 @@ declare namespace chrome.tabs {
 // src/core/tcfile.ts mentions Node's Buffer in decodeBytes and encodeText, which the extension never calls (it
 // decodes with TextDecoder): declared for the type check only, and the build checks that no bundle uses it.
 declare const Buffer: any;
+
+// Node's crypto, for the core's textHash, which the extension does not call (build.js stubs it out).
+declare module 'crypto' {
+  export function createHash(algorithm: string): { update(text: string): { digest(encoding: 'hex'): string } };
+}

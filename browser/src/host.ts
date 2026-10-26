@@ -1,12 +1,12 @@
 // What the content script needs of a review page, whatever the host: one adapter per host (GitHub's "Files changed",
-// GitLab's "Changes"), the only code that knows the host's DOM and URLs.
+// GitLab's "Changes", Bitbucket's "Files changed"), the only code that knows the host's DOM and URLs.
 
 import { ReviewThread, Side, ThreadsResult } from './comments';
-import { Commits, Strategy, Theme } from './params';
+import { Commits, HostKind, Strategy, Theme } from './params';
 import { ChangedFile, DiffStyle } from './protocol';
 
 export interface Host {
-  readonly kind: 'github' | 'gitlab';
+  readonly kind: HostKind;
   /** The review page: the content script starts over on another one. */
   readonly key: string;
   /** The host's URL of a raw file, with `{sha}` and `{path}`. */

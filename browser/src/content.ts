@@ -1,19 +1,21 @@
 // Content script on review pages: GitHub's "Files changed", GitLab's "Changes" (gitlab.com, and the self-managed
-// instances the user turned the extension on for). It finds the blocks of the TwinCAT files, adds a "TwinCAT view"
-// toggle to their headers and, when on, shows the extension's viewer in a frame in place of the host's diff, with
-// the change's coordinates and the review threads on the file. Above the host's file tree it adds a "TwinCAT" tab,
-// the extension's tree of the changed objects in a frame, and takes a click there to the object's view. A jump from
-// a view to the host's diff (an XML line, a thread), and a navigation to an anchor in the diff a view hides, turn
-// that view off, with a button beside the toggle to come back. It reads no files itself, except for a frame that
-// asks it to (the page has the user's session). On a site the user set to start by hand (sites.ts), it does nothing
-// until the popup starts it in the tab. Everything that knows a host's DOM is in its adapter (host.ts).
+// instances the user turned the extension on for), Bitbucket's "Files changed". It finds the blocks of the TwinCAT
+// files, adds a "TwinCAT view" toggle to their headers and, when on, shows the extension's viewer in a frame in place
+// of the host's diff, with the change's coordinates and the review threads on the file. Above the host's file tree it
+// adds a "TwinCAT" tab, the extension's tree of the changed objects in a frame, and takes a click there to the object's
+// view. A jump from a view to the host's diff (an XML line, a thread), and a navigation to an anchor in the diff a view
+// hides, turn that view off, with a button beside the toggle to come back. It reads no files itself, except for a frame
+// that asks it to (the page has the user's session). On a site the user set to start by hand (sites.ts), it does
+// nothing until the popup starts it in the tab. Everything that knows a host's DOM is in its adapter (host.ts).
 
 import { Accessor } from '../../src/core/objectText';
+import { pullRequestPage } from './bitbucket';
 import { ReviewThread, Side, ThreadsResult, currentPosition, threadsOfFile } from './comments';
 import { fetchText } from './fetchText';
 import { filesPage } from './github';
 import { isChangesTab, mergeRequestPage } from './gitlab';
 import { Host } from './host';
+import { BitbucketHost } from './hostBitbucket';
 import { GitHubHost } from './hostGithub';
 import { GitLabHost } from './hostGitlab';
 import { Lookup } from './lookup';
@@ -36,6 +38,10 @@ function detectHost(): Host | undefined {
   if (location.hostname === 'github.com') {
     const pr = filesPage(location.pathname);
     return pr ? new GitHubHost(pr) : undefined;
+  }
+  if (location.hostname === 'bitbucket.org') {
+    const pr = pullRequestPage(location.pathname);
+    return pr ? new BitbucketHost(pr) : undefined;
   }
   const mr = mergeRequestPage(location.pathname);
   if (mr && isChangesTab(location.pathname) && document.body?.dataset.page?.startsWith('projects:merge_requests')) return new GitLabHost(mr);

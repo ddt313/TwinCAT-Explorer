@@ -5,6 +5,10 @@
 
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import {
+  bitbucketBlockId, bitbucketLineOfAnchor, bitbucketRawTemplate, bitbucketTheme, commentUrl, filesFromDiffstat, isLineAnchor, pullRequestPage, repositoryApi,
+  threadsFromBitbucket,
+} from '../../browser/src/bitbucket';
 import { ReviewThread, currentPosition, placeThreads, threadsOfFile } from '../../browser/src/comments';
 import { commitsInPage, compareGithubPaths, filesInDiff, filesPage, githubDiffStyle, githubRawTemplate, pullDiffUrl, reviewCommentsUrl, shaKeys, threadsFromGithub } from '../../browser/src/github';
 import {
@@ -607,6 +611,96 @@ test('gitlab: the line anchors of the Rapid Diffs page and the color mode', () =
   assert.equal(gitlabTheme('gl-system ui-neutral with-top-bar gl-dark'), 'dark');
   assert.equal(gitlabTheme('gl-light ui-neutral'), 'light');
   assert.equal(gitlabTheme('gl-darker-sidebar'), 'light');
+});
+
+test('bitbucket: the pull request of a "Files changed" page, its raw files, its REST API and its comments\' links', () => {
+  const pr = { workspace: 'europeanspallationsource', repo: 'tc_generic_structure', id: 98 };
+  assert.deepEqual(pullRequestPage('/europeanspallationsource/tc_generic_structure/pull-requests/98/diff'), pr);
+  assert.deepEqual(pullRequestPage('/europeanspallationsource/tc_generic_structure/pull-requests/98/diff/'), pr);
+  // Its other tabs, and other pages.
+  assert.equal(pullRequestPage('/europeanspallationsource/tc_generic_structure/pull-requests/98'), undefined);
+  assert.equal(pullRequestPage('/europeanspallationsource/tc_generic_structure/pull-requests/98/commits'), undefined);
+  assert.equal(pullRequestPage('/europeanspallationsource/tc_generic_structure/src/master/'), undefined);
+  assert.equal(fileUrl(bitbucketRawTemplate(pr), A, 'solution/POUs/MAIN.TcPOU'), `https://bitbucket.org/europeanspallationsource/tc_generic_structure/raw/${A}/solution/POUs/MAIN.TcPOU`);
+  assert.equal(repositoryApi('https://bitbucket.org/!api/2.0', pr), 'https://bitbucket.org/!api/2.0/repositories/europeanspallationsource/tc_generic_structure');
+  assert.equal(commentUrl(pr, '585868006'), 'https://bitbucket.org/europeanspallationsource/tc_generic_structure/pull-requests/98/diff#comment-585868006');
+  assert.ok(fetchAllowed('https://bitbucket.org/w/r/raw/x/y') && fetchAllowed('https://api.bitbucket.org/2.0/repositories/w/r'));
+  assert.equal(bitbucketTheme('dark'), 'dark');
+  assert.equal(bitbucketTheme('light'), 'light');
+  assert.equal(bitbucketTheme(undefined), 'light');
+});
+
+test('bitbucket: the files of a diffstat, added, removed and renamed ones included', () => {
+  const files = filesFromDiffstat([
+    { status: 'modified', old: { path: 'POUs/MAIN.TcPOU' }, new: { path: 'POUs/MAIN.TcPOU' } },
+    { status: 'added', old: null, new: { path: 'POUs/FB_New.TcPOU' } },
+    { status: 'removed', old: { path: 'POUs/FB_Old.TcPOU' }, new: null },
+    { status: 'renamed', old: { path: 'POUs/Old/FB_Pump.TcPOU' }, new: { path: 'POUs/FB_Pump.TcPOU' } },
+    { status: 'modified' },
+  ]);
+  assert.deepEqual(files, [
+    { path: 'POUs/MAIN.TcPOU' },
+    { path: 'POUs/FB_New.TcPOU', added: true },
+    { path: 'POUs/FB_Old.TcPOU', deleted: true },
+    { path: 'POUs/FB_Pump.TcPOU', oldPath: 'POUs/Old/FB_Pump.TcPOU' },
+  ]);
+  assert.deepEqual(filesFromDiffstat('not a list'), []);
+});
+
+test('bitbucket: the comments make threads with their replies, resolved or not; an outdated one is not on the head', () => {
+  const user = (name: string) => ({ display_name: name });
+  const comment = (id: number, more: Record<string, unknown>) => ({ id, created_on: `2025-01-13T15:${String(id % 60).padStart(2, '0')}:00Z`, user: user('Federico Rojas'), content: { raw: `note ${id}` }, ...more });
+  const inline = (from: number | null, to: number | null, more: Record<string, unknown> = {}) => ({ path: 'POUs/MAIN.TcPOU', from, to, outdated: false, ...more });
+  const threads = threadsFromBitbucket([
+    comment(1, { inline: inline(7, null), resolution: { type: 'comment_resolution' } }),
+    comment(2, { inline: inline(null, 12) }),
+    comment(3, { parent: { id: 2 }, user: user('Israa Ali'), inline: inline(null, 12) }),
+    comment(4, { parent: { id: 3 }, inline: inline(null, 12) }),
+    comment(5, { inline: inline(null, null) }),
+    comment(6, { inline: inline(30, null, { outdated: true }) }),
+    comment(7, { inline: inline(null, 20, { start_to: 18 }) }),
+    comment(8, { deleted: true, inline: inline(null, 40) }),
+    // A comment on the pull request itself.
+    comment(9, {}),
+  ], B, id => `#comment-${id}`);
+  assert.deepEqual(threads.map(t => [t.id, t.anchor, t.notes.map(n => n.id), t.resolved]), [
+    ['1', 'comment-1', ['1'], true],
+    ['2', 'comment-2', ['2', '3', '4'], false],
+    ['5', 'comment-5', ['5'], false],
+    ['6', 'comment-6', ['6'], false],
+    ['7', 'comment-7', ['7'], false],
+  ]);
+  assert.equal(threads[1].notes[1].author, 'Israa Ali');
+  assert.equal(threads[0].url, '#comment-1');
+  const [old7, new12, file, outdated, range] = threads.map(t => t.positions[0]);
+  // `from`: a line of the base file (an unchanged line too), `to`: a line of the head file.
+  assert.deepEqual(old7, { oldPath: 'POUs/MAIN.TcPOU', newPath: 'POUs/MAIN.TcPOU', oldLine: 7, head: B });
+  assert.deepEqual(new12, { oldPath: 'POUs/MAIN.TcPOU', newPath: 'POUs/MAIN.TcPOU', newLine: 12, head: B });
+  assert.equal(file.file, true);
+  assert.deepEqual(range.start, { side: 'R', line: 18 });
+  assert.equal(outdated.head, undefined);
+  assert.ok(currentPosition(threads[0], { base: A, head: B }));
+  assert.equal(currentPosition(threads[3], { base: A, head: B }), undefined);
+  assert.deepEqual(threadsOfFile(threads, 'POUs/MAIN.TcPOU').length, 5);
+});
+
+test('bitbucket: the line anchors of its diff, on the base, on the head, or both', () => {
+  const block = bitbucketBlockId('POUs/MAIN.TcPOU');
+  assert.equal(block, 'tcx-chg-POUs/MAIN.TcPOU');
+  const other = bitbucketBlockId('POUs/MAIN.TcPOU2');
+  assert.deepEqual(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOUF6T7', [block]), { anchor: block, side: 'R', line: 7 });
+  assert.deepEqual(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOUF6', [block]), { anchor: block, side: 'L', line: 6 });
+  assert.deepEqual(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOUT6', [block]), { anchor: block, side: 'R', line: 6 });
+  // A path that starts like another one: the anchor that fits.
+  assert.deepEqual(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOU2T3', [block, other]), { anchor: other, side: 'R', line: 3 });
+  assert.equal(bitbucketLineOfAnchor('LPOUs/MAIN.TcPOU', [block]), undefined);
+  assert.equal(bitbucketLineOfAnchor('LPOUs/Other.TcPOUT3', [block]), undefined);
+  assert.ok(isLineAnchor('LPOUs/MAIN.TcPOUF6T7', 'POUs/MAIN.TcPOU', 'L', 6) && isLineAnchor('LPOUs/MAIN.TcPOUF6T7', 'POUs/MAIN.TcPOU', 'R', 7));
+  assert.ok(!isLineAnchor('LPOUs/MAIN.TcPOUF6', 'POUs/MAIN.TcPOU', 'R', 6) && !isLineAnchor('LPOUs/MAIN.TcPOU2T7', 'POUs/MAIN.TcPOU', 'R', 7));
+  // The navigation knows them, and Bitbucket's comments' anchors.
+  const views: ViewState[] = [{ anchor: block, path: 'POUs/MAIN.TcPOU', on: true }];
+  assert.deepEqual(leaveFor('#LPOUs%2FMAIN.TcPOUT74', views, undefined, []), { anchor: block, back: { xml: { side: 'R', line: 74 } }, line: { side: 'R', line: 74 } });
+  assert.equal(noteOfAnchor('comment-585871005'), '585871005');
 });
 
 // ------------------------------------------------------------------ the tree of the changes

@@ -533,6 +533,9 @@ async function reveal(r: Reveal): Promise<void> {
   flash.classList.add('flash');
   // A frame just shown again is laid out late (a second and more, seen on GitHub): measure once the target has a box.
   for (let n = 0; n < 60 && target.getBoundingClientRect().height === 0; n++) await new Promise(done => setTimeout(done, 50));
+  // The height first, before the resize observer tells it: the page can scroll only as far as the frame reaches (the
+  // last file of a page, on Bitbucket).
+  post({ tcx: 'height', height: Math.ceil(document.body.getBoundingClientRect().height) });
   post({ tcx: 'scroll', top: target.getBoundingClientRect().top + window.scrollY });
 }
 

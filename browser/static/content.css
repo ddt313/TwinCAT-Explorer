@@ -1,45 +1,45 @@
 /*
  * The toggle, the tabs and the frames the content script adds to the host's page, in the host's colors, light or
  * dark: each color is GitHub's Primer variable, else GitLab's design token (`--gl-*`, which follow its color mode on
- * <html>), else GitHub's light value.
+ * <html>), else Bitbucket's (Atlassian's `--ds-*`, which follow `<html data-color-mode>`), else GitHub's light value.
  */
 .tcx-toggle {
   margin-left: 8px;
   padding: 0 8px;
   font: 500 12px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  color: var(--fgColor-default, var(--gl-button-default-primary-foreground-color-default, #1f2328));
-  background: var(--button-default-bgColor-rest, var(--gl-button-default-primary-background-color-default, #f6f8fa));
-  border: 1px solid var(--borderColor-default, var(--gl-button-default-primary-border-color-default, #d1d9e0));
+  color: var(--fgColor-default, var(--gl-button-default-primary-foreground-color-default, var(--ds-text, #1f2328)));
+  background: var(--button-default-bgColor-rest, var(--gl-button-default-primary-background-color-default, var(--ds-background-neutral, #f6f8fa)));
+  border: 1px solid var(--borderColor-default, var(--gl-button-default-primary-border-color-default, var(--ds-border, #d1d9e0)));
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
   vertical-align: middle;
 }
-.tcx-toggle:hover { background: var(--button-default-bgColor-hover, var(--gl-button-default-primary-background-color-hover, #eff2f5)); }
+.tcx-toggle:hover { background: var(--button-default-bgColor-hover, var(--gl-button-default-primary-background-color-hover, var(--ds-background-neutral-hovered, #eff2f5))); }
 .tcx-toggle[aria-pressed="true"] {
-  color: var(--fgColor-onEmphasis, #ffffff);
-  background: var(--bgColor-accent-emphasis, #0969da);
+  color: var(--fgColor-onEmphasis, var(--ds-text-inverse, #ffffff));
+  background: var(--bgColor-accent-emphasis, var(--ds-background-brand-bold, #0969da));
   border-color: transparent;
 }
 .tcx-note {
   margin-left: 8px;
   font-size: 12px;
-  color: var(--fgColor-attention, var(--gl-text-color-warning, #9a6700));
+  color: var(--fgColor-attention, var(--gl-text-color-warning, var(--ds-text-warning, #9a6700)));
 }
 /* After a jump from the view to the host's diff: back to the view, where it was left. */
 .tcx-back {
   margin-left: 6px;
   padding: 0 8px;
   font: 500 12px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  color: var(--fgColor-accent, var(--gl-text-color-link, #0969da));
+  color: var(--fgColor-accent, var(--gl-text-color-link, var(--ds-link, #0969da)));
   background: transparent;
-  border: 1px solid var(--borderColor-accent-muted, var(--gl-border-color-default, #54aeff66));
+  border: 1px solid var(--borderColor-accent-muted, var(--gl-border-color-default, var(--ds-border-brand, #54aeff66)));
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
   vertical-align: middle;
 }
-.tcx-back:hover { background: var(--bgColor-accent-muted, var(--gl-action-neutral-background-color-hover, #ddf4ff)); }
+.tcx-back:hover { background: var(--bgColor-accent-muted, var(--gl-action-neutral-background-color-hover, var(--ds-background-selected, #ddf4ff))); }
 .tcx-hidden { display: none !important; }
 .tcx-host { display: block; }
 .tcx-frame {
@@ -52,7 +52,7 @@
   margin: 0;
   padding: 8px 16px;
   font-size: 12px;
-  color: var(--fgColor-muted, var(--gl-text-color-subtle, #59636e));
+  color: var(--fgColor-muted, var(--gl-text-color-subtle, var(--ds-text-subtle, #59636e)));
 }
 
 /* The tabs above the host's file tree, and the tree's frame. */
@@ -61,31 +61,31 @@
   display: flex;
   gap: 2px;
   padding: 2px;
-  background: var(--bgColor-muted, var(--gl-background-color-subtle, #f6f8fa));
-  border: 1px solid var(--borderColor-default, var(--gl-border-color-default, #d1d9e0));
+  background: var(--bgColor-muted, var(--gl-background-color-subtle, var(--ds-background-neutral, #f6f8fa)));
+  border: 1px solid var(--borderColor-default, var(--gl-border-color-default, var(--ds-border, #d1d9e0)));
   border-radius: 6px;
 }
 .tcx-tabs [role="tab"] {
   flex: 1;
   padding: 2px 8px;
   font: 500 12px/20px -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  color: var(--fgColor-muted, var(--gl-text-color-subtle, #59636e));
+  color: var(--fgColor-muted, var(--gl-text-color-subtle, var(--ds-text-subtle, #59636e)));
   background: transparent;
   border: 0;
   border-radius: 4px;
   cursor: pointer;
 }
 .tcx-tabs [role="tab"][aria-selected="true"] {
-  color: var(--fgColor-default, var(--gl-text-color-default, #1f2328));
-  background: var(--bgColor-default, var(--gl-background-color-default, #ffffff));
-  box-shadow: 0 0 0 1px var(--borderColor-default, var(--gl-border-color-default, #d1d9e0));
+  color: var(--fgColor-default, var(--gl-text-color-default, var(--ds-text, #1f2328)));
+  background: var(--bgColor-default, var(--gl-background-color-default, var(--ds-surface, #ffffff)));
+  box-shadow: 0 0 0 1px var(--borderColor-default, var(--gl-border-color-default, var(--ds-border, #d1d9e0)));
 }
 .tcx-tree-frame {
   display: block;
   width: 100%;
   height: 480px;
   margin-top: 8px;
-  border: 1px solid var(--borderColor-default, var(--gl-border-color-default, #d1d9e0));
+  border: 1px solid var(--borderColor-default, var(--gl-border-color-default, var(--ds-border, #d1d9e0)));
   border-radius: 6px;
 }
 /* Without the host's tree in the page: a panel of its own at the bottom left. */
@@ -97,7 +97,7 @@
   width: 360px;
   margin: 0;
 }
-.tcx-float .tcx-tree-frame { height: calc(100vh - 140px); background: var(--bgColor-default, var(--gl-background-color-default, #ffffff)); }
+.tcx-float .tcx-tree-frame { height: calc(100vh - 140px); background: var(--bgColor-default, var(--gl-background-color-default, var(--ds-surface, #ffffff))); }
 /* Over the host's tree (GitLab), which stays rendered underneath: the tabs on top, the tree's frame below them. */
 .tcx-overlay-parent { position: relative !important; }
 .tcx-tree.tcx-overlay {
@@ -107,6 +107,6 @@
   display: flex;
   flex-direction: column;
   margin: 0;
-  background: var(--gl-background-color-default, var(--bgColor-default, #ffffff));
+  background: var(--gl-background-color-default, var(--bgColor-default, var(--ds-surface, #ffffff)));
 }
 .tcx-tree.tcx-overlay .tcx-tree-frame { flex: 1; height: auto; min-height: 0; }

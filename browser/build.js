@@ -25,13 +25,23 @@ const bundles = ['content', 'viewer', 'tree', 'popup', 'background'];
     sourcemap: dev ? 'inline' : false,
     logLevel: 'warning',
     legalComments: 'none',
+    // The core's textHash uses Node's crypto, which the extension never calls: a stub, and no bundle may keep it.
+    plugins: [{
+      name: 'no-node-crypto',
+      setup(build) {
+        build.onResolve({ filter: /^crypto$/ }, () => ({ path: 'crypto', namespace: 'tcx-stub' }));
+        build.onLoad({ filter: /.*/, namespace: 'tcx-stub' }, () => ({ contents: 'export function createHash() { throw new Error("no crypto"); }', loader: 'js' }));
+      },
+    }],
   });
   for (const f of fs.readdirSync(path.join(here, 'static'))) fs.copyFileSync(path.join(here, 'static', f), path.join(out, f));
   fs.copyFileSync(path.join(here, '..', 'media', 'icon.png'), path.join(out, 'icon.png'));
   fs.cpSync(path.join(here, '..', 'media', 'icons'), path.join(out, 'icons'), { recursive: true });
-  // The core's decodeBytes and encodeText use Node's Buffer: no bundle may keep them.
+  // The core's decodeBytes and encodeText use Node's Buffer, its textHash Node's crypto: no bundle may keep them.
   for (const b of bundles) {
-    if (/\bBuffer\b/.test(fs.readFileSync(path.join(out, `${b}.js`), 'utf8'))) throw new Error(`${b}.js uses Node's Buffer`);
+    const code = fs.readFileSync(path.join(out, `${b}.js`), 'utf8');
+    if (/\bBuffer\b/.test(code)) throw new Error(`${b}.js uses Node's Buffer`);
+    if (code.includes('no crypto')) throw new Error(`${b}.js uses Node's crypto`);
   }
   const size = f => `${f} ${(fs.statSync(path.join(out, f)).size / 1024).toFixed(0)} KB`;
   console.log(`browser extension in ${path.relative(process.cwd(), out) || '.'}: ${bundles.map(b => size(`${b}.js`)).join(', ')}`);

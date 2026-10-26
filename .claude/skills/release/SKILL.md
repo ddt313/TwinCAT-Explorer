@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release a version of Explorer for TwinCAT, the VS Code extension (tag v0.16.1, a .vsix) or the browser extension (tag browser-v0.1.4, a zip). Turns the changelog's Unreleased section into the version's, bumps the version, merges release/x.y.z into develop and develop into master, tags master's merge commit, then builds, tests, packages and creates the GitHub release by hand when GitHub Actions does not run. Use whenever the user wants to release, ship, tag or publish a version, bump the version, or fix a release that went out wrong. Also triggers on Vietnamese phrasing such as "release bản này", "ra bản mới", "tạo release 0.16.1", "bump version", "tag version".
+description: Release a version of Explorer for TwinCAT, the VS Code extension (tag v0.16.1, a .vsix) or the browser extension (tag browser-v0.1.4, a zip). Turns the changelog's Unreleased section into the version's, bumps the version, merges release/x.y.z into develop and develop into master, tags master's merge commit, then builds, tests, packages and creates the GitHub release by hand when GitHub Actions does not run. Use whenever the user wants to release, ship, tag or publish a version, bump the version, or fix a release that went out wrong.
 ---
 
 # Release

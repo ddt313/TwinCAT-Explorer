@@ -696,8 +696,14 @@ function onFrameMessage(e: MessageEvent): void {
     case 'scroll': {
       block.reveal = undefined;
       const scroller = scrollerOf(frame);
-      const top = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
-      scroller.scrollBy({ top: frame.getBoundingClientRect().top + m.top - top - (host?.stickyTop ?? 0), behavior: 'smooth' });
+      const by = () => frame.getBoundingClientRect().top + m.top - (scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top) - (host?.stickyTop ?? 0);
+      const from = scroller.scrollTop;
+      const distance = by();
+      scroller.scrollBy({ top: distance, behavior: 'smooth' });
+      // A page that is still settling (GitLab's, just loaded) stops the scroll: once more, at once.
+      setTimeout(() => {
+        if (Math.abs(distance) > 1 && Math.abs(scroller.scrollTop - from) < 1) scroller.scrollBy({ top: by() });
+      }, 1000);
       return;
     }
     case 'fetch':

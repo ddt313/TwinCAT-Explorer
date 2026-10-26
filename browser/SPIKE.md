@@ -258,7 +258,9 @@ one commit instead of a change (`snapshot` in the frames' parameters).
   keyset pages of 100), each read once, a few at a time; each file as its object with all its members (no letters, no
   build output group), in XAE's order, the files folded. A click on an object goes to its file's page: through
   GitLab's own row of the file (or the folder's table) when the page shows it, in the app; else the page is loaded,
-  and the place asked for is kept in the page's `sessionStorage` for the next page to show (for 30 seconds). The app's
+  and the place asked for is kept in the page's `sessionStorage` for the next page to show (for 30 seconds). A page
+  just loaded stops the scroll to it (GitLab's, still settling): the page scrolls once more, at once, a second later
+  when it has not moved. The viewer tells its height before a scroll, so that the frame is as tall as the view. The app's
   router does not follow a `history.pushState` it did not make: tried, the URL changed and the page did not.
 - **Hooks**: `body[data-page]`, `data-project-full-path`, `data-project-id` (low); `.file-holder`, `.js-file-title`,
   `[data-testid="file-title-content"]`, `.blob-viewer`, `#L<n>` (medium); `.file-tree-browser

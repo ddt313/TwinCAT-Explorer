@@ -1,12 +1,12 @@
 # Spike: TwinCAT objects in GitHub's, GitLab's and Bitbucket's diffs
 
-A read-only browser extension (Chromium, Manifest V3) that shows a changed `.TcPOU`, `.TcDUT`, `.TcGVL` or
+A read-only browser extension (Chromium and Firefox, Manifest V3) that shows a changed `.TcPOU`, `.TcDUT`, `.TcGVL` or
 `.TcIO` file of a GitHub or Bitbucket pull request or a GitLab merge request as TwinCAT objects instead of XML, in the layout of
 the VS Code extension's commit diff (`src/vscode/commitDiff.ts`): each changed object with its Declaration diff
 above its Implementation diff. This document answers the spike's questions (asked for GitHub), then tells how GitLab
 was added ([GitLab](#gitlab)), how the review threads show in the view ([Review comments](#review-comments)), and how
-Bitbucket Cloud was added ([Bitbucket](#bitbucket)).
-Tested on 2026-10-20 and 2026-10-21 with Edge 155 and Chrome 155.
+Bitbucket Cloud was added ([Bitbucket](#bitbucket)), and how it runs in Firefox ([Firefox](#firefox)).
+Tested on 2026-10-20 and 2026-10-21 with Edge 155 and Chrome 155, on 2026-10-26 with Firefox 158.
 
 **Live test on a signed-in browser (React "Files changed" page, private repository): pending.** The answers
 below marked *pending* are filled in from it.
@@ -18,7 +18,9 @@ npm run build:browser
 ```
 
 This type-checks `browser/` and bundles it into `browser/dist`. In Chrome or Edge, open `chrome://extensions`
-(or `edge://extensions`), turn on developer mode, *Load unpacked*, and pick `browser/dist`. On a pull request's
+(or `edge://extensions`), turn on developer mode, *Load unpacked*, and pick `browser/dist`. In Firefox, open
+`about:debugging#/runtime/this-firefox`, *Load Temporary Add-on…*, and pick `browser/dist-firefox/manifest.json`
+(it stays until Firefox closes; see [Firefox](#firefox)). On a pull request's
 *Files changed* tab each TwinCAT source file (`.TcPOU`, `.TcDUT`, `.TcGVL`, `.TcIO`) gets a **TwinCAT view**
 toggle in its header (Alt+click toggles all of them). When it is on, the file's diff is replaced by the object view;
 off brings GitHub's diff back. A project file (`.tsproj`, `.xti`) has no toggle: it keeps GitHub's diff, and the tree
@@ -74,7 +76,7 @@ The browser extension is released on its own, from the same repository as the VS
 | Changes | `CHANGELOG.md` | `browser/CHANGELOG.md` |
 | Tags | `v0.13.0` | `browser-v0.1.0` |
 | Workflow | `.github/workflows/release.yml` | `.github/workflows/release-browser.yml` |
-| Release | a `.vsix` on GitHub, and the Marketplace | a zip on GitHub, never marked as the latest release |
+| Release | a `.vsix` on GitHub, and the Marketplace | a zip on GitHub and Firefox's signed `.xpi`, never marked as the latest release |
 
 - **To release**: set the manifest's `version` (and `version_name` for a pre-release such as `0.2.0-beta.1`), turn
   the changelog's *Unreleased* into `## 0.1.0 - <date>`, merge, then tag that commit `browser-v0.1.0` and push the
@@ -86,6 +88,12 @@ The browser extension is released on its own, from the same repository as the VS
   is (`lhebeklloefnhcpmnolimpcnljneeijp`), so the sites turned on stay on. There is no private key: nothing is signed
   outside a store, and a store listing would get the store's ID (the sites would be turned on again). A build of
   `browser/dist` has the same ID: a browser holds either it or a release.
+- **Firefox** installs only add-ons signed by Mozilla. The workflow signs `browser/dist-firefox` on
+  addons.mozilla.org as an *unlisted* add-on (signed at once, not shown on the site, not reviewed before) with
+  `web-ext sign`, and attaches `explorer-for-twincat-browser-0.1.0.xpi`; it needs the account's API key as the
+  repository's secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` (Developer Hub, *Manage API Keys*), and without them
+  releases the zip only. A click on the `.xpi` installs it, a newer one installs over it; its ID is the manifest's
+  `explorer-for-twincat@ddt313.github.io`, which the first signing ties to that account. AMO signs a version once.
 - **Checks** (`.github/workflows/ci.yml`), on a pull request and on develop and master: the VS Code extension
   (tests, a `.vsix` without `browser/`) when a file outside the browser extension's changed; the browser extension
   (tests, build) when `browser/`, the core it is built on (`src/core`, `src/lang`), its tests or the build's setup
@@ -471,6 +479,41 @@ platform-free knowledge (`bitbucket.ts`). Bitbucket Cloud only (bitbucket.org); 
   in light and dark mode. **Not tried**: signed in, a private repository, renamed and deleted files, a pull request
   with outdated comments, a large one.
 
+## Firefox
+
+The same bundles run in Firefox: `build.js` copies `browser/dist` to `browser/dist-firefox` with Firefox's
+manifest (`firefoxManifest`), and the code has no `if Firefox` but the popup's note on how to update.
+
+| Chrome's manifest | Firefox's |
+| --- | --- |
+| `background.service_worker` | `background.scripts`: Firefox runs an event page, not a service worker |
+| `key` (the ID unpacked) | left out; `browser_specific_settings.gecko.id` instead |
+| | `strict_min_version` 140 (the ESR that knows `data_collection_permissions`), `data_collection_permissions: none` (asked by addons.mozilla.org) |
+
+What was in doubt, and what Firefox 158 did (headless, signed out, the build loaded as a temporary add-on over
+WebDriver BiDi, see [How it was tested](#how-it-was-tested)):
+
+- **The frames under GitHub's CSP.** Loaded, as in Chromium: Firefox does not apply the page's `frame-src` to a
+  web-accessible `moz-extension:` resource either. The views and the tree size themselves as in Chrome.
+- **The content script's `fetch`.** Firefox sends it with the extension's rights, not the page's origin, unlike
+  Chrome. The reads worked anyway on the public pages: both versions of the files on all three
+  hosts, GitHub's review threads (REST API), GitLab's `discussions.json`, Bitbucket's REST API with the session.
+  Signed in and on a private repository it is *not tried*: GitHub's and GitLab's `SameSite=Lax` cookies may not go
+  with a request that is not the page's; then the frames' other ways (the worker) are tried, as in Chrome.
+- **Host permissions.** In Manifest V3 Firefox grants the manifest's at install but lets the user take them back
+  (about:addons, *Permissions*). The popup then says the site is off and offers *Allow this site*, which asks again
+  in the click itself (Firefox refuses `permissions.request` after an `await`); the popup's other requests did so
+  already.
+- **`scripting.registerContentScripts`** (the sites turned on): registered and updated, `persistAcrossSessions`
+  on, as in Chrome. Turning a self-managed GitLab on from the popup asks the user, which a headless browser cannot answer:
+  *not tried* end to end.
+- **`web-ext lint`** (in CI): no errors; warnings for `innerHTML` (the views' markup is built from escaped text),
+  the icon's size (256 px given as 128), and `data_collection_permissions` on Firefox for Android before 142.
+
+Not done: Firefox for Android, a listing on addons.mozilla.org (a review of the source, the minified bundles with
+the build to make them), and Firefox's own updates of a signed `.xpi` (`update_url`): the badge and the popup tell
+of a newer release instead, as in Chrome.
+
 ## 1. Can both versions be fetched with the session, private repositories and renames included?
 
 The view needs the file at the **merge base** (the page shows a three-dot diff) and at the **head**:
@@ -629,4 +672,10 @@ Bitbucket Data Center would be another adapter.
   pcdshub/lcls-twincat-motion#249 again: the toggles, a line link (`L7`), the tree (31 files, 125 changed objects),
   the click on `StateMachine` (150 px from the top).
 - A self-managed GitLab 19.4, by the user in a signed-in Edge: see *Checked live* under [GitLab](#gitlab).
-- *Pending:* a signed-in Chrome or Edge on GitHub's React page, with a private repository.
+- Firefox 158 (2026-10-26), headless, signed out, `browser/dist-firefox` installed as a temporary add-on over
+  WebDriver BiDi (Puppeteer's `installExtension`): the toggles, a view and the tree on tcunit/TcUnit#274 and
+  pcdshub/lcls-twincat-motion#249 (28 files, 46 review threads), gitlab.com's `mobile-crane/mobile-crane-twincat3`
+  !4 (21 files, the tree with its 44 objects), Bitbucket's `europeanspallationsource/tc_generic_structure` #98
+  (a view with its resolved thread), a file of tcunit/TcUnit at `master`; the popup (opened as a tab), the look
+  for a newer release and its hourly alarm, and the popup with github.com's permission taken back.
+- *Pending:* a signed-in Chrome or Edge on GitHub's React page, with a private repository; a signed-in Firefox.

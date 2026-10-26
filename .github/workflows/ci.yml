@@ -117,9 +117,19 @@ jobs:
 
       - run: npm run build:browser
 
+      # Firefox's own checks of its build: an error (a manifest key it does not know, a bad file) fails the run.
+      - run: npx --yes web-ext@10.8.0 lint --source-dir browser/dist-firefox
+
       # The folder to load unpacked.
       - uses: actions/upload-artifact@v7
         with:
           name: browser-extension
           path: browser/dist
+          retention-days: 14
+
+      # Firefox's build: about:debugging's "Load Temporary Add-on", its manifest.json.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: browser-extension-firefox
+          path: browser/dist-firefox
           retention-days: 14

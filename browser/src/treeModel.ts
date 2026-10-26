@@ -3,7 +3,8 @@
 // changed, in the folders TwinCAT keeps inside a POU. Sorted as in XAE's Solution Explorer (folders first, then by
 // name), or the folders and files in the order of the host's page beside it, when it is given; files without code
 // changes go to groups of their own, as in the VS Code extension's TwinCAT Changes view. The change's other files are
-// there too, by their names, so that the tab lists all its files, as the host's own tree does. Platform-free.
+// there too, by their names, so that the tab lists all its files, as the host's own tree does. Of the files at one
+// commit (`snapshot`: a repository's), every object, as XAE's Solution Explorer shows a project. Platform-free.
 
 import { Accessor } from '../../src/core/objectText';
 import { accessorIconName, compareLabels, objectIconName, objectTreeLabel } from '../../src/core/treeLabels';
@@ -70,7 +71,7 @@ function getOrAdd(parent: TreeNode, id: string, make: () => Omit<TreeNode, 'id' 
   return node;
 }
 
-function addMember(file: TreeNode, path: string, o: ObjectView, comments: number | undefined): void {
+function addMember(file: TreeNode, path: string, o: ObjectView, comments: number | undefined, snapshot: boolean): void {
   let parent = file;
   o.folderPath.forEach((name, i) => {
     parent = getOrAdd(parent, `ifolder:${path}|${o.folderPath.slice(0, i + 1).join('\\')}`, () => ({
@@ -86,7 +87,7 @@ function addMember(file: TreeNode, path: string, o: ObjectView, comments: number
     property.children.push({
       id: `acc:${path}|${o.objectId}|${o.accessor}`, kind: 'accessor', label: o.accessor, icon: accessorIconName(o.accessor),
       change: o.change === 'unchanged' ? undefined : o.change, file: path, objectId: o.objectId, accessor: o.accessor,
-      tooltip: `${o.label} (${o.change})`, comments: comments || undefined, children: [],
+      tooltip: snapshot ? o.label : `${o.label} (${o.change})`, comments: comments || undefined, children: [],
     });
     return;
   }
@@ -94,7 +95,8 @@ function addMember(file: TreeNode, path: string, o: ObjectView, comments: number
     kind: 'object', label: o.name, icon: objectIconName(o), file: path, objectId: o.objectId,
   }));
   Object.assign(node, {
-    muted: false, change: o.change === 'unchanged' ? undefined : o.change, description: words, tooltip: `${o.label} (${o.change})`, comments: comments || undefined,
+    muted: false, change: o.change === 'unchanged' ? undefined : o.change, description: words,
+    tooltip: snapshot ? o.label : `${o.label} (${o.change})`, comments: comments || undefined,
   });
 }
 
@@ -107,7 +109,7 @@ function otherNode(f: TreeFile): TreeNode {
   };
 }
 
-function fileNode(f: TreeFile): TreeNode {
+function fileNode(f: TreeFile, snapshot = false): TreeNode {
   if (f.other) return otherNode(f);
   const v = f.view;
   const root = v?.root;
@@ -130,9 +132,15 @@ function fileNode(f: TreeFile): TreeNode {
   if (own?.renamedFrom) words.push(`renamed from ${own.renamedFrom}`);
   if (f.oldPath && (!own?.renamedFrom || dirName(f.path) !== dirName(f.oldPath))) words.push(moved(f.path, f.oldPath));
   node.description = words.join(' · ') || undefined;
+  if (snapshot) {
+    v.objects.forEach(o => {
+      if (o.depth > 0) addMember(node, f.path, o, undefined, true);
+    });
+    return node;
+  }
   node.change = v.change !== 'modified' ? v.change : own && own.change !== 'unchanged' ? 'modified' : f.oldPath ? 'renamed' : undefined;
   v.objects.forEach((o, i) => {
-    if (o.depth > 0 && o.change !== 'unchanged') addMember(node, f.path, o, f.comments?.perObject[i]);
+    if (o.depth > 0 && o.change !== 'unchanged') addMember(node, f.path, o, f.comments?.perObject[i], false);
   });
   return node;
 }
@@ -170,14 +178,17 @@ function sort(node: TreeNode, paths?: (a: string, b: string) => number): void {
   for (const c of node.children) sort(c, paths);
 }
 
-/** The tree of the files; `paths`, the host's order of its files, for the order of the folders and files. */
-export function buildTree(files: TreeFile[], paths?: (a: string, b: string) => number): TreeNode[] {
+/**
+ * The tree of the files; `paths`, the host's order of its files, for the order of the folders and files; `snapshot`,
+ * the files at one commit, all their objects.
+ */
+export function buildTree(files: TreeFile[], paths?: (a: string, b: string) => number, snapshot = false): TreeNode[] {
   const top: TreeNode = { id: 'folder:', kind: 'folder', label: '', children: [] };
   const build: TreeNode[] = [];
   const projects: TreeNode[] = [];
   for (const f of files) {
     const v = f.view;
-    if (v && PROJECT_FILE.test(f.path)) {
+    if (v && PROJECT_FILE.test(f.path) && !snapshot) {
       const icon = /\.tsproj$/i.test(f.path) ? 'twincat-project' : 'plc-project';
       const node: TreeNode = {
         id: `file:${f.path}`, kind: 'file', label: baseName(f.path), icon, file: f.path, tooltip: f.path, children: [],
@@ -187,7 +198,7 @@ export function buildTree(files: TreeFile[], paths?: (a: string, b: string) => n
       continue;
     }
     // No code changed and not moved: build output (a ProductVersion, the XML of a save).
-    if (v?.metadataOnly && !f.oldPath) {
+    if (v?.metadataOnly && !f.oldPath && !snapshot) {
       build.push({ ...fileNode(f), description: v.metadataOnly, change: 'modified', children: [] });
       continue;
     }
@@ -196,7 +207,7 @@ export function buildTree(files: TreeFile[], paths?: (a: string, b: string) => n
     dirs.forEach((d, i) => {
       parent = getOrAdd(parent, `folder:${dirs.slice(0, i + 1).join('/')}`, () => ({ kind: 'folder', label: d, icon: 'folder' }));
     });
-    parent.children.push(fileNode(f));
+    parent.children.push(fileNode(f, snapshot));
   }
   compress(top);
   sort(top, paths);
@@ -211,13 +222,16 @@ export function buildTree(files: TreeFile[], paths?: (a: string, b: string) => n
   return out;
 }
 
-/** Counts for the panel's title: changed files (all of them) and object views, TwinCAT files still being read. */
-export function treeSummary(files: TreeFile[]): { files: number; objects: number; reading: number } {
+/**
+ * Counts for the panel's title: changed files (all of them) and object views, TwinCAT files still being read; of the
+ * files at one commit (`snapshot`), all their object views.
+ */
+export function treeSummary(files: TreeFile[], snapshot = false): { files: number; objects: number; reading: number } {
   let objects = 0;
   let reading = 0;
   for (const f of files) {
     if (!f.view && !f.error && !f.other) reading++;
-    objects += f.view?.objects.filter(o => o.change !== 'unchanged').length ?? 0;
+    objects += f.view?.objects.filter(o => snapshot || o.change !== 'unchanged').length ?? 0;
   }
   return { files: files.length, objects, reading };
 }

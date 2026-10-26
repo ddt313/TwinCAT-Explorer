@@ -1,5 +1,6 @@
-// What the content script needs of a review page, whatever the host: one adapter per host (GitHub's "Files changed",
-// GitLab's "Changes", Bitbucket's "Files changed"), the only code that knows the host's DOM and URLs.
+// What the content script needs of a review page, whatever the host: one adapter per page (GitHub's "Files changed",
+// GitLab's "Changes" and its repository's files, Bitbucket's "Files changed"), the only code that knows the host's DOM
+// and URLs.
 
 import { ReviewThread, Side, ThreadsResult } from './comments';
 import { Commits, HostKind, Strategy, Theme } from './params';
@@ -24,6 +25,11 @@ export interface Host {
   readonly treeOverlay: boolean;
   /** How long threads read stay fresh (ms): a view turned on after that reads them again. */
   readonly threadsFresh: number;
+  /**
+   * The page shows the files at one commit (a repository's files), not a change: the views and the tree show the
+   * objects as they are, without a diff; `commits()` gives that commit as both base and head, `files()` all the files.
+   */
+  readonly snapshot?: boolean;
 
   /**
    * The commits the page compares: one attempt. The content script makes one a page and keeps its result, nothing
@@ -39,6 +45,10 @@ export interface Host {
 
   /** The blocks of the files the page shows now. */
   containers(): HTMLElement[];
+  /** The id of a block, when its element's id does not name its file (one element shows file after file); else its id. */
+  blockId?(container: HTMLElement): string;
+  /** The block of such an id, while the page shows it. */
+  blockById?(anchor: string): HTMLElement | null;
   header(container: HTMLElement): HTMLElement | null;
   /** The file of a block, or undefined for a block that is not a file. */
   identify(container: HTMLElement, header: HTMLElement): Promise<ChangedFile | undefined>;

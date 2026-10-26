@@ -199,3 +199,61 @@ export function gitlabDiffStyle(search: string, cookie: string): DiffStyle | und
 export function gitlabTheme(htmlClass: string): Theme {
   return /(?:^|\s)gl-dark(?:\s|$)/.test(htmlClass) ? 'dark' : 'light';
 }
+
+// ------------------------------------------------------------------ the repository's pages
+
+/** A page of the repository's files: a folder (`/group/project/-/tree/<ref>/<path>`) or a file (`…/-/blob/<ref>/<path>`). */
+export interface RepositoryPage {
+  project: string;
+  kind: 'tree' | 'blob';
+  /** The ref and the path after it, decoded: `main/POUs/MAIN.TcPOU` (a ref may have slashes too). */
+  rest: string;
+}
+
+export function repositoryPage(pathname: string): RepositoryPage | undefined {
+  const m = /^\/(.+?)\/-\/(tree|blob)\/(.+?)\/?$/.exec(pathname);
+  if (!m) return undefined;
+  try {
+    return { project: decodeURIComponent(m[1]), kind: m[2] as 'tree' | 'blob', rest: m[3].split('/').map(decodeURIComponent).join('/') };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The ref and the path of a repository page: the first of the refs the page names that the URL starts with (a ref may
+ * have slashes: `feature/x`), else the URL's first part.
+ */
+export function refAndPath(rest: string, refs: readonly (string | undefined)[]): { ref: string; path: string } {
+  const ref = refs.find((r): r is string => !!r && (rest === r || rest.startsWith(`${r}/`))) ?? rest.split('/')[0];
+  return { ref, path: rest.slice(ref.length + 1) };
+}
+
+/** The REST API's commit of a ref (its `id` is the sha). */
+export function commitApi(origin: string, project: string | number, ref: string): string {
+  return `${origin}/api/v4/projects/${encodeURIComponent(String(project))}/repository/commits/${encodeURIComponent(ref)}`;
+}
+
+/** The REST API's list of all the files at a commit, a page of 100 at a time (keyset: the next page is in the `Link` header). */
+export function repositoryTreeApi(origin: string, project: string | number, sha: string): string {
+  return `${origin}/api/v4/projects/${encodeURIComponent(String(project))}/repository/tree?ref=${sha}&recursive=true&per_page=100&pagination=keyset`;
+}
+
+/** The next page of a list of the REST API: its `Link` header's `rel="next"`. */
+export function nextPageUrl(link: string | null): string | undefined {
+  return link?.split(',').map(part => /<([^>]+)>\s*;\s*rel="next"/.exec(part)?.[1]).find(Boolean);
+}
+
+/** The files (not the folders) of a page of `repository/tree`. */
+export function filesFromTree(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return list.flatMap(e => {
+    const x = e as Record<string, unknown>;
+    return x.type === 'blob' && typeof x.path === 'string' ? [x.path] : [];
+  });
+}
+
+/** The page of a file at a ref. */
+export function blobUrl(root: string, project: string, ref: string, path: string): string {
+  return `${root}/${encodeSegments(project)}/-/blob/${encodeSegments(ref)}/${encodeSegments(path)}`;
+}

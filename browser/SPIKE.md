@@ -50,6 +50,9 @@ Above GitHub's file tree, **Files | TwinCAT** tabs (the choice is remembered): *
 request's changes as XAE's Solution Explorer shows a project (see [The tree of the changes](#the-tree-of-the-changes)).
 A click on an object opens its file's TwinCAT view at that object.
 
+On a GitLab repository's pages of files and folders, a file's **TwinCAT view** and the **Files | TwinCAT** tabs show
+the repository at that ref, without a diff (see [A repository's files](#a-repositorys-files)).
+
 The same on a GitLab merge request's *Changes* tab: on gitlab.com right away; on a self-managed instance once the
 extension's popup (its toolbar button, on a page of the instance) has turned it on for that site. And on a Bitbucket
 Cloud pull request's *Files changed* tab (`bitbucket.org/<workspace>/<repo>/pull-requests/<id>/diff`), right away.
@@ -92,7 +95,7 @@ The browser extension is released on its own, from the same repository as the VS
 | File | Role |
 | --- | --- |
 | `src/content.ts` | Content script, for any host: finds the TwinCAT files' blocks, adds the toggle, puts the viewer frame in place of the diff, passes the change's coordinates and review threads, scrolls to a line or a thread, offers the way back, turns a view off for an anchor in its hidden diff; adds the tabs and the tree's frame above the host's file tree, takes the tree's clicks to the files. |
-| `src/host.ts`, `hostGithub.ts`, `hostGitlab.ts`, `hostBitbucket.ts` | The host adapters, the only code that knows a host's DOM: the blocks and their paths, the header, where the viewer goes, the commits, the file list, the review threads, the line and thread anchors, the file tree's panel, the theme. |
+| `src/host.ts`, `hostGithub.ts`, `hostGitlab.ts`, `hostBitbucket.ts`, `hostGitlabRepo.ts` | The host adapters (GitLab's repository pages: `hostGitlabRepo.ts`), the only code that knows a host's DOM: the blocks and their paths, the header, where the viewer goes, the commits, the file list, the review threads, the line and thread anchors, the file tree's panel, the theme. |
 | `src/viewer.ts` + `static/viewer.html`, `viewer.css` | The viewer, an extension page in an iframe (`web_accessible_resources`): reads the two versions, builds the model, renders it with the threads, opens an object, a line or a thread asked for. |
 | `src/tree.ts` + `static/tree.html`, `tree.css` | The tree panel, another extension page in an iframe: lists the pull request's TwinCAT files, reads them all, renders the tree with the number of threads. |
 | `src/model.ts` | Platform-free model of one file: object views, section line diffs, XML line of each section line, XML lines of each object and section. |
@@ -122,7 +125,7 @@ The model adds two things on top of `viewChanges`: unchanged objects are listed 
 object whose graphical implementation (CFC, SFC, FBD/LD) changed is *modified* even though its Structured Text
 did not (`viewChanges` compares ST only; its XML is compared here). Graphical code itself is not drawn.
 
-Unit tests: `test/unit/browserView.test.ts` (30 tests, part of `npm test`) on made-up files: a modified method,
+Unit tests: `test/unit/browserView.test.ts` (44 tests, part of `npm test`) on made-up files: a modified method,
 an added and a deleted method, a changed property Get, a deleted accessor and property, a renamed method, a
 metadata-only change, project files, a new, deleted and renamed file, CRLF files, a changed CFC action, a broken
 file, the line diff (checked against an LCS on random inputs), the GitHub helpers, the frames' parameters, the tree
@@ -132,7 +135,8 @@ base file, `new_line` in the head file, an unchanged line by either), notes on L
 whole file and graphical code, an outdated note and one GitLab carried to the merge ref, GitLab's two formats
 (`discussions.json`, the REST API) and GitHub's review comments, the rule for a navigation to an anchor, and the
 threads in the tree. And how often a page's commits are looked for: one attempt for all who ask, its result kept,
-another only on demand and some seconds after.
+another only on demand and some seconds after. Of a repository's pages: their URLs, ref and path, the REST API of a
+commit and of its files, a file's view and the tree at one commit, the frames' `snapshot`, the line anchor `L12`.
 
 ## The tree of the changes
 
@@ -230,6 +234,43 @@ template and the order of the ways to read, and know no host.
   this site*, then the toggles, the views and the tree on its merge requests, without a reload.
 - **Not tried**: a merge request compared with its merge ref after its target branch moved on; the frame's reads on
   a self-managed instance (its session cookie's `SameSite` matters there; the page reads first).
+
+## A repository's files
+
+Added after the merge requests: the same view and tree on GitLab's pages of a repository's files, for the files at
+one commit instead of a change (`snapshot` in the frames' parameters).
+
+- **Pages.** A folder (`/<project>/-/tree/<ref>/<path>`, `data-page="projects:tree:show"`) and a file
+  (`/-/blob/<ref>/<path>`, `projects:blob:show`): one Vue app that goes from one to the other without loading a page,
+  so `data-page` stays the first page's and the URL is what says which. One page for the content script per project
+  and ref (`GitLabRepositoryHost`, `hostGitlabRepo.ts`): the tree stays while the user goes from file to file.
+- **The ref and the commit.** A ref may have slashes (`feature/x`): the URL's ref is the first of the refs the page
+  names that it starts with (the file header's `currentref`, `#js-ambiguous-ref-modal`'s `data-ref`), else its first
+  part. Its commit from the REST API (`repository/commits/:ref`, with the session); a sha in the URL is the commit.
+- **A file's view.** The toggle goes in the file's header (`.js-file-title`), the view in place of `.blob-viewer`. The
+  viewer reads the file once and builds its model from the file and itself: every object unchanged, with all its
+  lines and their XML lines; it shows each object open, without badges, diff marks or the *Unified | Split* switch, and
+  each line's link is `L12`, GitLab's own line anchor (marked by GitLab), with the way back to the view. The app
+  shows file after file in the same `.file-holder`: a block is named by the file's path (`blob:<path>`, `blockId` and
+  `blockById` of the adapter) and is the page's file only while the header's title is that file's name (a folder's
+  README has none); a view of the file before is taken away.
+- **The tree.** The repository's TwinCAT source files at the commit, from the REST API (`repository/tree`, recursive,
+  keyset pages of 100), each read once, a few at a time; each file as its object with all its members (no letters, no
+  build output group), in XAE's order, the files folded. A click on an object goes to its file's page: through
+  GitLab's own row of the file (or the folder's table) when the page shows it, in the app; else the page is loaded,
+  and the place asked for is kept in the page's `sessionStorage` for the next page to show (for 30 seconds). The app's
+  router does not follow a `history.pushState` it did not make: tried, the URL changed and the page did not.
+- **Hooks**: `body[data-page]`, `data-project-full-path`, `data-project-id` (low); `.file-holder`, `.js-file-title`,
+  `[data-testid="file-title-content"]`, `.blob-viewer`, `#L<n>` (medium); `.file-tree-browser
+  section[aria-labelledby="tree-list-heading"]`, `a[data-testid="file-row"]`, `a[data-testid="file-name-link"]`
+  (medium: GitLab's file tree browser is new). Without GitLab's file tree (hidden), the tabs float at the bottom left.
+- **Checked**, headless Chromium signed out, on gitlab.com's `mobile-crane/mobile-crane-twincat3` at `main`
+  (October 2026): a POU's view and its line links (`#L7`) and the way back; the tree (26 files, 57 objects) from a
+  folder's page; a click on a method of a file the page did not list (the page loaded, the view opened at it) and on
+  one it did (in the app); GitLab's own row to another file (the view of the file before gone); a file that is not a
+  TwinCAT source file (no toggle). The merge request's pages as before.
+- **Not tried**: signed in on a private project; a self-managed instance; a ref with slashes on a live page; a
+  repository with thousands of TwinCAT files (each read once on each page load while the tab is on).
 
 ## Review comments
 

@@ -4,6 +4,16 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- The extension tells of its new versions: once a day it looks on GitHub for a newer `browser-v*` release (drafts and
+  pre-releases left out), and when there is one a **NEW** badge shows on its icon, until its popup is opened. The popup
+  says which version is out, links to its release, and tells how to update: unzip it over the extension's folder, then
+  reload the extension. A look that fails (offline, GitHub blocked, its rate limit) shows nothing and is tried again an
+  hour later. The popup's *Look for new versions on GitHub* turns it off. The extension asks for the `alarms`
+  permission (the browser does not ask to allow it), to look in a browser left open for days.
+
 ## 0.2.1 - 2026-10-26
 
 ### Changed

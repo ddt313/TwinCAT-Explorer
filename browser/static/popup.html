@@ -13,11 +13,16 @@
   button { margin: 4px 0; padding: 4px 10px; font: inherit; cursor: pointer; }
   label.auto { display: flex; gap: 6px; align-items: flex-start; margin: 8px 0 4px; cursor: pointer; }
   label.auto input { margin: 2px 0 0; }
+  #update:not(:empty) { margin: 6px 0 8px; padding: 6px 8px; border: 1px solid #1f6feb; border-radius: 6px; }
+  #update p { margin: 2px 0; }
+  footer { margin-top: 10px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, GrayText 40%, transparent); }
 </style>
 </head>
 <body>
 <h1>Explorer for TwinCAT <span id="version" class="muted"></span></h1>
+<div id="update"></div>
 <main id="root"></main>
+<footer><label class="auto muted"><input type="checkbox" id="updates"> Look for new versions on GitHub, once a day</label></footer>
 <script src="popup.js"></script>
 </body>
 </html>

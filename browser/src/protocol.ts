@@ -55,8 +55,11 @@ export type PageMessage =
   /** To a viewer, the threads on its file; to the tree, all of them; or why there are none. */
   | { tcx: 'threads'; threads: ReviewThread[]; source?: string; problem?: string };
 
-/** A frame to the service worker, with `chrome.runtime.sendMessage`. */
-export type WorkerRequest = { tcx: 'fetch'; url: string };
+/**
+ * A frame to the service worker, with `chrome.runtime.sendMessage`: fetch a URL with the user's session; whether the
+ * extension works on an origin (Firefox gives an extension frame inside a web page no `permissions` API).
+ */
+export type WorkerRequest = { tcx: 'fetch'; url: string } | { tcx: 'known'; origin: string };
 
 export interface FetchResult {
   ok: boolean;

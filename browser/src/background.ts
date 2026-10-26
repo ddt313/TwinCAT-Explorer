@@ -22,7 +22,12 @@ async function allowed(url: string): Promise<boolean> {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const m = message as WorkerRequest;
-  if (m?.tcx !== 'fetch' || sender.id !== chrome.runtime.id) return false;
+  if (sender.id !== chrome.runtime.id) return false;
+  if (m?.tcx === 'known') {
+    void isKnownSite(m.origin).then(sendResponse, () => sendResponse(false));
+    return true;
+  }
+  if (m?.tcx !== 'fetch') return false;
   void allowed(m.url)
     .then(ok => (ok ? fetchText(m.url, 'include') : { ok: false, status: 0, error: 'not a site of the extension' }))
     .then(sendResponse);

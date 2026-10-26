@@ -507,6 +507,10 @@ WebDriver BiDi, see [How it was tested](#how-it-was-tested)):
   (about:addons, *Permissions*). The popup then says the site is off and offers *Allow this site*, which asks again
   in the click itself (Firefox refuses `permissions.request` after an `await`); the popup's other requests did so
   already.
+- **The frames' APIs.** Firefox gives an extension page framed in a web page only some APIs (`runtime`, `storage`,
+  `i18n`, `extension`): no `permissions`, `tabs` or `scripting`. A frame asks the background whether it works on a
+  self-managed site (`frameKnowsSite`); the built-in sites need no asking. Found on a self-managed GitLab 19.4, where
+  the views and the tree refused to start; checked with a local site turned on, before and after.
 - **`scripting.registerContentScripts`** (the sites turned on): registered and updated, `persistAcrossSessions`
   on, as in Chrome. Turning a self-managed GitLab on from the popup asks the user, which a headless browser cannot answer:
   *not tried* end to end.

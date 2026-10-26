@@ -14,7 +14,7 @@ import { DiffLine, FileView, ObjectView, SplitRow, buildFileView, splitRows } fr
 import { decodeViewerParams, fileUrl } from './params';
 import { DiffStyle, FrameMessage, PageMessage, Reveal } from './protocol';
 import { ALL_WAYS, Attempt, Reader } from './reader';
-import { isKnownSite } from './sites';
+import { frameKnowsSite } from './sites';
 /** Unchanged lines shown around a change; longer runs are folded. */
 const CONTEXT = 3;
 /**
@@ -40,7 +40,7 @@ const probes: Attempt[] = [];
 
 async function main(): Promise<void> {
   // Only in a page of a site the extension works on, which made this frame: no other page gets the user's files.
-  if (!params || location.ancestorOrigins?.[0] !== params.origin || !(await isKnownSite(params.origin))) {
+  if (!params || location.ancestorOrigins?.[0] !== params.origin || !(await frameKnowsSite(params.origin))) {
     root.innerHTML = '<p class="notice error">This view did not get the file to show.</p>';
     return;
   }

@@ -15,6 +15,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The extension's name is **Explorer for TwinCAT** (it was *Explorer for TwinCAT: review view (spike)*), with a
   shorter description.
 
+### Fixed
+- **Firefox, on a self-managed GitLab**: the views said *This view did not get the file to show* and the TwinCAT tab
+  *The tree did not get the change to show*. Firefox gives the extension's frames inside a page no `permissions` API,
+  which they asked whether the extension works on the site; they ask the extension's background now. gitlab.com,
+  github.com and bitbucket.org were not affected.
+
 ## 0.4.0 - 2026-10-26
 
 ### Added

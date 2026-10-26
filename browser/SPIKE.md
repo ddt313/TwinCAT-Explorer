@@ -81,7 +81,8 @@ The browser extension is released on its own, from the same repository as the VS
   tag. The workflow tests, builds, checks the tag against the manifest, and attaches
   `explorer-for-twincat-browser-0.1.0.zip` with the changelog's section and how to install as its notes.
 - **To install**: the zip holds one folder, loaded unpacked (*Developer mode*, *Load unpacked*); an update replaces
-  that folder, then the extension is reloaded. The manifest's `key` gives the extension one ID wherever its folder
+  that folder, then the extension is reloaded. The extension tells of a newer release itself: a **NEW** badge on its
+  icon, the version and its link in its popup (`src/updates.ts`). The manifest's `key` gives the extension one ID wherever its folder
   is (`lhebeklloefnhcpmnolimpcnljneeijp`), so the sites turned on stay on. There is no private key: nothing is signed
   outside a store, and a store listing would get the store's ID (the sites would be turned on again). A build of
   `browser/dist` has the same ID: a browser holds either it or a release.
@@ -107,6 +108,7 @@ The browser extension is released on its own, from the same repository as the VS
 | `src/lookup.ts` | Platform-free: the commits of a page looked for once and kept for all who ask, nothing found included; looked for again on a user's action only, some seconds apart at most. |
 | `src/reader.ts` | Reading a file in a frame, the three ways of question 1, in the order the host's adapter gives. |
 | `src/fileCache.ts` | The files read at a commit kept in the extension's Cache Storage, for the frames that read them again. |
+| `src/releases.ts`, `src/updates.ts` | The newer release: the newest `browser-v*` of GitHub's list of the repository's releases (platform-free); looked for once a day at most by the service worker and the popup, with GitHub's ETag, shown as the icon's badge and in the popup. |
 | `src/sites.ts`, `src/popup.ts` + `static/popup.html` | The sites the extension works on: github.com, gitlab.com, bitbucket.org, and the self-managed GitLab instances turned on from the popup. |
 | `src/lineDiff.ts` | Myers line diff (as git's default) with deletions before additions in each block, and the changed middle of a line. |
 | `src/highlight.ts` | Structured Text highlighting from `src/lang/lexer.ts`. |

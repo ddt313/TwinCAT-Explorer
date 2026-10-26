@@ -3,9 +3,10 @@
 // while it asks), and the popup does it again whenever it opens on a site turned on: the content script registered
 // there, and running in the tab. github.com, gitlab.com and bitbucket.org need nothing. On any site it works on, it sets whether
 // the extension adds its toggles and tab to the review pages on its own, or only once started in a tab from here
-// (without a reload).
+// (without a reload). On top, a newer release of the extension, when GitHub has one (updates.ts).
 
 import { BUILT_IN_SITES, grantedPatterns, isKnownSite, runsInTab, setStartsOnItsOwn, startInTab, startsOnItsOwn, syncContentScripts } from './sites';
+import { checkForUpdate, checksForUpdates, markSeen, setChecksForUpdates } from './updates';
 
 const root = document.getElementById('root')!;
 document.getElementById('version')!.textContent = chrome.runtime.getManifest().version;
@@ -92,6 +93,29 @@ async function render(note = ''): Promise<void> {
     void change.then(render, e => render(`It did not work: ${problem(e)}`));
   });
 }
+
+/** A newer release: where to get it, and how an unpacked extension is updated. */
+async function renderUpdate(): Promise<void> {
+  const box = document.getElementById('update')!;
+  const newer = await checkForUpdate();
+  if (!newer) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = `<p><b>Version ${esc(newer.version)} is out.</b> <a href="${esc(newer.url)}" target="_blank" rel="noopener">Download it</a></p>
+    <p class="muted">Unzip it over this extension's folder, then click <b>Reload</b> on the extension in the browser's
+    Extensions page: the sites turned on stay on.</p>`;
+  await markSeen(newer);
+}
+
+const updates = document.getElementById('updates') as HTMLInputElement;
+void checksForUpdates().then(on => {
+  updates.checked = on;
+});
+updates.addEventListener('change', () => {
+  void setChecksForUpdates(updates.checked).then(() => renderUpdate()).catch(() => undefined);
+});
+void renderUpdate().catch(() => undefined);
 
 void render().catch(e => {
   root.innerHTML = `<p class="muted">${problem(e)}</p>`;

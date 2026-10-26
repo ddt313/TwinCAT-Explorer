@@ -15,6 +15,17 @@ declare namespace chrome.runtime {
   function getManifest(): { version: string; host_permissions?: string[] };
 }
 
+declare namespace chrome.action {
+  function setBadgeText(details: { text: string }): Promise<void>;
+  function setBadgeBackgroundColor(details: { color: string }): Promise<void>;
+  function setTitle(details: { title: string }): Promise<void>;
+}
+
+declare namespace chrome.alarms {
+  function create(name: string, info: { periodInMinutes: number }): Promise<void>;
+  const onAlarm: { addListener(callback: (alarm: { name: string }) => void): void };
+}
+
 declare namespace chrome.storage {
   const local: {
     get(keys: string | string[]): Promise<Record<string, unknown>>;

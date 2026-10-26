@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.16.0 - 2026-10-25
 
 ### Added
 - The extension runs in the browser, on vscode.dev and github.dev (for example a GitHub repository opened at
@@ -34,20 +34,6 @@ All notable changes to Explorer for TwinCAT. The format follows
   read, instead of one request to GitHub's API per file, and the files left are read 32 at a time. Deleting a POU,
   DUT, GVL or empty folder deletes it there (Source Control can still discard that): GitHub Repositories has no
   Recycle Bin, and the deletion failed.
-
-## 0.16.0 - 2026-10-25
-
-### Added
-- The extension runs in VS Code in the browser ([vscode.dev](https://vscode.dev), github.dev): the TwinCAT tree,
-  the split editor, the object notebooks, the Structured Text features and editing work as on the desktop. The
-  workspace's TwinCAT files are read when it opens, after GitHub Repositories downloads the repository in one go;
-  saving writes the files as VS Code in the browser does. Deleting a POU, DUT, GVL or folder there skips the
-  Recycle Bin, which those files do not have.
-- In the browser, the git features read from GitHub: *Open Changes as TwinCAT Notebook* and *Show Changes vs HEAD*
-  against the commit open; the TwinCAT Changes view since the base branch of the pull request open (else the
-  default branch), changes not committed included, and *Compare Branch With*; the TwinCAT Commits view and
-  *Compare with Git Ref*; the TwinCAT History view and line blame. A private repository, and blame in any
-  repository, ask to sign in with GitHub. Staging and the MCP server stay on the desktop.
 
 ## 0.15.1 - 2026-10-24
 

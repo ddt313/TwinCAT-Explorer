@@ -24,7 +24,7 @@ export function filesPage(pathname: string): PullRequest | undefined {
 }
 
 /** A file as github.com serves it with the user's session (it redirects to raw.githubusercontent.com), as a template. */
-export function githubRawTemplate(pr: PullRequest): string {
+export function githubRawTemplate(pr: PullRequest | { owner: string; repo: string }): string {
   return `https://github.com/${pr.owner}/${pr.repo}/raw/{sha}/{path}`;
 }
 
@@ -240,4 +240,57 @@ export function githubDiffStyle(search: string, cells?: readonly string[]): Diff
   if (left >= 0 && right > left) return right === left + 1 ? 'unified' : 'split';
   const diff = new URLSearchParams(search).get('diff');
   return diff === 'split' || diff === 'unified' ? diff : undefined;
+}
+
+// ------------------------------------------------------------------ the repository's pages
+
+/** A page of a repository's files: a folder (`/o/r/tree/<ref>/<path>`) or a file (`/o/r/blob/<ref>/<path>`). */
+export interface GithubRepositoryPage {
+  owner: string;
+  repo: string;
+  kind: 'tree' | 'blob';
+  /** The ref and the path after it, decoded (a ref may have slashes too). */
+  rest: string;
+}
+
+export function githubRepositoryPage(pathname: string): GithubRepositoryPage | undefined {
+  const m = /^\/([^/]+)\/([^/]+)\/(tree|blob)\/(.+?)\/?$/.exec(pathname);
+  if (!m) return undefined;
+  try {
+    return { owner: m[1], repo: m[2], kind: m[3] as 'tree' | 'blob', rest: m[4].split('/').map(decodeURIComponent).join('/') };
+  } catch {
+    return undefined;
+  }
+}
+
+const encodeSegments = (path: string) => path.split('/').map(encodeURIComponent).join('/');
+
+/** The page of a file at a ref. */
+export function githubBlobUrl(owner: string, repo: string, ref: string, path: string): string {
+  return `https://github.com/${owner}/${repo}/blob/${encodeSegments(ref)}/${encodeSegments(path)}`;
+}
+
+/** All the files at a commit, as the page's *Go to file* reads them with the session (`{ paths: [...] }`). */
+export function githubTreeListUrl(owner: string, repo: string, sha: string): string {
+  return `https://github.com/${owner}/${repo}/tree-list/${sha}`;
+}
+
+export function pathsOfTreeList(json: unknown): string[] {
+  const paths = (json as { paths?: unknown } | undefined)?.paths;
+  return Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [];
+}
+
+/**
+ * The ref of a page's data (its embedded JSON, or the JSON the page's URL answers): the `refInfo` of one of its routes,
+ * its name and its commit.
+ */
+export function refInfoOf(json: unknown): { name: string; oid?: string } | undefined {
+  const payload = (json as { payload?: Record<string, unknown> } | undefined)?.payload;
+  for (const route of Object.values(payload ?? {})) {
+    const info = (route as { refInfo?: { name?: unknown; currentOid?: unknown } } | null)?.refInfo;
+    if (typeof info?.name !== 'string') continue;
+    const oid = typeof info.currentOid === 'string' && /^[0-9a-f]{40}$/.test(info.currentOid) ? info.currentOid : undefined;
+    return { name: info.name, oid };
+  }
+  return undefined;
 }

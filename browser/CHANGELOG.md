@@ -20,6 +20,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **Files | TwinCAT** tabs above GitLab's file tree: *TwinCAT* lists the repository's TwinCAT files at that ref as
     XAE's Solution Explorer does, each file with all its methods, properties, actions and transitions; a click on an
     object opens its file's view at that object.
+- The same on GitHub's pages of a repository's files (`/<owner>/<repo>/tree/<ref>/…`, `…/blob/<ref>/…`), the tabs above
+  GitHub's file tree, and on Bitbucket's (`/<workspace>/<repo>/src/<ref>/…`), where the tabs float at the bottom left
+  (Bitbucket's source pages have no file tree). A line's link goes to the host's own line (`#L12`, `#lines-12`).
 
 ### Fixed
 - An object revealed from the TwinCAT tab is scrolled to also when its file is the last of the page: the page could

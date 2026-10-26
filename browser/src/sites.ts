@@ -46,6 +46,16 @@ export async function isKnownSite(origin: string): Promise<boolean> {
 }
 
 /**
+ * isKnownSite from an extension frame inside the site's page: Firefox gives such a frame no `permissions` API (only
+ * `runtime`, `storage` and a few more), so the service worker answers there.
+ */
+export async function frameKnowsSite(origin: string): Promise<boolean> {
+  if (chrome.permissions) return isKnownSite(origin);
+  if (BUILT_IN_SITES.includes(origin)) return true;
+  return chrome.runtime.sendMessage<boolean>({ tcx: 'known', origin }).then(known => known === true, () => false);
+}
+
+/**
  * Starts the content script in a tab, unless it runs there already, without a reload: true when it started it.
  * `byHand`: the user started it from the popup, which it does on a site that starts by hand too.
  */

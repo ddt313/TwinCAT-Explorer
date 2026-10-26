@@ -14,7 +14,7 @@ import { buildFileView, isTwinCatFile } from './model';
 import { decodeTreeParams, fileUrl } from './params';
 import { ChangedFile, FrameMessage, PageMessage } from './protocol';
 import { Reader } from './reader';
-import { isKnownSite } from './sites';
+import { frameKnowsSite } from './sites';
 import { NodeChange, TreeFile, TreeNode, buildTree, treeSummary } from './treeModel';
 
 const READING_AT_ONCE = 4;
@@ -140,7 +140,7 @@ window.addEventListener('message', e => {
 
 async function main(): Promise<void> {
   // Only in a page of a site the extension works on, which made this frame.
-  if (!params || location.ancestorOrigins?.[0] !== params.origin || !(await isKnownSite(params.origin))) {
+  if (!params || location.ancestorOrigins?.[0] !== params.origin || !(await frameKnowsSite(params.origin))) {
     root.innerHTML = '<p class="note">The tree did not get the change to show.</p>';
     return;
   }

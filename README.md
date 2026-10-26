@@ -602,7 +602,7 @@ request's *Files changed* tab or a GitLab merge request's *Changes* tab, a chang
 It is released apart from the VS Code extension, as a zip attached to the `browser-v*`
 [GitHub releases](https://github.com/ddt313/TwinCAT-Explorer/releases), and loaded unpacked
 (`chrome://extensions` or `edge://extensions`, developer mode, *Load unpacked*); Firefox 140 or later
-installs the release's `.xpi`, signed by Mozilla. How to build it, use it
+installs it from [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/explorer-for-twincat/). How to build it, use it
 on a self-managed GitLab instance and what it reads is in [`browser/SPIKE.md`](browser/SPIKE.md); its
 changes are in [`browser/CHANGELOG.md`](browser/CHANGELOG.md).
 <!-- browser-only:end -->

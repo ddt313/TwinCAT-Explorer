@@ -1,9 +1,9 @@
-// The extension is installed from a release (Chrome and Edge: its zip, unpacked; Firefox: its signed .xpi, outside
-// Firefox's add-ons site), so the browser never updates it: once a day at most (the browser started, the extension
-// installed or reloaded, the popup opened, an hourly alarm) it looks on GitHub for a newer release. A newer one puts
-// a badge on the extension's icon, until the popup that tells of it is opened. Turned off from the popup; when GitHub
-// cannot be reached (offline, a network that blocks it, its rate limit), nothing shows and it is looked for again an
-// hour later.
+// Chrome and Edge load the extension unpacked, from a release's zip, so the browser never updates it: once a day at
+// most (the browser started, the extension installed or reloaded, the popup opened, an hourly alarm) it looks on
+// GitHub for a newer release. A newer one puts a badge on the extension's icon, until the popup that tells of it is
+// opened. Turned off from the popup; when GitHub cannot be reached (offline, a network that blocks it, its rate
+// limit), nothing shows and it is looked for again an hour later. Firefox installs it from addons.mozilla.org, which
+// updates it: there it never looks.
 
 import { BrowserRelease, RELEASES_API, isNewer, latestBrowserRelease } from './releases';
 
@@ -14,6 +14,8 @@ const SEEN_KEY = 'tcxUpdateSeen';
 /** False when the user turned the looks off. */
 const ON_KEY = 'tcxUpdateCheck';
 export const UPDATE_ALARM = 'tcxUpdate';
+/** Firefox, where addons.mozilla.org updates the extension (its manifest has no `alarms` permission). */
+export const UPDATED_BY_STORE = chrome.runtime.getURL('').startsWith('moz-extension:');
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
@@ -24,6 +26,7 @@ interface State {
 }
 
 export async function checksForUpdates(): Promise<boolean> {
+  if (UPDATED_BY_STORE) return false;
   return (await chrome.storage.local.get(ON_KEY))[ON_KEY] !== false;
 }
 

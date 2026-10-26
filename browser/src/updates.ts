@@ -1,8 +1,9 @@
-// The extension is installed unpacked, from a release's zip, so the browser never updates it: once a day at most
-// (the browser started, the extension installed or reloaded, the popup opened, an hourly alarm) it looks on GitHub for a newer
-// release. A newer one puts a badge on the extension's icon, until the popup that tells of it is opened. Turned off
-// from the popup; when GitHub cannot be reached (offline, a network that blocks it, its rate limit), nothing shows
-// and it is looked for again an hour later.
+// The extension is installed from a release (Chrome and Edge: its zip, unpacked; Firefox: its signed .xpi, outside
+// Firefox's add-ons site), so the browser never updates it: once a day at most (the browser started, the extension
+// installed or reloaded, the popup opened, an hourly alarm) it looks on GitHub for a newer release. A newer one puts
+// a badge on the extension's icon, until the popup that tells of it is opened. Turned off from the popup; when GitHub
+// cannot be reached (offline, a network that blocks it, its rate limit), nothing shows and it is looked for again an
+// hour later.
 
 import { BrowserRelease, RELEASES_API, isNewer, latestBrowserRelease } from './releases';
 

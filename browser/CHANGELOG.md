@@ -1,8 +1,24 @@
 # Changelog: browser extension
 
-All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge). It is released apart from the
-VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
+All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge, Firefox). It is released apart from
+the VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked and, for Firefox, a signed
+`.xpi` (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## 0.4.0 - 2026-10-26
+
+### Added
+- **Firefox** (140 or later): the build makes `browser/dist-firefox` beside `browser/dist`, the same extension with
+  Firefox's manifest (a background script instead of a service worker, an add-on ID of its own). Everything works
+  there as in Chrome and Edge: the views, the TwinCAT tab, review threads, GitHub, GitLab and Bitbucket, a repository's
+  files, the sites turned on from the popup, the look for new versions. A release attaches it as an `.xpi` signed
+  by Mozilla (unlisted on addons.mozilla.org), which Firefox installs with a click; a new version installs over it.
+
+### Changed
+- On github.com, gitlab.com or bitbucket.org, when the browser does not let the extension read the site (Firefox
+  lets the user take that permission back, Chrome's site access *On click* too), the popup says so and its *Allow
+  this site* asks for it again, instead of saying the extension is on.
+- In Firefox, the popup's note on a newer version says to install its `.xpi` instead of unzipping it over a folder.
 
 ## 0.3.0 - 2026-10-26
 

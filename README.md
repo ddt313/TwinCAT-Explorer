@@ -575,7 +575,7 @@ against git.
 <!-- browser-only:start -->
 ## Browser extension
 
-A read-only extension for Chrome and Edge, in [`browser/`](browser), for code review: on a GitHub pull
+A read-only extension for Chrome, Edge and Firefox, in [`browser/`](browser), for code review: on a GitHub pull
 request's *Files changed* tab or a GitLab merge request's *Changes* tab, a changed `.TcPOU`, `.TcDUT`,
 `.TcGVL` or `.TcIO` file shows as TwinCAT objects instead of XML, in the layout of the commit diff panel.
 
@@ -601,7 +601,8 @@ request's *Files changed* tab or a GitLab merge request's *Changes* tab, a chang
 
 It is released apart from the VS Code extension, as a zip attached to the `browser-v*`
 [GitHub releases](https://github.com/ddt313/TwinCAT-Explorer/releases), and loaded unpacked
-(`chrome://extensions` or `edge://extensions`, developer mode, *Load unpacked*). How to build it, use it
+(`chrome://extensions` or `edge://extensions`, developer mode, *Load unpacked*); Firefox 140 or later
+installs the release's `.xpi`, signed by Mozilla. How to build it, use it
 on a self-managed GitLab instance and what it reads is in [`browser/SPIKE.md`](browser/SPIKE.md); its
 changes are in [`browser/CHANGELOG.md`](browser/CHANGELOG.md).
 <!-- browser-only:end -->

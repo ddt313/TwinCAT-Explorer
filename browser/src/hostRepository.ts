@@ -17,7 +17,7 @@ const PREFIX = 'blob:';
 const log = (...args: unknown[]) => console.debug('[TwinCAT view]', ...args);
 
 /** The path of a URL, decoded part by part, to compare two links. */
-function decodedPath(url: string): string | undefined {
+export function decodedPath(url: string): string | undefined {
   try {
     return new URL(url, location.href).pathname.split('/').map(decodeURIComponent).join('/');
   } catch {
@@ -50,8 +50,21 @@ export abstract class RepositoryHost implements Host {
   protected abstract listFiles(sha: string): Promise<string[]>;
   /** The page of a file at the ref. */
   protected abstract fileUrl(path: string): string;
-  /** Shows a file's page in the app when the page lists the file in a way other than a link (a tree's row). */
-  protected clickRow(_path: string): boolean {
+  /**
+   * The row of a file or a folder in the host's file tree, while it is rendered (a folder's rows are while it is
+   * open). None by default: the host has no tree.
+   */
+  protected treeRow(_path: string, _folder: boolean): HTMLElement | null {
+    return null;
+  }
+  /** Opens a folder's row of the host's tree, when it is closed. */
+  protected openFolder(_row: HTMLElement): void {}
+  /** Shows a file's page in the app from its row of the host's tree. */
+  protected clickRow(row: HTMLElement): void {
+    row.click();
+  }
+  /** Shows a page in the app without a link or a row to it, when its router follows a history it did not make. */
+  protected route(_url: string): boolean {
     return false;
   }
 
@@ -131,23 +144,74 @@ export abstract class RepositoryHost implements Host {
   }
 
   /**
-   * The file's page: in the app when the page lists the file (a link to it, or its row in the host's tree), else
-   * loaded, as when the app did not show it (an app's router does not follow a history it did not change).
+   * The file's page: in the app when the page lists the file (a link to it), through the host's file tree (its folders
+   * opened one by one down to the file's row), or through the app's router when it follows a history it did not make
+   * (Bitbucket's; GitLab's and GitHub's do not); else loaded, as when the app did not show it. In the app, the page's
+   * tree and views stay, nothing is read again.
    */
   goToFile(anchor: string): void {
-    if (!anchor.startsWith(PREFIX)) return;
-    const path = anchor.slice(PREFIX.length);
+    if (anchor.startsWith(PREFIX)) void this.goTo(anchor.slice(PREFIX.length), anchor);
+  }
+
+  private async goTo(path: string, anchor: string): Promise<void> {
     const url = this.fileUrl(path);
     const target = decodedPath(url);
     const link = [...document.querySelectorAll<HTMLAnchorElement>('a[href]')].find(a => a.offsetParent && decodedPath(a.href) === target);
     if (link) link.click();
-    else if (!this.clickRow(path)) {
+    else if (!(await this.openRow(path)) && !this.route(url)) {
       location.assign(url);
       return;
     }
     setTimeout(() => {
       if (!this.blockById(anchor)) location.assign(url);
     }, 4000);
+  }
+
+  /** Opens the file's folders in the host's tree, then clicks the file's row: false when a row did not show. */
+  private async openRow(path: string): Promise<boolean> {
+    if (!this.treePanel()) return false;
+    const parts = path.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const folder = await this.rowSoon(parts.slice(0, i).join('/'), true);
+      if (!folder) {
+        log('No row of', parts.slice(0, i).join('/'), 'in the host\'s tree: the page of', path, 'is loaded');
+        return false;
+      }
+      this.openFolder(folder);
+      // Its rows come below it: from the top of the tree's scroller, a tree that renders only what it shows renders them.
+      const scroller = this.treeScroller();
+      if (scroller) scroller.scrollTop += folder.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    }
+    const row = await this.rowSoon(path, false);
+    if (!row) return false;
+    this.clickRow(row);
+    return true;
+  }
+
+  /**
+   * A row of the host's tree, once it is rendered (a folder just opened loads its rows): for 3 seconds at most. A tree
+   * that renders only the rows it shows is scrolled down (under the TwinCAT tab, out of sight) until it does.
+   */
+  private async rowSoon(path: string, folder: boolean): Promise<HTMLElement | null> {
+    for (let i = 0; i < 30; i++) {
+      const row = this.treeRow(path, folder);
+      if (row) return row;
+      if (i >= 3) {
+        const scroller = this.treeScroller();
+        if (scroller && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1) scroller.scrollTop += Math.max(100, scroller.clientHeight * 0.8);
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return null;
+  }
+
+  /** What scrolls the host's tree. */
+  private treeScroller(): Element | undefined {
+    const rows = this.treePanel();
+    for (let el = rows?.querySelector('[role="treeitem"]')?.parentElement; el && el !== document.body; el = el.parentElement) {
+      if (/(auto|scroll)/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight) return el;
+    }
+    return undefined;
   }
 
   diffStyle(): DiffStyle | undefined {

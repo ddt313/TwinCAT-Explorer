@@ -86,12 +86,19 @@ export class GitHubRepositoryHost extends RepositoryHost {
     return githubBlobUrl(this.owner, this.repo, this.ref, path);
   }
 
-  /** GitHub's tree has no links: its row (`<path>-item`, rendered while its folder is open) shows the file, hidden too. */
-  protected override clickRow(path: string): boolean {
-    const row = document.getElementById(`${path}-item`);
-    if (!row) return false;
+  /** GitHub's tree has no links: a row is `<path>-item`, rendered while its folder is open, hidden or not. */
+  protected override treeRow(path: string, _folder: boolean): HTMLElement | null {
+    return document.getElementById(`${path}-item`);
+  }
+
+  /** Its chevron opens a folder without going to its page. */
+  protected override openFolder(row: HTMLElement): void {
+    if (row.getAttribute('aria-expanded') !== 'false') return;
+    row.querySelector<HTMLElement>(':scope > [class*="TreeView-item-container"] > [class*="TreeView-item-toggle"]')?.click();
+  }
+
+  protected override clickRow(row: HTMLElement): void {
     (row.querySelector<HTMLElement>('[class*="TreeView-item-content"]') ?? row).click();
-    return true;
   }
 
   header(container: HTMLElement): HTMLElement | null {

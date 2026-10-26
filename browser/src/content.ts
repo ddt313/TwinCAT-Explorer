@@ -194,6 +194,36 @@ function addViewer(block: Block, frameHost: HTMLElement, c: Commits): void {
   block.ready = false;
 }
 
+// ------------------------------------------------------------------ the view from file to file
+
+/**
+ * On a repository's pages, which show one file at a time: the views were on when the user went to another file, whose
+ * view is on too, until a toggle turns it off. Kept in the tab's storage for the page's site: the next file may be
+ * another page (a link the app does not follow, Bitbucket's pages without a tree).
+ */
+const FOLLOW = 'tcxFollow';
+let follow = (() => {
+  try {
+    return sessionStorage.getItem(FOLLOW) === 'on';
+  } catch {
+    return false;
+  }
+})();
+
+/** The block of the file a repository's page shows. */
+let shownAnchor = '';
+
+function setFollow(on: boolean): void {
+  if (!host?.snapshot || follow === on) return;
+  follow = on;
+  try {
+    if (on) sessionStorage.setItem(FOLLOW, 'on');
+    else sessionStorage.removeItem(FOLLOW);
+  } catch {
+    // Without the tab's storage, a page loaded shows its file without the view.
+  }
+}
+
 /** Shows the viewer or the host's diff in a block, as its toggle says. */
 async function apply(block: Block): Promise<void> {
   const container = containerOf(block);
@@ -278,9 +308,11 @@ function onButtonClick(e: MouseEvent): void {
   if (button.classList.contains('tcx-back')) {
     block.reveal = block.back;
     setOn(block, true);
+    setFollow(true);
     return;
   }
   const on = !block.on;
+  setFollow(on);
   for (const b of e.altKey ? blocks.values() : [block]) {
     b.reveal = undefined;
     setOn(b, on);
@@ -343,6 +375,11 @@ async function blockOf(container: HTMLElement): Promise<Block | undefined> {
     }
     block = { ...file, anchor, on: false };
     blocks.set(anchor, block);
+  }
+  if (host.snapshot && anchor !== shownAnchor) {
+    // Another file on a repository's page: its view as the views were (one left for its XML keeps its way back).
+    shownAnchor = anchor;
+    if (!block.back) block.on = follow;
   }
   addToggle(block, header);
   return block;
@@ -499,6 +536,7 @@ async function reveal(path: string, objectId?: string, accessor?: Accessor): Pro
   if (!shown) container.scrollIntoView({ block: 'start' });
   if (!block) return;
   block.reveal = objectId ? { objectId, accessor } : undefined;
+  setFollow(true);
   if (!block.on) setOn(block, true);
   else postReveal(block);
 }
@@ -530,6 +568,7 @@ async function scan(): Promise<void> {
       host = found;
       blocks = new Map();
       skipped = new Set();
+      shownAnchor = '';
       lastFiles = '';
       document.querySelector('.tcx-tree')?.remove();
       treeFrame = undefined;

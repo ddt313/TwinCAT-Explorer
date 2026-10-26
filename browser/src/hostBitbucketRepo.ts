@@ -81,6 +81,13 @@ export class BitbucketRepositoryHost extends RepositoryHost {
     return sourceUrl(this.page, this.ref, path);
   }
 
+  /** Its router follows a history entry it did not make, told by a `popstate`: the file's page in the app. */
+  protected override route(url: string): boolean {
+    history.pushState(null, '', url);
+    dispatchEvent(new PopStateEvent('popstate', { state: null }));
+    return true;
+  }
+
   header(container: HTMLElement): HTMLElement | null {
     return container.querySelector<HTMLElement>(':scope > [data-qa="bk-file__header"]');
   }

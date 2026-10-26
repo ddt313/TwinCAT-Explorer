@@ -120,3 +120,12 @@ export function decodeTreeParams(fragment: string): TreeParams | undefined {
   const host = q.get('k');
   return { ...frame, diff, host: (HOST_KINDS as (string | null)[]).includes(host) ? host as HostKind : undefined };
 }
+
+/** A URL of a file at a commit: one of its path's parts is a full sha (fileCache.ts keeps the files of such URLs). */
+export function namesCommit(url: string): boolean {
+  try {
+    return new URL(url).pathname.split('/').some(part => /^[0-9a-f]{40}$/i.test(part));
+  } catch {
+    return false;
+  }
+}

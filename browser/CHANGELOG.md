@@ -4,6 +4,20 @@ All notable changes to the Explorer for TwinCAT browser extension (Chrome, Edge)
 VS Code extension: its versions are `browser-v*` tags, each a zip to load unpacked (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.2.1 - 2026-10-26
+
+### Changed
+- On a repository's pages (GitHub, GitLab, Bitbucket), a file's **TwinCAT view** stays on from file to file: with the
+  view on, the next file shown (from the host's tree, a link, the TwinCAT tab, the browser's Back) opens in its view
+  too, until its toggle turns it off. The tab remembers it while it is open, across a page loaded too.
+- A click in the TwinCAT tab no longer loads the file's page when the host's tree does not show its row: on GitHub
+  and GitLab the file's folders are opened in the host's tree (hidden under the tab) down to its row, which shows the
+  file in the app; on Bitbucket the app's router is told the file's URL. The page, the TwinCAT tab and its tree stay;
+  a page is loaded only when none of these shows the file within some seconds.
+- The files read at a commit are kept by the extension (its Cache Storage, 3000 files at most): a view or the TwinCAT
+  tab that reads one again (another view of the same file, the same page loaded again) has it at once, without asking
+  the host. A file at a commit never changes; the files of a branch's new commit are read anew.
+
 ## 0.2.0 - 2026-10-26
 
 ### Added

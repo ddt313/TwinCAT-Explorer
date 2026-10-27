@@ -2,10 +2,12 @@
 // server writes: XAE shows the change at once and saves the object itself, where a file written behind it makes XAE
 // ask to reload, or XAE writes its own copy back over it. Independent of the VS Code API.
 
-import { Section, TcSourceFile } from './tcfile';
+import * as fs from 'fs';
+import * as path from 'path';
+import { Section, TcSourceFile, parseTcFile } from './tcfile';
 import { viewLabel } from './objectText';
 import { TcWorkspace, fileKey } from './workspace';
-import { Xae, XaeError, XaeItem } from './xae';
+import { Xae, XaeError, XaeItem, XaeUnavailable } from './xae';
 
 export interface SectionEdit {
   key: string;
@@ -62,7 +64,11 @@ export async function saveThroughXae(ws: TcWorkspace, xae: Xae, file: TcSourceFi
       }
     }
   } catch (e) {
-    if (!(e instanceof XaeError)) throw e;
+    // An XAE that does not answer (a dialog open in it) may have the file open: never write the file behind it.
+    if (!(e instanceof XaeUnavailable)) {
+      if (e instanceof XaeError) throw new Error(`Not saved: ${e.message}. Close the dialog open in TwinCAT XAE, if any, and save again.`);
+      throw e;
+    }
     host.warn(`${e.message}. The file was written: if TwinCAT XAE has it open, reload it there.`);
     return false;
   }
@@ -77,23 +83,33 @@ export async function saveThroughXae(ws: TcWorkspace, xae: Xae, file: TcSourceFi
     // XAE's text of every section of the file's POU, unsaved edits included: setting one saves the whole object.
     const root = sections[0].sec.owner.parent ?? sections[0].sec.owner;
     const texts = new Map((await xae.textsAsync({ ...at, path: xaePathOf(entry.include, { owner: root }) })).map(t => [t.path, t]));
+    // XAE writes the object as it has it: its copy must have the members of the file, and no others (one it could
+    // not read back, or one deleted here while XAE kept its copy).
+    const inFile = new Map<string, string>();
+    for (const sec of file.sections.values()) inFile.set(relPathOf(sec).toLowerCase(), viewLabel(sec.owner, sec.accessor));
+    const inXaeOnly = [...texts.values()].filter(t => (t.decl !== undefined || t.impl !== undefined) && !inFile.has(t.path.toLowerCase()));
+    const keys = new Set([...texts.keys()].map(k => k.toLowerCase()));
+    const inFileOnly = [...inFile].filter(([k]) => !keys.has(k)).map(([, label]) => label);
+    if (inFileOnly.length || inXaeOnly.length) {
+      const name = root.qualifiedName;
+      throw new Error(`Not saved: TwinCAT XAE's copy of ${name} ${inFileOnly.length ? `has no ${listOf(inFileOnly)}, which the file has` : ''}`
+        + `${inFileOnly.length && inXaeOnly.length ? ', and ' : ''}${inXaeOnly.length ? `has ${listOf(inXaeOnly.map(t => `${name}.${t.path.replace(/\^/g, '.')}`))}, which the file has not` : ''}, `
+        + 'and XAE would save the object that way. Reload the project in TwinCAT XAE, then save again.');
+    }
     const edited = new Map(sections.map(s => [s.sec.key, s.text]));
     const replaced: string[] = [];
-    const alsoSaved = new Set<string>();
+    const alsoSaved: string[] = [];
     for (const sec of file.sections.values()) {
       if (!sec.editable) continue;
       const inXae = texts.get(relPathOf(sec))?.[sec.role];
       if (inXae === undefined || inXae === sec.text) continue;
       const mine = edited.get(sec.key);
-      if (mine === undefined) alsoSaved.add(viewLabel(sec.owner, sec.accessor));
+      if (mine === undefined) alsoSaved.push(sectionLabel(sec));
       else if (inXae !== mine) replaced.push(sectionLabel(sec));
     }
     const said: string[] = [];
     if (replaced.length) said.push(`${listOf(replaced)} ${replaced.length > 1 ? 'have' : 'has'} unsaved changes in TwinCAT XAE, which this save replaces with the text from VS Code.`);
-    if (alsoSaved.size) {
-      const objs = [...alsoSaved];
-      said.push(`${listOf(objs)} ${objs.length > 1 ? 'have' : 'has'} unsaved changes in TwinCAT XAE, which XAE saves along with this change.`);
-    }
+    if (alsoSaved.length) said.push(`${listOf(alsoSaved)} ${alsoSaved.length > 1 ? 'have' : 'has'} unsaved changes in TwinCAT XAE, which XAE saves along with this change.`);
     if (said.length && !(await host.confirm(said.join(' '), replaced.length ? 'Replace and Save' : 'Save Them Too'))) {
       throw new Error('Not saved. Save or undo the changes in TwinCAT XAE, then save here again.');
     }
@@ -117,6 +133,16 @@ export async function saveThroughXae(ws: TcWorkspace, xae: Xae, file: TcSourceFi
       throw new Error(`TwinCAT XAE did not take ${label}: ${e.message}.${done.length ? ` ${listOf(done)} ${done.length > 1 ? 'are' : 'is'} saved.` : ''} Save again to retry.`);
     }
     done.push(label);
+  }
+  // XAE saves an object it sets, except after its "Reload the new file?" was answered No.
+  const onDisk = parseTcFile(file.path, fs.readFileSync(file.path));
+  if (sections.some(s => onDisk.sections.get(s.sec.key)?.text !== s.text)) {
+    try {
+      await xae.forceSaveAsync(at, file.path);
+    } catch (e) {
+      if (!(e instanceof XaeError)) throw e;
+      throw new Error(`TwinCAT XAE has the change but did not save ${path.basename(file.path)}: ${e.message}. Save it in XAE.`);
+    }
   }
   return true;
 }

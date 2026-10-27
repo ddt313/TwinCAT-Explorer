@@ -305,7 +305,7 @@ namespace TwinCatXaeBridge {
         // Whether XAE has the project file in its table, and has changes to it that are not saved. With save, saves it
         // first when it has: RDTSAVEOPT_SaveNoChildren saves the file alone, without the unsaved edits of the PLC
         // project's editors (which a save of the file with its children writes too) and without the .tsproj.
-        static Dictionary<string, object> ProjectFile(DTE2 dte, string file, bool save) {
+        static Dictionary<string, object> ProjectFile(DTE2 dte, string file, bool save, bool force = false) {
             Dictionary<string, object> state = new Dictionary<string, object>();
             IVsRunningDocumentTable rdt = DocumentTable(dte);
             IntPtr hier, data; uint item, cookie;
@@ -315,8 +315,8 @@ namespace TwinCatXaeBridge {
                 state["dirty"] = false;
                 if (!(bool)state["open"]) return state;
                 state["dirty"] = DocDirty(data);
-                if (save && (bool)state["dirty"]) {
-                    hr = rdt.SaveDocuments(4 /* RDTSAVEOPT_SaveIfDirty | RDTSAVEOPT_SaveNoChildren */, hier, item, cookie);
+                if (save && (force || (bool)state["dirty"])) {
+                    hr = rdt.SaveDocuments(force ? 6u /* RDTSAVEOPT_ForceSave | RDTSAVEOPT_SaveNoChildren */ : 4u /* RDTSAVEOPT_SaveIfDirty | RDTSAVEOPT_SaveNoChildren */, hier, item, cookie);
                     if (hr != 0) throw new BridgeError("TwinCAT XAE did not save " + file + " (0x" + hr.ToString("x8") + ")");
                     state["dirty"] = DocDirty(data);
                 }
@@ -409,7 +409,8 @@ namespace TwinCatXaeBridge {
                 }
                 case "project":
                     // A PLC project's .plcproj: its unsaved state, saved alone first when save is given.
-                    return ProjectFile(Dte(Int(r, "pid")), Str(r, "file"), r.ContainsKey("save") && Convert.ToBoolean(r["save"]));
+                    return ProjectFile(Dte(Int(r, "pid")), Str(r, "file"), r.ContainsKey("save") && Convert.ToBoolean(r["save"]),
+                        r.ContainsKey("force") && Convert.ToBoolean(r["force"]));
                 case "dirty": {
                     // The files with unsaved changes in XAE's editors.
                     List<string> files = new List<string>();
@@ -541,7 +542,11 @@ namespace TwinCatXaeBridge {
                 late["ok"] = false;
                 late["timeout"] = true;
                 late["error"] = "TwinCAT XAE did not answer within " + (timeout / 1000) + " s";
-                late["dialogs"] = request.ContainsKey("pid") ? Dialogs.Of(Int(request, "pid")) : new List<string>();
+                // A request for no XAE in particular (instances) is blocked by a dialog of any of them.
+                List<string> dialogs = new List<string>();
+                if (request.ContainsKey("pid")) dialogs.AddRange(Dialogs.Of(Int(request, "pid")));
+                else foreach (string exe in new[] { "TcXaeShell", "devenv" }) foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcessesByName(exe)) dialogs.AddRange(Dialogs.Of(p.Id));
+                late["dialogs"] = dialogs;
                 Write(late);
                 // The worker is stuck in a COM call: end the process so that the call ends with it.
                 Environment.Exit(2);

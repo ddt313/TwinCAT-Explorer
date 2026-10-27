@@ -159,9 +159,14 @@ file is written as before. Turn it off with `twincatExplorer.saveThroughXae`.
   the tab unsaved.
 - **Undo:** VS Code's undo works as usual. XAE's Ctrl+Z does not take back a change set this way, and the
   undo history of XAE's editor of that object is gone.
-- **Errors:** a section XAE refuses, or a modal dialog open in XAE that blocks it for 15 seconds, makes the
-  save fail with XAE's message; the sections set before it are saved. Close the dialog and save again.
-- **Speed:** a save takes about half a second more, while XAE has the project open. The first one after
+- **XAE's copy must have the object's members:** XAE writes the object as it has it, so a save is refused
+  when XAE's copy lacks a method, property or action that the file has, or has one the file has not (for
+  example after "Reload the new file?" was answered No in XAE). Reload the project in XAE, then save again.
+- **A dialog open in XAE** blocks it: after 15 seconds the save fails with the dialog's text, and the file
+  is not written. Close the dialog and save again.
+- **Errors:** a section XAE refuses makes the save fail with XAE's message; the sections set before it are
+  saved. Save again to retry.
+- **Speed:** a save takes about one second more, while XAE has the project open. The first one after
   installing compiles a small helper (about 2 seconds).
 - **XAE running but not reachable** (its automation assemblies or the .NET Framework's compiler missing):
   the file is written, with a warning once.

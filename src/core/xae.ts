@@ -24,6 +24,9 @@ export class XaeError extends Error {
   }
 }
 
+/** XAE runs, but the bridge cannot be built here to ask it anything (unlike an XAE that is asked and does not answer). */
+export class XaeUnavailable extends XaeError {}
+
 /** Where a tree item is: the .tsproj, the PLC project's name in it, and the path below its nested project. */
 export interface XaeItem {
   pid: number;
@@ -205,7 +208,7 @@ export class Xae {
   /** No instances where the bridge cannot be built, unless an XAE runs: writing its files behind it is not safe. */
   private noBridge(): XaeInstance[] {
     if (this.unavailable !== 'not Windows' && this.unavailable !== 'TwinCAT XAE is not installed' && xaeRunning()) {
-      throw new XaeError(`TwinCAT XAE is running but cannot be driven (${this.unavailable}); the files are left alone`);
+      throw new XaeUnavailable(`TwinCAT XAE is running but cannot be driven (${this.unavailable}); the files are left alone`);
     }
     return [];
   }
@@ -239,6 +242,14 @@ export class Xae {
 
   async saveAsync(item: Omit<XaeItem, 'path'>, file: string): Promise<void> {
     await this.requestAsync({ cmd: 'save', ...item, path: [], file }, 15_000);
+  }
+
+  /**
+   * Saves one file of XAE's running document table alone, even when XAE takes it for saved: after its "Reload the
+   * new file?" was answered No, XAE neither saves an object it set nor sees it as unsaved.
+   */
+  async forceSaveAsync(item: Omit<XaeItem, 'path'>, file: string): Promise<{ open: boolean }> {
+    return this.requestAsync({ cmd: 'project', ...item, path: [], file, save: true, force: true }, 15_000);
   }
 
   get(item: XaeItem, part: 'decl' | 'impl'): LiveText {

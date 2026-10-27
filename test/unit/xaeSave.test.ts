@@ -5,8 +5,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { TcWorkspace, fileKey } from '../../src/core/workspace';
 import { parseTcFile } from '../../src/core/tcfile';
+import { applySectionEdits } from '../../src/core/splice';
 import { textHash } from '../../src/core/objectText';
-import { Xae, XaeError } from '../../src/core/xae';
+import { Xae, XaeError, XaeUnavailable } from '../../src/core/xae';
 import { XaeSaveHost, saveThroughXae, xaePathOf } from '../../src/core/xaeSave';
 
 const POU = `<?xml version="1.0" encoding="utf-8"?>
@@ -32,10 +33,13 @@ END_VAR
   </POU>
 </TcPlcObject>`.replace(/\n/g, '\r\n');
 
+/** An XAE that runs but cannot be asked (`unavailable`), or that is asked and does not answer (`silent`). */
+type Broken = 'unavailable' | 'silent' | undefined;
+
 /** A PLC project `Plc` with POUs/FB_Valve.TcPOU, and a fake XAE that has it open (when `open`) with its texts. */
 function withProject(run: (ctx: {
   ws: TcWorkspace; file: string; xae: ReturnType<typeof fakeXae>; host: XaeSaveHost & { asked: string[]; warned: string[] };
-}) => Promise<void>, opts: { open?: boolean; answer?: boolean; broken?: boolean } = {}): Promise<void> {
+}) => Promise<void>, opts: { open?: boolean; answer?: boolean; broken?: Broken; autoSave?: boolean } = {}): Promise<void> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-xaesave-'));
   const write = (rel: string, text: string) => {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -51,7 +55,7 @@ function withProject(run: (ctx: {
   const ws = new TcWorkspace();
   ws.load([path.join(root, 'A/A.tsproj')]);
   const file = path.join(root, 'A/Plc/POUs/FB_Valve.TcPOU');
-  const xae = fakeXae(path.join(root, 'A/A.tsproj'), file, opts.open !== false, opts.broken === true);
+  const xae = fakeXae(path.join(root, 'A/A.tsproj'), file, opts.open !== false, opts.broken, opts.autoSave !== false);
   const asked: string[] = [];
   const warned: string[] = [];
   const host = {
@@ -62,22 +66,35 @@ function withProject(run: (ctx: {
   return run({ ws, file, xae, host }).finally(() => fs.rmSync(root, { recursive: true, force: true }));
 }
 
-/** XAE's texts by item path (`POUs/FB_Valve/M_Close`) and part, read from the file; `set` changes them. */
-function fakeXae(tsproj: string, file: string, open: boolean, broken: boolean) {
+/**
+ * XAE's texts by item path (`POUs/FB_Valve/M_Close`) and part, read from the file; `set` changes them, and writes
+ * the file unless `autoSave` is off (as XAE after its reload was answered No).
+ */
+function fakeXae(tsproj: string, file: string, open: boolean, broken: Broken, autoSave: boolean) {
   const texts = new Map<string, string>();
+  const keys = new Map<string, string>();
   for (const sec of parseTcFile(file, fs.readFileSync(file)).sections.values()) {
-    texts.set(`${xaePathOf('POUs\\FB_Valve.TcPOU', sec).join('/')}:${sec.role}`, sec.text);
+    const at = `${xaePathOf('POUs\\FB_Valve.TcPOU', sec).join('/')}:${sec.role}`;
+    texts.set(at, sec.text);
+    keys.set(at, sec.key);
   }
   const sets: string[] = [];
+  const forced: string[] = [];
+  /** XAE's text of every section, written to the file. */
+  const writeFile = () => {
+    const parsed = parseTcFile(file, fs.readFileSync(file));
+    fs.writeFileSync(file, applySectionEdits(parsed, [...texts].map(([at, text]) => ({ key: keys.get(at)!, text }))).text);
+  };
   const at = (item: { path: string[] }, part: string) => `${item.path.join('/')}:${part}`;
   const live = (item: { path: string[] }, part: string) => {
     const text = texts.get(at(item, part))!;
     return { text, hash: textHash(text), open: false, dirty: false };
   };
   return {
-    texts, sets,
+    texts, sets, forced,
     instanceForAsync: async (p: string) => {
-      if (broken) throw new XaeError('TwinCAT XAE is running but cannot be driven (it is broken); the files are left alone');
+      if (broken === 'unavailable') throw new XaeUnavailable('TwinCAT XAE is running but cannot be driven (it is broken); the files are left alone');
+      if (broken === 'silent') throw new XaeError('TwinCAT XAE did not answer within 15 s');
       return open && fileKey(p) === fileKey(tsproj) ? { pid: 42, progId: 'TcXaeShell.DTE.15.0', solution: '', projects: [tsproj] } : undefined;
     },
     textsAsync: async (item: { path: string[] }) => {
@@ -98,9 +115,11 @@ function fakeXae(tsproj: string, file: string, open: boolean, broken: boolean) {
       if (live(item, part).hash !== expected) return { ...live(item, part), conflict: true };
       texts.set(at(item, part), text);
       sets.push(at(item, part));
+      if (autoSave) writeFile();
       return live(item, part);
     },
     saveAsync: async () => undefined,
+    forceSaveAsync: async (_item: unknown, f: string) => { forced.push(f); writeFile(); return { open: true }; },
   };
 }
 
@@ -128,13 +147,36 @@ test('with XAE open the edited sections are set in XAE, nothing asked', () => wi
   assert.deepEqual(xae.sets, ['POUs/FB_Valve/M_Close:impl']);
   assert.equal(xae.texts.get('POUs/FB_Valve/M_Close:impl'), 'nCount := 1;\n');
   assert.deepEqual(host.asked, []);
+  assert.deepEqual(xae.forced, []);
+  assert.equal(parsed(file).sections.get(key)!.text, 'nCount := 1;\n');
+}));
+
+test('XAE that took the text but did not save it (its reload answered No) is made to save the file', () => withProject(async ({ ws, file, xae, host }) => {
+  const key = sectionKey(file, 'M_Close', 'impl');
+  assert.equal(await saveThroughXae(ws, asXae(xae), parsed(file), [{ key, text: 'nCount := 1;\n' }], host), true);
+  assert.deepEqual(xae.forced, [file]);
+  assert.equal(parsed(file).sections.get(key)!.text, 'nCount := 1;\n');
+}, { autoSave: false }));
+
+test('XAE\'s copy without a member of the file, or with one the file has not, is refused: XAE would save it so', () => withProject(async ({ ws, file, xae, host }) => {
+  const key = sectionKey(file, 'FB_Valve', 'impl');
+  xae.texts.delete('POUs/FB_Valve/M_Close:decl');
+  xae.texts.delete('POUs/FB_Valve/M_Close:impl');
+  await assert.rejects(saveThroughXae(ws, asXae(xae), parsed(file), [{ key, text: 'nCount := 2;\n' }], host),
+    /^Error: Not saved: TwinCAT XAE's copy of FB_Valve has no FB_Valve\.M_Close, which the file has, and XAE would save the object that way/);
+  xae.texts.set('POUs/FB_Valve/M_Close:decl', 'METHOD M_Close : BOOL\n');
+  xae.texts.set('POUs/FB_Valve/M_Close:impl', 'nCount := 0;\n');
+  xae.texts.set('POUs/FB_Valve/M_Open:decl', 'METHOD M_Open : BOOL\n');
+  await assert.rejects(saveThroughXae(ws, asXae(xae), parsed(file), [{ key, text: 'nCount := 2;\n' }], host),
+    /^Error: Not saved: TwinCAT XAE's copy of FB_Valve has FB_Valve\.M_Open, which the file has not/);
+  assert.deepEqual(xae.sets, []);
 }));
 
 test('unsaved edits of another member in XAE are asked about; declining saves nothing', () => withProject(async ({ ws, file, xae, host }) => {
   xae.texts.set('POUs/FB_Valve:impl', 'nCount := nCount + 2;\n');
   const key = sectionKey(file, 'M_Close', 'impl');
   await assert.rejects(saveThroughXae(ws, asXae(xae), parsed(file), [{ key, text: 'nCount := 1;\n' }], host), /^Error: Not saved/);
-  assert.match(host.asked[0], /^FB_Valve has unsaved changes in TwinCAT XAE, which XAE saves along with this change\. \[Save Them Too\]$/);
+  assert.match(host.asked[0], /^FB_Valve implementation has unsaved changes in TwinCAT XAE, which XAE saves along with this change\. \[Save Them Too\]$/);
   assert.deepEqual(xae.sets, []);
 }, { answer: false }));
 
@@ -150,4 +192,11 @@ test('XAE running but not drivable: a warning, and the file is left to the calle
   const key = sectionKey(file, 'M_Close', 'impl');
   assert.equal(await saveThroughXae(ws, asXae(xae), parsed(file), [{ key, text: 'nCount := 1;\n' }], host), false);
   assert.match(host.warned[0], /cannot be driven.*The file was written/);
-}, { broken: true }));
+}, { broken: 'unavailable' }));
+
+test('XAE that does not answer (a dialog open in it): the save is refused, the file not written', () => withProject(async ({ ws, file, xae, host }) => {
+  const key = sectionKey(file, 'M_Close', 'impl');
+  await assert.rejects(saveThroughXae(ws, asXae(xae), parsed(file), [{ key, text: 'nCount := 1;\n' }], host),
+    /^Error: Not saved: TwinCAT XAE did not answer within 15 s\. Close the dialog/);
+  assert.deepEqual(host.warned, []);
+}, { broken: 'silent' }));

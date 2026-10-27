@@ -3,6 +3,15 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- Saving an object in the split editor or an object notebook goes through TwinCAT XAE when XAE has the
+  project open, on Windows: XAE shows the change at once and saves the object itself, instead of asking to
+  reload the file or writing its older copy back over it. Unsaved edits of the object in XAE, which XAE
+  would save along or which the save would replace, are asked about first. With XAE closed the file is
+  written as before. Setting `twincatExplorer.saveThroughXae` (on by default) turns it off.
+
 ## 0.16.1 - 2026-10-26
 
 ### Fixed

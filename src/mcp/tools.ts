@@ -21,7 +21,7 @@ import { PouSym, Sym } from '../lang/symbols';
 import { Session, ToolError, View, numbered, shortHash } from './session';
 import { FileChange, LiveUndo, UndoEntry, UndoLog } from './undo';
 import { ItemCopy, Live, ST, SUBTYPE, folderOf, inXae, liveProject, liveView, propertyType, recreate } from './live';
-import { Xae } from './xae';
+import { Xae } from '../core/xae';
 
 export interface Tools {
   session: Session;

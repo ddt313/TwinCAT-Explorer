@@ -143,6 +143,38 @@ disk meanwhile is never overwritten.
 
 </details>
 
+### Saving through TwinCAT XAE
+
+On Windows, when a running TwinCAT XAE has the project open, saving an object in the split editor or an
+object notebook sets the edited sections in XAE instead of writing the file. XAE shows the change at once,
+saves the object itself, and never asks to reload it or writes its older copy back. With XAE closed the
+file is written as before. Turn it off with `twincatExplorer.saveThroughXae`.
+
+<details>
+<summary>Details</summary>
+
+- **Unsaved edits in XAE are asked about:** setting a section makes XAE save the whole object. If XAE has
+  unsaved edits of the section you save, a dialog says that the save replaces them; if it has unsaved
+  edits of another section of the object, that XAE saves them along. Cancel leaves both as they were and
+  the tab unsaved.
+- **Undo:** VS Code's undo works as usual. XAE's Ctrl+Z does not take back a change set this way, and the
+  undo history of XAE's editor of that object is gone.
+- **XAE's copy must have the object's members:** XAE writes the object as it has it, so a save is refused
+  when XAE's copy lacks a method, property or action that the file has, or has one the file has not (for
+  example after "Reload the new file?" was answered No in XAE). Reload the project in XAE, then save again.
+- **A dialog open in XAE** blocks it: after 15 seconds the save fails with the dialog's text, and the file
+  is not written. Close the dialog and save again.
+- **Errors:** a section XAE refuses makes the save fail with XAE's message; the sections set before it are
+  saved. Save again to retry.
+- **Speed:** a save takes about one second more, while XAE has the project open. The first one after
+  installing compiles a small helper (about 2 seconds).
+- **XAE running but not reachable** (its automation assemblies or the .NET Framework's compiler missing):
+  the file is written, with a warning once.
+- Only saves of objects go through XAE. Adding, renaming, moving and deleting objects and members (and
+  the uses a rename changes), and the `TwinCAT File (Notebook)` editor still write the files.
+
+</details>
+
 ### Adding methods, properties and actions
 
 Add a method, property or action to a POU or an interface from the TwinCAT tree, written as XAE writes
@@ -828,6 +860,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.foldersFirst` | `true` | Sort folders before objects in the TwinCAT tree. |
 | `twincatExplorer.diagnostics.enabled` | `true` | Report Structured Text problems in open TwinCAT editors and notebooks. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
+| `twincatExplorer.saveThroughXae` | `true` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
 | `twincatExplorer.blame.currentLine` | `true` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files: absolute paths, or paths relative to the first workspace folder (see [Library stubs](#library-stubs)). |
 | `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)). |
@@ -889,6 +922,9 @@ sources.
   keep in the file. TwinCAT 3.1.4026 writes none either in the projects it creates (their option
   `WriteLineIDs` is off).
 - If TwinCAT XAE has the same project open (checked with XAE 3.1.4026):
+  - Saves of the split editor and the object notebooks go through XAE, on Windows (see
+    [Saving through TwinCAT XAE](#saving-through-twincat-xae)). What follows is about the other changes
+    made here, and about saves with `twincatExplorer.saveThroughXae` off.
   - XAE reloads a source file changed on disk by itself, within about a second, when the object is not
     open in one of its editors and has no unsaved changes there.
   - When the object is open in an XAE editor, XAE asks "File has been changed outside the environment.

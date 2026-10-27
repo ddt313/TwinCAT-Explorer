@@ -7,7 +7,7 @@ import * as path from 'path';
 import { PlcProject } from '../core/project';
 import { fileKey } from '../core/workspace';
 import { Session, ToolError, View } from './session';
-import { Xae, XaeError, XaeItem } from './xae';
+import { Xae, XaeError, XaeItem } from '../core/xae';
 
 export interface Live {
   xae: Xae;

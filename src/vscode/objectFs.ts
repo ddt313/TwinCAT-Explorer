@@ -62,6 +62,11 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
   }
   /** Called after a successful save with the real file path and the URI being saved (which must not get a change event). */
   onDidWriteRealFile?: (fsPath: string, savedUri: vscode.Uri) => void;
+  /**
+   * Writes the edited sections through the TwinCAT XAE that has the file's project open; false when none has, and the
+   * file is written here.
+   */
+  saveThroughXae?: (file: TcSourceFile, edits: { key: string; text: string }[]) => Promise<boolean>;
 
   private load(uri: vscode.Uri): { file: TcSourceFile; obj: TcObject; sections: Section[]; accessor?: 'Get' | 'Set' } {
     const ref = parseObjectUri(uri);
@@ -118,7 +123,7 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
     return `${uri.toString()}|${load ?? ''}`;
   }
 
-  writeFile(uri: vscode.Uri, content: Uint8Array): void {
+  async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
     const ref = parseObjectUri(uri);
     if (!ref) throw vscode.FileSystemError.FileNotFound(uri);
     let doc;
@@ -176,7 +181,17 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
       throw e;
     }
     if (result.changedKeys.length > 0) {
-      fs.writeFileSync(ref.fsPath, encodeText(result.text, file.bom));
+      const changed = edits.filter(e => result.changedKeys.includes(e.key));
+      if (this.saveThroughXae && await this.saveThroughXae(file, changed)) {
+        // XAE saved the objects itself: what it did not write is still only in XAE.
+        const now = parseTcFile(ref.fsPath, fs.readFileSync(ref.fsPath));
+        const unsaved = changed.filter(e => now.sections.get(e.key)?.text !== e.text).map(e => meta.get(e.key)!.label);
+        if (unsaved.length) {
+          throw new Error(`TwinCAT XAE has the change of ${unsaved.join(', ')} of ${obj.qualifiedName} but did not save it to the file. Save it in XAE.`);
+        }
+      } else {
+        fs.writeFileSync(ref.fsPath, encodeText(result.text, file.bom));
+      }
     }
     const hashes = new Map(lastWritten ?? []);
     for (const e of edits) hashes.set(e.key, textHash(e.text));

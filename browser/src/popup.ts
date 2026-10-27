@@ -124,16 +124,19 @@ async function renderUpdate(): Promise<void> {
   await markSeen(newer);
 }
 
-// Firefox: addons.mozilla.org updates the extension.
-if (UPDATED_BY_STORE) document.querySelector('footer')!.remove();
-const updates = document.getElementById('updates') as HTMLInputElement;
-void checksForUpdates().then(on => {
-  updates.checked = on;
-});
-updates.addEventListener('change', () => {
-  void setChecksForUpdates(updates.checked).then(() => renderUpdate()).catch(() => undefined);
-});
-void renderUpdate().catch(() => undefined);
+// Firefox: addons.mozilla.org updates the extension, and the footer's checkbox goes with the footer.
+if (UPDATED_BY_STORE) {
+  document.querySelector('footer')!.remove();
+} else {
+  const updates = document.getElementById('updates') as HTMLInputElement;
+  void checksForUpdates().then(on => {
+    updates.checked = on;
+  });
+  updates.addEventListener('change', () => {
+    void setChecksForUpdates(updates.checked).then(() => renderUpdate()).catch(() => undefined);
+  });
+  void renderUpdate().catch(() => undefined);
+}
 
 void render().catch(e => {
   root.innerHTML = `<p class="muted">${problem(e)}</p>`;

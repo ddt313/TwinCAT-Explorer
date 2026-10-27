@@ -9,7 +9,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { Session, ToolError } from './session';
 import { UndoLog, defaultUndoFile } from './undo';
-import { Xae } from './xae';
+import { Xae } from '../core/xae';
 import * as T from './tools';
 
 const INSTRUCTIONS = `TwinCAT 3 PLC code under this folder. .TcPOU, .TcDUT, .TcGVL and .TcIO files are XML: never read or edit them as text; use these tools.

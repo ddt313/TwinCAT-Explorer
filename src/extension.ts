@@ -11,6 +11,8 @@ import { debugLog } from './core/debugLog';
 import { LanguageIndex, SectionContext, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
 import { ObjectFileSystem } from './vscode/objectFs';
+import { Xae } from './core/xae';
+import { XaeSaveHost, saveThroughXae } from './core/xaeSave';
 import { parseObjectText, positionIn, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
@@ -389,6 +391,29 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   };
   // A change event for the URI being saved, during its save, can leave its working copy ignoring later changes.
   objectFs.onDidWriteRealFile = (fsPath, savedUri) => onSourceChanged(fsPath, savedUri);
+  // Saves go through the TwinCAT XAE that has the project open, which shows them at once and saves the objects.
+  const xae = web ? undefined : new Xae();
+  const warnedXae = new Set<string>();
+  const xaeHost: XaeSaveHost = {
+    confirm: async (message, action) => await vscode.window.showWarningMessage(message, { modal: true }, action) === action,
+    warn: message => {
+      log.warn(message);
+      if (!warnedXae.has(message)) void vscode.window.showWarningMessage(message);
+      warnedXae.add(message);
+    },
+  };
+  if (xae) {
+    objectFs.saveThroughXae = async (file, edits) => {
+      if (!config().get<boolean>('saveThroughXae', true)) return false;
+      const done = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Saving in TwinCAT XAE' },
+        () => saveThroughXae(ws, xae, file, edits, xaeHost));
+      if (done) {
+        log.info(`Saved ${path.basename(file.path)} through TwinCAT XAE`);
+        vscode.window.setStatusBarMessage('$(check) Saved in TwinCAT XAE', 3000);
+      }
+      return done;
+    };
+  }
 
   // Created at once (before the first await) so no change is missed while the projects load.
   const sourceWatcher = vscode.workspace.createFileSystemWatcher('**/*.{TcPOU,TcDUT,TcGVL,TcIO,TcTTO,tcpou,tcdut,tcgvl,tcio,tctto}');

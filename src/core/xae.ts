@@ -1,13 +1,14 @@
-// The TwinCAT XAE instances running on this desktop, for the MCP server to read and write code in them instead of
-// in the files when one has the project open. Talks to xae/XaeBridge.cs, compiled on first use with the .NET
-// Framework's csc.exe against the automation assemblies of the XAE installed here, and run once per request
-// (spawnSync: the tools are synchronous). Windows only; elsewhere, or without XAE, there are no instances.
+// The TwinCAT XAE instances running on this desktop, for the MCP server and VS Code's saves to read and write code in
+// them instead of in the files when one has the project open. Talks to xae/XaeBridge.cs, compiled on first use with
+// the .NET Framework's csc.exe against the automation assemblies of the XAE installed here, and run once per request
+// (spawnSync for the MCP tools, which are synchronous; the *Async calls for VS Code, whose extension host must not
+// wait). Windows only; elsewhere, or without XAE, there are no instances.
 
 import * as cp from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileKey } from '../core/workspace';
+import { fileKey } from './workspace';
 
 export interface XaeInstance {
   pid: number;
@@ -22,6 +23,9 @@ export class XaeError extends Error {
     super(dialogs.length ? `${message}. TwinCAT XAE shows: ${dialogs.join(' / ')}` : message);
   }
 }
+
+/** XAE runs, but the bridge cannot be built here to ask it anything (unlike an XAE that is asked and does not answer). */
+export class XaeUnavailable extends XaeError {}
 
 /** Where a tree item is: the .tsproj, the PLC project's name in it, and the path below its nested project. */
 export interface XaeItem {
@@ -98,6 +102,15 @@ function xaeRunning(): boolean {
   }
 }
 
+/** The bridge's answer in its output: the result, or an XaeError (with XAE's dialogs on a timeout). */
+function answerOf<R>(stdout: string, stderr: string, error: Error | undefined): R {
+  const line = stdout.split('\n').find(l => l.trim().startsWith('{'));
+  if (!line) throw new XaeError(`The XAE bridge gave no answer${error ? `: ${error.message}` : ''}${stderr ? `: ${stderr.trim()}` : ''}`);
+  const answer = JSON.parse(line) as { ok: boolean; result?: R; error?: string; dialogs?: string[] };
+  if (!answer.ok) throw new XaeError(answer.error ?? 'TwinCAT XAE refused the request', answer.dialogs ?? []);
+  return answer.result as R;
+}
+
 export class Xae {
   private exe: string | undefined;
   private unavailable: string | undefined;
@@ -146,23 +159,58 @@ export class Xae {
     const res = cp.spawnSync(exe, [], {
       input: JSON.stringify({ id: 1, timeoutMs, ...req }) + '\n', encoding: 'utf8', windowsHide: true, timeout: timeoutMs + 10_000,
     });
-    const line = (res.stdout ?? '').split('\n').find(l => l.trim().startsWith('{'));
-    if (!line) throw new XaeError(`The XAE bridge gave no answer${res.error ? `: ${res.error.message}` : ''}${res.stderr ? `: ${res.stderr.trim()}` : ''}`);
-    const answer = JSON.parse(line) as { ok: boolean; result?: R; error?: string; dialogs?: string[] };
-    if (!answer.ok) throw new XaeError(answer.error ?? 'TwinCAT XAE refused the request', answer.dialogs ?? []);
-    return answer.result as R;
+    return answerOf<R>(res.stdout ?? '', res.stderr ?? '', res.error);
+  }
+
+  /** `request` without blocking: the bridge process runs while the caller's event loop goes on. */
+  requestAsync<R>(req: Record<string, unknown>, timeoutMs = 30_000): Promise<R> {
+    const exe = this.bridge();
+    if (!exe) return Promise.reject(new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`));
+    return new Promise<R>((resolve, reject) => {
+      const child = cp.spawn(exe, [], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let error: Error | undefined;
+      const timer = setTimeout(() => {
+        error = new Error('it took too long');
+        child.kill();
+      }, timeoutMs + 10_000);
+      child.stdout.setEncoding('utf8').on('data', d => { stdout += d; });
+      child.stderr.setEncoding('utf8').on('data', d => { stderr += d; });
+      child.on('error', e => { error = e; });
+      child.on('close', () => {
+        clearTimeout(timer);
+        try {
+          resolve(answerOf<R>(stdout, stderr, error));
+        } catch (e) {
+          reject(e);
+        }
+      });
+      child.stdin.end(JSON.stringify({ id: 1, timeoutMs, ...req }) + '\n');
+    });
   }
 
   /** The running XAEs, looked up again after two seconds. */
   instances(): XaeInstance[] {
     if (this.cache && Date.now() - this.cache.at < 2000) return this.cache.list;
-    let list: XaeInstance[] = [];
-    if (this.bridge()) list = this.request<XaeInstance[]>({ cmd: 'instances' }, 15_000);
-    else if (this.unavailable !== 'not Windows' && this.unavailable !== 'TwinCAT XAE is not installed' && xaeRunning()) {
-      throw new XaeError(`TwinCAT XAE is running but cannot be driven (${this.unavailable}); the files are left alone`);
-    }
+    const list = this.bridge() ? this.request<XaeInstance[]>({ cmd: 'instances' }, 15_000) : this.noBridge();
     this.cache = { at: Date.now(), list };
     return list;
+  }
+
+  async instancesAsync(): Promise<XaeInstance[]> {
+    if (this.cache && Date.now() - this.cache.at < 2000) return this.cache.list;
+    const list = this.bridge() ? await this.requestAsync<XaeInstance[]>({ cmd: 'instances' }, 15_000) : this.noBridge();
+    this.cache = { at: Date.now(), list };
+    return list;
+  }
+
+  /** No instances where the bridge cannot be built, unless an XAE runs: writing its files behind it is not safe. */
+  private noBridge(): XaeInstance[] {
+    if (this.unavailable !== 'not Windows' && this.unavailable !== 'TwinCAT XAE is not installed' && xaeRunning()) {
+      throw new XaeUnavailable(`TwinCAT XAE is running but cannot be driven (${this.unavailable}); the files are left alone`);
+    }
+    return [];
   }
 
   forget(): void {
@@ -173,6 +221,35 @@ export class Xae {
   instanceFor(tsproj: string): XaeInstance | undefined {
     const key = fileKey(tsproj);
     return this.instances().find(i => i.projects.some(p => fileKey(p) === key));
+  }
+
+  async instanceForAsync(tsproj: string): Promise<XaeInstance | undefined> {
+    const key = fileKey(tsproj);
+    return (await this.instancesAsync()).find(i => i.projects.some(p => fileKey(p) === key));
+  }
+
+  getAsync(item: XaeItem, part: 'decl' | 'impl'): Promise<LiveText> {
+    return this.requestAsync<LiveText>({ cmd: 'get', ...item, part }, 15_000);
+  }
+
+  setAsync(item: XaeItem, part: 'decl' | 'impl', text: string, expected: string): Promise<LiveText & { conflict?: boolean }> {
+    return this.requestAsync<LiveText & { conflict?: boolean }>({ cmd: 'set', ...item, part, text, expected }, 15_000);
+  }
+
+  textsAsync(item: XaeItem): Promise<{ path: string; decl?: string; impl?: string }[]> {
+    return this.requestAsync<{ path: string; decl?: string; impl?: string }[]>({ cmd: 'texts', ...item }, 15_000);
+  }
+
+  async saveAsync(item: Omit<XaeItem, 'path'>, file: string): Promise<void> {
+    await this.requestAsync({ cmd: 'save', ...item, path: [], file }, 15_000);
+  }
+
+  /**
+   * Saves one file of XAE's running document table alone, even when XAE takes it for saved: after its "Reload the
+   * new file?" was answered No, XAE neither saves an object it set nor sees it as unsaved.
+   */
+  async forceSaveAsync(item: Omit<XaeItem, 'path'>, file: string): Promise<{ open: boolean }> {
+    return this.requestAsync({ cmd: 'project', ...item, path: [], file, save: true, force: true }, 15_000);
   }
 
   get(item: XaeItem, part: 'decl' | 'impl'): LiveText {

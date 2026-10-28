@@ -8,7 +8,7 @@
 import * as monacoAll from 'monaco-editor/esm/vs/editor/edcore.main.js';
 import type * as Monaco from 'monaco-editor';
 import {
-  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
+  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HighlightResult, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
   ProbeState, RenameInfo, RequestKind, SectionBlame, SectionRef, SignatureResult, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
 import { escapeMarkdown } from '../shared/markdown';
@@ -368,6 +368,18 @@ function registerProviders(): void {
       pruneForeign();
       const ts = await request<TargetRange[]>('references', pane.section.key, model, model.getOffsetAt(position), context.includeDeclaration);
       return (ts ?? []).map(locationOf);
+    },
+  });
+  // The keywords of the block at the cursor (IF, ELSIF, ELSE, END_IF), or the occurrences of the symbol there in this
+  // pane, written or read.
+  monaco.languages.registerDocumentHighlightProvider(LANG, {
+    async provideDocumentHighlights(model, position) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const hs = await request<HighlightResult[]>('highlights', pane.section.key, model, model.getOffsetAt(position));
+      const kinds = { text: monaco.languages.DocumentHighlightKind.Text, read: monaco.languages.DocumentHighlightKind.Read,
+        write: monaco.languages.DocumentHighlightKind.Write };
+      return (hs ?? []).map(h => ({ range: rangeOf(model, h.start, h.end), kind: kinds[h.kind] }));
     },
   });
   // Go to Implementations (Ctrl+F12) and Peek Implementations: the function blocks that implement an interface or

@@ -6,6 +6,7 @@ import { LanguageIndex, SectionContext } from './index';
 import { Analysis, Occurrence, analyze } from './analyzer';
 import { Loc, Sym } from './symbols';
 import { implementations } from './hierarchy';
+import { Highlight, highlightsAt } from './highlights';
 
 /** Where a symbol is declared, for hovers. */
 export function describeOwner(s: Sym): string {
@@ -92,6 +93,11 @@ export class SectionFeatures {
       }
     }
     return out;
+  }
+
+  /** What to highlight at an offset of a section (see highlightsAt); without a context, the keywords of blocks only. */
+  highlightsAt(ctx: SectionContext | undefined, text: string, offset: number): Highlight[] {
+    return highlightsAt(ctx && this.analysisOf(ctx, text), text, offset);
   }
 
   /**

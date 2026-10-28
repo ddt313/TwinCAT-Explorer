@@ -123,8 +123,16 @@ export type HostMessage =
   | { type: 'response'; id: number; result: unknown }
   | { type: 'probe'; id: number; action: ProbeAction };
 
+/** What to highlight around the cursor (answer to 'highlights'): offsets in the section. */
+export interface HighlightResult {
+  start: number;
+  end: number;
+  kind: 'text' | 'read' | 'write';
+}
+
 export type RequestKind =
-  | 'definition' | 'hover' | 'completion' | 'references' | 'implementation' | 'signature' | 'prepareRename' | 'rename' | 'codeActions';
+  | 'definition' | 'hover' | 'completion' | 'references' | 'implementation' | 'signature' | 'prepareRename' | 'rename' | 'codeActions'
+  | 'highlights';
 
 export type WebviewMessage =
   | { type: 'ready' }

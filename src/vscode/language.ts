@@ -1,6 +1,6 @@
 // Language features for Structured Text: go to definition, hover, completion,
-// signature help, references, implementations, workspace symbols and
-// diagnostics. The *At methods work on a section and an offset and serve the
+// signature help, references, implementations, document highlights, workspace
+// symbols and diagnostics. The *At methods work on a section and an offset and serve the
 // split editor (objectEditor.ts); the VS Code providers serve notebook cells.
 // Locations are in the split editor (through twincat-loc renderings) or in
 // object notebooks, by setting.
@@ -162,7 +162,8 @@ export { describeOwner };
 
 export class LanguageFeatures implements
   vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.SignatureHelpProvider, vscode.ReferenceProvider,
-  vscode.ImplementationProvider, vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
+  vscode.ImplementationProvider, vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider,
+  vscode.DocumentHighlightProvider {
   /** The section-level features this class adapts to VS Code. */
   readonly sections: SectionFeatures;
   private readonly symbolLocs = new WeakMap<vscode.SymbolInformation, Loc>();
@@ -377,6 +378,17 @@ export class LanguageFeatures implements
       if (l) out.push(l);
     }
     return out;
+  }
+
+  // ------------------------------------------------------------------ document highlights
+
+  /** The keywords of the block at the cursor (IF ... END_IF), or the occurrences of the symbol there, written or read. */
+  provideDocumentHighlights(doc: vscode.TextDocument, pos: vscode.Position): vscode.DocumentHighlight[] {
+    const info = cellInfo(doc);
+    const ctx = info && this.index.context(info.fileKey, info.sectionKey);
+    const kinds = { text: vscode.DocumentHighlightKind.Text, read: vscode.DocumentHighlightKind.Read, write: vscode.DocumentHighlightKind.Write };
+    return this.sections.highlightsAt(ctx, doc.getText(), doc.offsetAt(pos))
+      .map(h => new vscode.DocumentHighlight(new vscode.Range(doc.positionAt(h.start), doc.positionAt(h.end)), kinds[h.kind]));
   }
 
   // ------------------------------------------------------------------ implementations

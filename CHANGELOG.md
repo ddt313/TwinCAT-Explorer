@@ -20,6 +20,8 @@ All notable changes to Explorer for TwinCAT. The format follows
 - A pane showing changes (a commit's changes from the TwinCAT Commits view, or Show Changes in the split editor)
   fills the pane again when it grows: after the panel below the editor is closed or the splitter between the
   panes is dragged, it kept its earlier height and left an empty gap below.
+- The split editor highlights the bracket that matches the one at the cursor, colors bracket pairs and
+  shows their guides, as VS Code's editors do (it ignored every bracket).
 
 ## 0.16.1 - 2026-10-26
 

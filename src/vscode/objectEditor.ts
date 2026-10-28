@@ -662,7 +662,7 @@ export class EditorSession implements vscode.Disposable {
 
 /** The annotation of the current line with the commit that last changed it (twincatExplorer.blame.currentLine). */
 function blameEnabled(): boolean {
-  return vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('blame.currentLine', true);
+  return vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('blame.currentLine', false);
 }
 
 export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vscode.Disposable {

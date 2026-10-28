@@ -1175,7 +1175,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.toggleBlame', async () => {
       const key = 'blame.currentLine';
-      const on = config().get<boolean>(key, true);
+      const on = config().get<boolean>(key, false);
       // Written where it is set: a workspace value would win over a user one.
       const target = config().inspect<boolean>(key)?.workspaceValue !== undefined
         ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;

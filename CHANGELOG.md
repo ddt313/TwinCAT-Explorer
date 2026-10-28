@@ -21,6 +21,10 @@ All notable changes to Explorer for TwinCAT. The format follows
   from those that read it, instead of the same word in any meaning. In the split editor in both panes: on a
   variable in the implementation, its declaration too.
 
+### Changed
+- The line blame of the split editor is off by default: `TwinCAT: Toggle Line Blame` or the setting
+  `twincatExplorer.blame.currentLine` turns it on.
+
 ### Fixed
 - A pane showing changes (a commit's changes from the TwinCAT Commits view, or Show Changes in the split editor)
   fills the pane again when it grows: after the panel below the editor is closed or the splitter between the

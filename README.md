@@ -114,7 +114,7 @@ XAE, with its changes against `HEAD` and the blame of the current line.
   - The hover adds the date, `Open Changes` and `Show History`. `Open Changes` shows the commit's
     changes of this object in the commit diff panel.
   - Lines changed since `HEAD`, saved or not, show `Uncommitted changes`.
-  - `TwinCAT: Toggle Line Blame` or `twincatExplorer.blame.currentLine` turns it off.
+  - Off by default: `TwinCAT: Toggle Line Blame` or the setting `twincatExplorer.blame.currentLine` turns it on.
 
 </details>
 
@@ -867,7 +867,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.diagnostics.enabled` | `true` | Report Structured Text problems in open TwinCAT editors and notebooks. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
 | `twincatExplorer.saveThroughXae` | `true` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
-| `twincatExplorer.blame.currentLine` | `true` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
+| `twincatExplorer.blame.currentLine` | `false` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files: absolute paths, or paths relative to the first workspace folder (see [Library stubs](#library-stubs)). |
 | `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)). |
 | `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Folders ignored when searching for `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |

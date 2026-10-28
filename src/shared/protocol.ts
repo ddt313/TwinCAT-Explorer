@@ -125,6 +125,8 @@ export type HostMessage =
 
 /** What to highlight around the cursor (answer to 'highlights'): offsets in the section. */
 export interface HighlightResult {
+  /** Section of another pane (the request's `others`); none for the pane that asked. */
+  key?: string;
   start: number;
   end: number;
   kind: 'text' | 'read' | 'write';
@@ -138,7 +140,11 @@ export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'edit'; seq: number; key: string; changes: { offset: number; length: number; text: string }[]; text: string }
   /** `newName`: the name a 'rename' gives. */
-  | { type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean; newName?: string }
+  | {
+    type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean; newName?: string;
+    /** The other panes, for 'highlights': the uses of the symbol there too. */
+    others?: { key: string; text: string }[];
+  }
   | { type: 'open'; target: TargetRange; side?: boolean }
   /** A VS Code command the panes cannot run themselves (see WORKBENCH_CHORDS). */
   | { type: 'command'; command: string }

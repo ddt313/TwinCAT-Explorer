@@ -17,8 +17,9 @@ All notable changes to Explorer for TwinCAT. The format follows
   while it looks for the XAE that has the project open.
 - Highlights at the cursor, in the split editor and in notebook cells: on a keyword, the others of its block
   (`IF`, `THEN`, `ELSIF`, `ELSE`, `END_IF`; `CASE`, `FOR`, `WHILE`, `REPEAT` with a loop's `EXIT` and
-  `CONTINUE`; `VAR ... END_VAR`, `STRUCT ... END_STRUCT`, ...); on a name, its uses in the section, those that
-  write it apart from those that read it, instead of the same word in any meaning.
+  `CONTINUE`; `VAR ... END_VAR`, `STRUCT ... END_STRUCT`, ...); on a name, its uses, those that write it apart
+  from those that read it, instead of the same word in any meaning. In the split editor in both panes: on a
+  variable in the implementation, its declaration too.
 
 ### Fixed
 - A pane showing changes (a commit's changes from the TwinCAT Commits view, or Show Changes in the split editor)

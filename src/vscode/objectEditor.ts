@@ -588,8 +588,10 @@ export class EditorSession implements vscode.Disposable {
       const features = this.provider.features;
       const ctx = this.provider.index.context(this.fileKey, m.key);
       // Outside the index (not in a PLC project), the keywords of blocks still are.
-      if (m.kind === 'highlights') result = features.sections.highlightsAt(ctx, m.text, m.offset);
-      else if (ctx) {
+      if (m.kind === 'highlights') {
+        result = features.sections.highlightsAt(ctx, m.text, m.offset,
+          (m.others ?? []).map(o => ({ ...o, ctx: this.provider.index.context(this.fileKey, o.key) })));
+      } else if (ctx) {
         switch (m.kind) {
           case 'codeActions':
             result = this.provider.fixes?.quickFixes(this, m.key, m.text, m.offset);

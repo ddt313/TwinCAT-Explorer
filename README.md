@@ -445,9 +445,10 @@ These work in both panes and in notebook cells. They come from a parser of the T
   (`fbValve : FB_Valve(`). `Ctrl+Shift+Space` shows it again, as in XAE.
 - **Highlights at the cursor**: on a keyword, the others of its block (`IF`, `THEN`, `ELSIF`, `ELSE`,
   `END_IF`; `CASE ... OF ... ELSE ... END_CASE`; `FOR ... TO ... BY ... DO ... END_FOR` with the loop's
-  `EXIT` and `CONTINUE`; `VAR_INPUT ... END_VAR`, `STRUCT ... END_STRUCT`, ...); on a name, its uses in
-  the section, those that write it (`:=`, `=> bDone`, `S=`, `REF=`, its declaration) apart from those that
-  read it. On a bracket, the one that matches it.
+  `EXIT` and `CONTINUE`; `VAR_INPUT ... END_VAR`, `STRUCT ... END_STRUCT`, ...); on a name, its uses, those
+  that write it (`:=`, `=> bDone`, `S=`, `REF=`, its declaration) apart from those that read it, in both panes
+  of the split editor: on `bDone` in the implementation, its declaration above too. On a bracket, the one
+  that matches it.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it.
 - **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that

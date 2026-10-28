@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { analyze } from '../../src/lang/analyzer';
-import { Highlight, highlightsAt } from '../../src/lang/highlights';
+import { Highlight, highlightsAcross } from '../../src/lang/highlights';
 import { LanguageIndex } from '../../src/lang/index';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 import { TcWorkspace, fileKey } from '../../src/core/workspace';
@@ -13,7 +13,7 @@ import { TcWorkspace, fileKey } from '../../src/core/workspace';
 function at(marked: string, analysisOf?: (text: string) => ReturnType<typeof analyze>): string[] {
   const offset = marked.indexOf('|');
   const text = marked.replace('|', '');
-  return highlightsAt(analysisOf?.(text), text, offset).map((h: Highlight) =>
+  return highlightsAcross({ analysis: analysisOf?.(text), text }, offset, []).own.map((h: Highlight) =>
     text.slice(h.start, h.end) + (h.kind === 'text' ? '' : ':' + h.kind));
 }
 
@@ -135,6 +135,24 @@ END_FOR`;
     // Of fbTimer.Q only Q would be written; fbTimer is read.
     assert.deepEqual(at(mark('fbTimer.IN := TRUE;\nfbTimer();', 'fbTimer'), analysisOf), ['fbTimer:read', 'fbTimer:read']);
     assert.deepEqual(at(mark('fbTimer.IN := TRUE;', 'IN'), analysisOf), ['IN:write']);
+
+    // The declaration pane shows the uses there too: the declaration of a variable used in the implementation.
+    const declKey = 'dddddddd-0000-4000-8000-000000000001:decl';
+    const declCtx = index.context(ctx.fileKey, declKey)!;
+    const declText = index.sectionText(ctx.fileKey, declKey)!;
+    const decl = { analysis: analyze(index, declCtx, declText), text: declText };
+    const across = (marked: string, other: { analysis: ReturnType<typeof analyze> | undefined; text: string }) => {
+      const text = marked.replace('|', '');
+      const r = highlightsAcross({ analysis: analysisOf(text), text }, marked.indexOf('|'), [other]);
+      return r.others[0].map(h => other.text.slice(h.start, h.end) + ':' + h.kind);
+    };
+    assert.deepEqual(across(mark(st, 'bDone'), decl), ['bDone:write']);
+    assert.deepEqual(across(mark(st, 'aPos'), decl), ['aPos:write']);
+    // A keyword's block stays in its pane.
+    assert.deepEqual(across(mark(st, 'IF'), decl), []);
+    // An identifier the analysis does not know: the same one there.
+    assert.deepEqual(across('|nUnknown := 1;', { analysis: undefined, text: 'nunknown := NOT NUNKNOWN; // nUnknown' }),
+      ['nunknown:text', 'NUNKNOWN:text']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

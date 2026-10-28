@@ -143,25 +143,41 @@ function written(tokens: Token[], i: number): boolean {
   return isOp(tokens[s - 1], '=>') && (isOp(next, ')') || isOp(next, ','));
 }
 
+/** A section the highlights are in: its text, and its analysis (none outside the language index). */
+export interface HighlightSection {
+  analysis: Analysis | undefined;
+  text: string;
+}
+
+/** The uses of a symbol (by its id) or of an identifier (by its upper-case name) in a section. */
+function usesIn(section: HighlightSection, target: { symId: string } | { upper: string }): Highlight[] {
+  const tokens = lex(section.text).tokens;
+  if ('upper' in target) {
+    return tokens.filter(t => t.kind === Tk.Ident && t.upper === target.upper).map(t => ({ start: t.start, end: t.end, kind: 'text' }));
+  }
+  const index = new Map(tokens.map((t, i) => [t.start, i]));
+  return (section.analysis?.occurrences ?? []).filter(o => o.sym.id === target.symId).map(o => {
+    const i = index.get(o.start);
+    return { start: o.start, end: o.end, kind: o.decl || (i !== undefined && written(tokens, i)) ? 'write' : 'read' };
+  });
+}
+
 /**
  * What to highlight at an offset of a section: the keywords of the block of the keyword there, else the occurrences
- * in this section of the symbol there (with the analysis of the section), else the same identifier.
+ * in this section of the symbol there (with the analysis of the section), else the same identifier. The uses of
+ * that symbol or identifier in `others` too (the other sections shown with it, the declaration of an
+ * implementation), one list each; a block's keywords stay in their section.
  */
-export function highlightsAt(analysis: Analysis | undefined, text: string, offset: number): Highlight[] {
-  const tokens = lex(text).tokens;
+export function highlightsAcross(section: HighlightSection, offset: number, others: HighlightSection[]): { own: Highlight[]; others: Highlight[][] } {
+  const none = { own: [], others: others.map(() => []) };
+  const tokens = lex(section.text).tokens;
   const t = tokenAt(tokens, offset);
-  if (!t || t.kind !== Tk.Ident) return [];
+  if (!t || t.kind !== Tk.Ident) return none;
   const block = blocks(tokens).find(b => b.keywords.includes(t));
-  if (block) return block.keywords.map(k => ({ start: k.start, end: k.end, kind: 'text' }));
-  const occ = analysis?.occurrences.find(o => o.start <= offset && offset <= o.end);
-  if (occ) {
-    const index = new Map(tokens.map((tk, i) => [tk.start, i]));
-    return analysis!.occurrences.filter(o => o.sym.id === occ.sym.id).map(o => {
-      const i = index.get(o.start);
-      return { start: o.start, end: o.end, kind: o.decl || (i !== undefined && written(tokens, i)) ? 'write' : 'read' };
-    });
-  }
-  if (RESERVED.has(t.upper)) return [];
+  if (block) return { ...none, own: block.keywords.map(k => ({ start: k.start, end: k.end, kind: 'text' })) };
+  const occ = section.analysis?.occurrences.find(o => o.start <= offset && offset <= o.end);
   // An identifier the analysis does not know: the same one elsewhere, in any case (ST ignores case).
-  return tokens.filter(o => o.kind === Tk.Ident && o.upper === t.upper).map(o => ({ start: o.start, end: o.end, kind: 'text' }));
+  const target = occ ? { symId: occ.sym.id } : RESERVED.has(t.upper) ? undefined : { upper: t.upper };
+  if (!target) return none;
+  return { own: usesIn(section, target), others: others.map(o => usesIn(o, target)) };
 }

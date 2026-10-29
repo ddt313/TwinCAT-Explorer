@@ -276,6 +276,9 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     vscode.languages.registerReferenceProvider(stSelector, features),
     vscode.languages.registerImplementationProvider(stSelector, features),
     vscode.languages.registerDocumentSymbolProvider(stSelector, features),
+    vscode.languages.registerDocumentHighlightProvider(stSelector, features),
+    vscode.languages.registerFoldingRangeProvider(stSelector, features),
+    vscode.languages.registerInlayHintsProvider(stSelector, features),
     vscode.languages.registerWorkspaceSymbolProvider(features),
   );
 
@@ -404,7 +407,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   };
   if (xae) {
     objectFs.saveThroughXae = async (file, edits) => {
-      if (!config().get<boolean>('saveThroughXae', true)) return false;
+      if (!config().get<boolean>('saveThroughXae', false)) return false;
       const done = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Saving in TwinCAT XAE' },
         () => saveThroughXae(ws, xae, file, edits, xaeHost));
       if (done) {
@@ -1174,7 +1177,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.toggleBlame', async () => {
       const key = 'blame.currentLine';
-      const on = config().get<boolean>(key, true);
+      const on = config().get<boolean>(key, false);
       // Written where it is set: a workspace value would win over a user one.
       const target = config().inspect<boolean>(key)?.workspaceValue !== undefined
         ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;

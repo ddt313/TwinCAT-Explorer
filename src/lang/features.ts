@@ -3,9 +3,11 @@
 // (vscode/language.ts) and the MCP server both build on it. Independent of the VS Code API.
 
 import { LanguageIndex, SectionContext } from './index';
-import { Analysis, Occurrence, analyze } from './analyzer';
+import { Analysis, Occurrence, ParamHint, analyze } from './analyzer';
 import { Loc, Sym } from './symbols';
 import { implementations } from './hierarchy';
+import { Highlight, highlightsAcross } from './highlights';
+import { OutlineSymbol, outline } from './outline';
 
 /** Where a symbol is declared, for hovers. */
 export function describeOwner(s: Sym): string {
@@ -92,6 +94,27 @@ export class SectionFeatures {
       }
     }
     return out;
+  }
+
+  /**
+   * What to highlight at an offset of a section, and in `others`, the sections shown with it (see highlightsAcross);
+   * without a context, the keywords of blocks and the same identifiers only. Those of `others` carry their key.
+   */
+  highlightsAt(ctx: SectionContext | undefined, text: string, offset: number,
+    others: { key: string; ctx: SectionContext | undefined; text: string }[] = []): (Highlight & { key?: string })[] {
+    const section = (c: SectionContext | undefined, t: string) => ({ analysis: c && this.analysisOf(c, t), text: t });
+    const r = highlightsAcross(section(ctx, text), offset, others.map(o => section(o.ctx, o.text)));
+    return [...r.own, ...r.others.flatMap((hs, i) => hs.map(h => ({ ...h, key: others[i].key })))];
+  }
+
+  /** The parameters that the arguments passed by position go to (`LIMIT(min: 0, in: fIn, max: 100)`). */
+  paramHintsOf(ctx: SectionContext, text: string): ParamHint[] {
+    return this.analysisOf(ctx, text).paramHints;
+  }
+
+  /** The outline of a section (see outline); without a context, its VAR blocks, regions and CASE branches only. */
+  outlineOf(ctx: SectionContext | undefined, text: string): OutlineSymbol[] {
+    return outline(ctx && this.analysisOf(ctx, text), text);
   }
 
   /**

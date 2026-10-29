@@ -95,8 +95,10 @@ export class TextMateHighlighter {
       colors,
     });
     this.monaco.editor.setTheme(themeName);
+    // Every token may hold brackets (VS Code's default): without it no token is marked as such, and Monaco's
+    // bracket matching, bracket pair colors and guides ignore every bracket.
     this.grammar = (await this.registry.loadGrammarWithConfiguration('source.twincat-st',
-      this.monaco.languages.getEncodedLanguageId(this.languageId), {})) ?? undefined;
+      this.monaco.languages.getEncodedLanguageId(this.languageId), { balancedBracketSelectors: ['*'] })) ?? undefined;
     const grammar = this.grammar;
     if (!grammar) return;
     // Setting the provider again makes Monaco tokenize the open models with the new colors.

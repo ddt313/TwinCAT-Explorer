@@ -25,11 +25,19 @@ export interface Problem {
   severity: 'error' | 'warning';
 }
 
+/** An argument passed by position (`LIMIT(0, fIn, 100)`): the parameter it goes to, for an inlay hint. */
+export interface ParamHint {
+  /** Start of the argument. */
+  offset: number;
+  name: string;
+}
+
 export interface Analysis {
   ctx: SectionContext;
   text: string;
   occurrences: Occurrence[];
   problems: Problem[];
+  paramHints: ParamHint[];
 }
 
 export interface AnalyzeOptions {
@@ -52,6 +60,7 @@ const LITERAL_TYPES: Record<A.LiteralType, Ty> = {
 export class Analyzer {
   readonly occurrences: Occurrence[] = [];
   readonly problems: Problem[] = [];
+  readonly paramHints: ParamHint[] = [];
   private recording = true;
   private readonly namespaceSyms = new Map<Scope, NamespaceSym>();
 
@@ -69,7 +78,7 @@ export class Analyzer {
       this.stmts(r.body);
     }
     this.occurrences.sort((a, b) => a.start - b.start);
-    return { ctx: this.ctx, text: this.text, occurrences: this.occurrences, problems: this.problems };
+    return { ctx: this.ctx, text: this.text, occurrences: this.occurrences, problems: this.problems, paramHints: this.paramHints };
   }
 
   // ------------------------------------------------------------------ recording
@@ -643,6 +652,8 @@ export class Analyzer {
     if (t.k === 'callable') {
       const s = t.sym;
       if (s.kind === 'builtin') {
+        const names = /^\w+\((.*)\)/.exec(s.signature)?.[1].split(',').map(n => n.trim()) ?? [];
+        e.args.forEach((a, i) => this.paramHint(e.args, a, names[i]));
         const argTys = e.args.map(a => (a.value ? this.expr(a.value) : UNKNOWN));
         return s.returns(argTys);
       }
@@ -683,9 +694,22 @@ export class Analyzer {
         else if (complete) this.unknown(a.name, `Unknown parameter '${a.name.name}'`);
       } else {
         p = positional?.[i];
+        this.paramHint(args, a, p?.name);
       }
       if (a.value) this.expr(a.value, p ? this.varType(p) : undefined);
     });
+  }
+
+  /**
+   * The parameter a positional argument goes to, as an inlay hint. None for the only argument of a call
+   * (`ABS(x)`, `TO_INT(x)`), for numbered parameters of built-ins taking any number of them (`MIN(in1, in2)`,
+   * `CONCAT(str1, str2)`), or an argument that is a variable of the parameter's name.
+   */
+  private paramHint(args: A.Arg[], a: A.Arg, name: string | undefined): void {
+    if (!this.recording || !name || !a.value || a.name || args.length < 2 || /\d$|^\.\.\.$/.test(name)) return;
+    const v = a.value;
+    if (v.kind === 'Ident' && v.upper === name.toUpperCase()) return;
+    this.paramHints.push({ offset: v.start, name });
   }
 
   /** Type of a standalone expression (for completion after a dot), without recording anything. */

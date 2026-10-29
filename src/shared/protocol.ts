@@ -123,14 +123,46 @@ export type HostMessage =
   | { type: 'response'; id: number; result: unknown }
   | { type: 'probe'; id: number; action: ProbeAction };
 
+/** What to highlight around the cursor (answer to 'highlights'): offsets in the section. */
+export interface HighlightResult {
+  /** Section of another pane (the request's `others`); none for the pane that asked. */
+  key?: string;
+  start: number;
+  end: number;
+  kind: 'text' | 'read' | 'write';
+}
+
+/** A symbol of a section's outline (answer to 'symbols'), offsets in the section; `kind` names a SymbolKind. */
+export interface OutlineResult {
+  name: string;
+  detail: string;
+  kind: string;
+  start: number;
+  end: number;
+  nameStart: number;
+  nameEnd: number;
+  children: OutlineResult[];
+}
+
+/** An argument passed by position and the parameter it goes to (answer to 'paramHints'), for an inlay hint. */
+export interface ParamHintResult {
+  offset: number;
+  name: string;
+}
+
 export type RequestKind =
-  | 'definition' | 'hover' | 'completion' | 'references' | 'implementation' | 'signature' | 'prepareRename' | 'rename' | 'codeActions';
+  | 'definition' | 'hover' | 'completion' | 'references' | 'implementation' | 'signature' | 'prepareRename' | 'rename' | 'codeActions'
+  | 'highlights' | 'symbols' | 'paramHints';
 
 export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'edit'; seq: number; key: string; changes: { offset: number; length: number; text: string }[]; text: string }
   /** `newName`: the name a 'rename' gives. */
-  | { type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean; newName?: string }
+  | {
+    type: 'request'; id: number; kind: RequestKind; key: string; text: string; offset: number; includeDeclaration?: boolean; newName?: string;
+    /** The other panes, for 'highlights': the uses of the symbol there too. */
+    others?: { key: string; text: string }[];
+  }
   | { type: 'open'; target: TargetRange; side?: boolean }
   /** A VS Code command the panes cannot run themselves (see WORKBENCH_CHORDS). */
   | { type: 'command'; command: string }

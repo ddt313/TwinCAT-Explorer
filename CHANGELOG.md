@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.17.0 - 2026-10-29
 
 ### Added
 - Saving an object in the split editor or an object notebook goes through TwinCAT XAE when XAE has the
@@ -11,10 +11,42 @@ All notable changes to Explorer for TwinCAT. The format follows
   reload the file or writing its older copy back over it. Unsaved edits of the object in XAE, which XAE
   would save along or which the save would replace, are asked about first. A save is refused, and the file
   left alone, while a dialog in XAE blocks it, or when XAE's copy of the object lacks a member of the file
-  or has one the file has not. With XAE closed the file is written as before. Setting
-  `twincatExplorer.saveThroughXae` (on by default) turns it off.
+  or has one the file has not. With XAE closed the file is written as before. Off by default: setting
+  `twincatExplorer.saveThroughXae` turns it on.
 - The MCP server's error when TwinCAT XAE does not answer names the dialogs open in every running XAE, also
   while it looks for the XAE that has the project open.
+- Highlights at the cursor, in the split editor and in notebook cells: on a keyword, the others of its block
+  (`IF`, `THEN`, `ELSIF`, `ELSE`, `END_IF`; `CASE`, `FOR`, `WHILE`, `REPEAT` with a loop's `EXIT` and
+  `CONTINUE`; `VAR ... END_VAR`, `STRUCT ... END_STRUCT`, ...); on a name, its uses, those that write it apart
+  from those that read it, instead of the same word in any meaning. In the split editor in both panes: on a
+  variable in the implementation, its declaration too.
+- Folding by the blocks of the code instead of by indentation, in the split editor and in notebook cells:
+  `IF ... END_IF` and each of its branches, `CASE`, `FOR`, `WHILE`, `REPEAT`, `VAR ... END_VAR`, `STRUCT`,
+  `UNION`, `TYPE`, comments over several lines and `{region}` ... `{endregion}`, also where the indentation is
+  off. `editor.foldingStrategy` set to `indentation` folds by indentation instead.
+- Go to Symbol (`Ctrl+Shift+O`) in the split editor, and a richer outline of notebook cells: the declarations
+  in their `VAR` blocks (`VAR_INPUT`, `VAR CONSTANT`, ...), the branches of each `CASE` with the comment on
+  their line (`20 — Wait for the axis`, which Go to Symbol searches too), and `{region}`s.
+- Parameter name hints before the arguments passed by position, in the split editor and in notebook cells:
+  `LIMIT(min: 0, in: fIn, max: 100)`, `fbAxis.MoveTo(fPos: 10.0, fVelo: 5.0)`. None for the only argument of a
+  call, for numbered parameters (`MIN(in1, in2)`), or for a variable named like its parameter.
+  `editor.inlayHints.enabled` turns them off.
+
+### Changed
+- The line blame of the split editor is off by default: `TwinCAT: Toggle Line Blame` or the setting
+  `twincatExplorer.blame.currentLine` turns it on.
+
+### Fixed
+- A pane showing changes (a commit's changes from the TwinCAT Commits view, or Show Changes in the split editor)
+  fills the pane again when it grows: after the panel below the editor is closed or the splitter between the
+  panes is dragged, it kept its earlier height and left an empty gap below.
+- The split editor highlights the bracket that matches the one at the cursor, colors bracket pairs and
+  shows their guides, as VS Code's editors do (it ignored every bracket).
+- A click in the panel of staged changes (or of a commit's changes) puts the cursor where it was clicked again.
+  The panel built its panes again behind another tab when the index changed, after staging an object, and the
+  panes then placed the cursor columns away from the pointer and cut the line numbers.
+- The panel of staged changes (or of a commit's changes) shows the first change of each pane: in a long
+  implementation it was scrolled past its changes, near the end.
 
 ## 0.16.1 - 2026-10-26
 

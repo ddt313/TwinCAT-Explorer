@@ -8,13 +8,14 @@
 import * as monacoAll from 'monaco-editor/esm/vs/editor/edcore.main.js';
 import type * as Monaco from 'monaco-editor';
 import {
-  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
+  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HighlightResult, HostMessage, HoverResult, OutlineResult, ParamHintResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
   ProbeState, RenameInfo, RequestKind, SectionBlame, SectionRef, SignatureResult, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
 import { escapeMarkdown } from '../shared/markdown';
 import { registerQuickFixes } from './quickFixes';
 import { relativeTime } from '../shared/time';
 import { TextMateHighlighter, parseColor, toHex } from './textmate';
+import { foldingRanges } from '../lang/folding';
 // Internal Monaco services: the public registerEditorOpener can only answer with the source editor, which
 // makes Monaco highlight, reveal and move peek views in the wrong pane.
 // @ts-ignore: no type declarations for internal modules
@@ -164,11 +165,11 @@ const NOT_COMMITTED: BlameCommitInfo = { sha: '', author: '', you: true, time: 0
 const TYPING_PAUSE = 800;
 
 function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextModel, offset: number, includeDeclaration?: boolean,
-  newName?: string): Promise<T | null> {
+  newName?: string, others?: { key: string; text: string }[]): Promise<T | null> {
   const id = ++requestId;
   return new Promise(resolve => {
     pending.set(id, r => resolve(r as T | null));
-    post({ type: 'request', id, kind, key, text: model.getValue(), offset, includeDeclaration, newName });
+    post({ type: 'request', id, kind, key, text: model.getValue(), offset, includeDeclaration, newName, others });
   });
 }
 
@@ -370,6 +371,63 @@ function registerProviders(): void {
       return (ts ?? []).map(locationOf);
     },
   });
+  // Before an argument passed by position, the parameter it goes to: LIMIT(min: 0, in: fIn, max: 100).
+  monaco.languages.registerInlayHintsProvider(LANG, {
+    async provideInlayHints(model, range, token) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const hs = await request<ParamHintResult[]>('paramHints', pane.section.key, model, 0);
+      if (token.isCancellationRequested) return null;
+      const hints = (hs ?? []).map((h): Monaco.languages.InlayHint => ({
+        position: model.getPositionAt(h.offset), label: `${h.name}:`, kind: monaco.languages.InlayHintKind.Parameter, paddingRight: true,
+      })).filter(h => range.containsPosition(h.position));
+      return { hints, dispose() {} };
+    },
+  });
+  // Go to Symbol (Ctrl+Shift+O): the declarations of the pane in their VAR blocks, its regions and CASE branches.
+  monaco.languages.registerDocumentSymbolProvider(LANG, {
+    displayName: 'TwinCAT',
+    async provideDocumentSymbols(model) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const symbols = await request<OutlineResult[]>('symbols', pane.section.key, model, 0);
+      const kinds = monaco.languages.SymbolKind as unknown as Record<string, Monaco.languages.SymbolKind>;
+      // Monaco's Go to Symbol shows no detail: it goes in the name, where it can be searched for too (the comment of
+      // a CASE branch, `20 — Wait for the axis`; the type of a variable, `bEnable : BOOL`).
+      const label = (s: OutlineResult) => !s.detail ? s.name
+        : s.kind === 'Variable' || s.kind === 'Constant' ? `${s.name} : ${s.detail}` : `${s.name} — ${s.detail}`;
+      const toSymbol = (s: OutlineResult): Monaco.languages.DocumentSymbol => ({
+        name: label(s), detail: s.detail, kind: kinds[s.kind] ?? monaco.languages.SymbolKind.Object, tags: [],
+        range: rangeOf(model, s.start, s.end), selectionRange: rangeOf(model, s.nameStart, s.nameEnd), children: s.children.map(toSymbol),
+      });
+      return (symbols ?? []).map(toSymbol);
+    },
+  });
+  // Folding by the blocks of the code (IF ... END_IF and each of its branches, VAR ... END_VAR, comments, regions),
+  // not by indentation. Computed here: it needs the text alone, and comes with every change.
+  monaco.languages.registerFoldingRangeProvider(LANG, {
+    provideFoldingRanges(model) {
+      const kinds = { comment: monaco.languages.FoldingRangeKind.Comment, region: monaco.languages.FoldingRangeKind.Region };
+      return foldingRanges(model.getValue()).map(f => ({ start: f.startLine + 1, end: f.endLine + 1, kind: f.kind && kinds[f.kind] }));
+    },
+  });
+  // The keywords of the block at the cursor (IF, ELSIF, ELSE, END_IF), or the occurrences of the symbol there, written
+  // or read: in this pane, and in the other panes (the declaration of a variable used in the implementation).
+  monaco.languages.registerDocumentHighlightProvider(LANG, {
+    async provideDocumentHighlights(model, position, token) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const others = panes.filter(p => p !== pane).map(p => ({ key: p.section.key, text: p.model.getValue() }));
+      const hs = await request<HighlightResult[]>('highlights', pane.section.key, model, model.getOffsetAt(position), undefined, undefined,
+        others);
+      if (token.isCancellationRequested) return null;
+      const own = (hs ?? []).filter(h => h.key === undefined);
+      showCrossHighlights(pane, own.map(h => rangeOf(model, h.start, h.end)), (hs ?? []).filter(h => h.key !== undefined));
+      const kinds = { text: monaco.languages.DocumentHighlightKind.Text, read: monaco.languages.DocumentHighlightKind.Read,
+        write: monaco.languages.DocumentHighlightKind.Write };
+      return own.map(h => ({ range: rangeOf(model, h.start, h.end), kind: kinds[h.kind] }));
+    },
+  });
   // Go to Implementations (Ctrl+F12) and Peek Implementations: the function blocks that implement an interface or
   // extend a function block, the methods and properties that implement or override one.
   monaco.languages.registerImplementationProvider(LANG, {
@@ -491,7 +549,22 @@ function registerProviders(): void {
 
 // ------------------------------------------------------------------ layout
 
+/**
+ * Editors were created while the page was hidden (the commit diff panel behind another tab, built again when the
+ * index changes): Monaco measured the font as nothing there, so clicks land columns away from the pointer and the
+ * line numbers are cut. Measured again once the page shows.
+ */
+let measuredHidden = false;
+
+function noteIfHidden(): void {
+  if (document.hidden || root.clientWidth === 0) measuredHidden = true;
+}
+
 function layout(): void {
+  if (measuredHidden && !document.hidden && root.clientWidth > 0) {
+    measuredHidden = false;
+    monaco.editor.remeasureFonts();
+  }
   const height = root.clientHeight;
   if (panes.length === 1) {
     panes[0].element.style.top = '0px';
@@ -509,9 +582,18 @@ function layout(): void {
     panes[1].element.style.height = `${usable - top}px`;
   }
   for (const p of panes) {
-    if (p.diff) p.diff.editor.layout();
+    if (p.diff) layoutDiff(p.diff);
     else p.standalone.layout();
   }
+  if (revealWhenShown && height > 0 && !document.hidden) revealFirstChange();
+}
+
+/**
+ * Without automatic layout a diff editor measures its own root, which it gives a fixed height: it would never grow
+ * back. It gets the size of the host it fills instead.
+ */
+function layoutDiff(diff: NonNullable<Pane['diff']>): void {
+  diff.editor.layout({ width: diff.host.clientWidth, height: diff.host.clientHeight });
 }
 
 function setRatio(r: number): void {
@@ -623,6 +705,7 @@ function createPane(section: PaneSection): Pane {
   model.setEOL(monaco.editor.EndOfLineSequence.LF);
   applyIndentation(model);
   models.set(uri.toString(), {});
+  noteIfHidden();
   const editor = monaco.editor.create(host, { ...editorOptions(section), model });
   const pane: Pane = {
     section, model, standalone: editor, editor, element, host, baseNew: false, changes: [],
@@ -630,6 +713,8 @@ function createPane(section: PaneSection): Pane {
   };
   model.onDidChangeContent(e => {
     scheduleChanges(pane);
+    // Monaco's highlights go while typing; so do those of the other panes.
+    clearCrossHighlights();
     // The annotation does not ride along while the line is typed in.
     pane.typedAt = Date.now();
     pane.blameMarks?.clear();
@@ -660,10 +745,57 @@ function createPane(section: PaneSection): Pane {
   return pane;
 }
 
+// ------------------------------------------------------------------ highlights in the other panes
+
+/**
+ * The uses of the symbol at the cursor of `source` highlighted in the other panes (Monaco's highlights stay in the
+ * editor that asked), with the ranges Monaco highlights in `source`: the cursor moving within them keeps them.
+ */
+let crossHighlights: { source: Pane; own: Monaco.Range[]; marks: Map<Pane, string[]> } | undefined;
+
+/** As Monaco's own highlights: their colors, and a mark in the overview ruler. */
+function crossOptions(kind: HighlightResult['kind']): Monaco.editor.IModelDecorationOptions {
+  const [className, ruler] = kind === 'write' ? ['wordHighlightStrong', 'wordHighlightStrongForeground']
+    : kind === 'read' ? ['wordHighlight', 'wordHighlightForeground'] : ['wordHighlightText', 'wordHighlightTextForeground'];
+  return {
+    className,
+    stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+    overviewRuler: { color: { id: `editorOverviewRuler.${ruler}` }, position: monaco.editor.OverviewRulerLane.Center },
+  };
+}
+
+function clearCrossHighlights(): void {
+  for (const [p, ids] of crossHighlights?.marks ?? []) if (!p.model.isDisposed()) p.model.deltaDecorations(ids, []);
+  crossHighlights = undefined;
+}
+
+function showCrossHighlights(source: Pane, own: Monaco.Range[], hs: HighlightResult[]): void {
+  clearCrossHighlights();
+  if (hs.length === 0) return;
+  const marks = new Map<Pane, string[]>();
+  for (const p of panes) {
+    const mine = hs.filter(h => h.key === p.section.key);
+    if (mine.length > 0) {
+      marks.set(p, p.model.deltaDecorations([], mine.map(h => ({ range: rangeOf(p.model, h.start, h.end), options: crossOptions(h.kind) }))));
+    }
+  }
+  crossHighlights = { source, own, marks };
+}
+
+/** The cursor moved: the highlights of the other panes go, unless it stays on a use Monaco highlights. */
+function cursorMoved(pane: Pane, position: Monaco.Position): void {
+  if (crossHighlights && !(crossHighlights.source === pane && crossHighlights.own.some(r => r.containsPosition(position)))) {
+    clearCrossHighlights();
+  }
+}
+
 /** Focus, cursor and mouse handling of an editor a pane shows (its own one, or the modified side of its diff). */
 function wireEditor(pane: Pane, editor: Monaco.editor.ICodeEditor): void {
   editor.onDidFocusEditorText(() => focused(pane));
-  editor.onDidChangeCursorPosition(() => scheduleBlame(pane));
+  editor.onDidChangeCursorPosition(e => {
+    scheduleBlame(pane);
+    cursorMoved(pane, e.position);
+  });
   editor.onMouseMove(e => {
     pointerOnBlame = isBlameElement(e.event.browserEvent.target);
   });
@@ -860,13 +992,33 @@ function updateLabel(pane: Pane): void {
 }
 
 /** Each pane goes to its first change; the focus goes to the first pane with changes. */
+/** The first change is to be revealed once the page shows: hidden, the panes have no height to center it in. */
+let revealWhenShown = false;
+
 function revealFirstChange(): void {
+  if (document.hidden || root.clientHeight === 0) {
+    revealWhenShown = true;
+    return;
+  }
+  revealWhenShown = false;
   let target: Pane | undefined;
   for (const p of panes) {
     if (p.changes.length === 0) continue;
     const line = markLine(p.changes[0]);
-    p.editor.setPosition({ lineNumber: line, column: 1 });
-    p.editor.revealLineInCenter(line);
+    const reveal = (editor: Monaco.editor.ICodeEditor) => {
+      editor.setPosition({ lineNumber: line, column: 1 });
+      editor.revealLineInCenter(line);
+    };
+    const diff = p.diff?.editor;
+    // A diff still computing has not hidden its unchanged lines yet: centered now, the line would end up far below.
+    if (diff && diff.getLineChanges() === null) {
+      const once = diff.onDidUpdateDiff(() => {
+        once.dispose();
+        if (p.diff?.editor === diff) reveal(diff.getModifiedEditor());
+      });
+    } else {
+      reveal(p.editor);
+    }
     target ??= p;
   }
   target?.editor.focus();
@@ -921,13 +1073,14 @@ function enterDiff(pane: Pane): void {
   const hadFocus = pane.standalone.hasTextFocus();
   pane.host.style.display = 'none';
   const collapsed = pane.changes.length > 0;
+  noteIfHidden();
   const editor = monaco.editor.createDiffEditor(host, diffOptions(pane.section, collapsed));
   editor.setModel({ original: pane.base, modified: pane.model });
   pane.diff = { editor, host, collapsed };
   const modified = editor.getModifiedEditor();
   wireEditor(pane, modified);
   pane.editor = modified;
-  editor.layout();
+  layoutDiff(pane.diff);
   if (state) modified.restoreViewState(state);
   if (hadFocus) modified.focus();
   updateBlame(pane);
@@ -1075,6 +1228,8 @@ function init(m: Extract<HostMessage, { type: 'init' }>): void {
     p.model.dispose();
   }
   root.textContent = '';
+  crossHighlights = undefined;
+  revealWhenShown = false;
   // The HEAD texts follow this message; the changes shown before come back with them.
   baseState = 'pending';
   changesMode = false;
@@ -1382,6 +1537,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
 });
 
 window.addEventListener('resize', () => layout());
+document.addEventListener('visibilitychange', () => layout());
 // Focus returns to the section edited last when the tab is activated, unless something in the page
 // (the Find box, a peek view, the rename box, a pane) keeps it.
 window.addEventListener('focus', () => setTimeout(() => {

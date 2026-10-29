@@ -1,6 +1,6 @@
 // Language features for Structured Text: go to definition, hover, completion,
-// signature help, references, implementations, workspace symbols and
-// diagnostics. The *At methods work on a section and an offset and serve the
+// signature help, references, implementations, document highlights, folding,
+// inlay hints, workspace symbols and diagnostics. The *At methods work on a section and an offset and serve the
 // split editor (objectEditor.ts); the VS Code providers serve notebook cells.
 // Locations are in the split editor (through twincat-loc renderings) or in
 // object notebooks, by setting.
@@ -13,6 +13,8 @@ import { Loc, Sym, Ty, tyToString } from '../lang/symbols';
 import { completionContext, expressionBeforeDot } from '../lang/completion';
 import { CallParam, Callable, callArguments, callSnippet, callableOfSymbol, returnsValue, signatureAt } from '../lang/calls';
 import { snippetsAt } from '../lang/snippets';
+import { foldingRanges } from '../lang/folding';
+import { OutlineSymbol, symbolKindOf } from '../lang/outline';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { positionIn } from '../core/objectText';
 import { TcSourceFile, sectionOffsetToFileOffset } from '../core/tcfile';
@@ -139,30 +141,15 @@ function completionKind(s: Sym): CompletionKindName {
 }
 
 function symbolKind(s: Sym): vscode.SymbolKind {
-  switch (s.kind) {
-    case 'pou':
-      if (s.pouKind === 'ITF') return vscode.SymbolKind.Interface;
-      if (s.pouKind === 'FUN') return vscode.SymbolKind.Function;
-      if (s.pouKind === 'PRG') return vscode.SymbolKind.Module;
-      return vscode.SymbolKind.Class;
-    case 'method': return vscode.SymbolKind.Method;
-    case 'property': return vscode.SymbolKind.Property;
-    case 'action':
-    case 'transition':
-      return vscode.SymbolKind.Event;
-    case 'type': return s.dutKind === 'enum' ? vscode.SymbolKind.Enum : vscode.SymbolKind.Struct;
-    case 'enumValue': return vscode.SymbolKind.EnumMember;
-    case 'gvl': return vscode.SymbolKind.Namespace;
-    case 'var': return s.constant ? vscode.SymbolKind.Constant : vscode.SymbolKind.Variable;
-    default: return vscode.SymbolKind.Object;
-  }
+  return vscode.SymbolKind[symbolKindOf(s)];
 }
 
 export { describeOwner };
 
 export class LanguageFeatures implements
   vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.SignatureHelpProvider, vscode.ReferenceProvider,
-  vscode.ImplementationProvider, vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider {
+  vscode.ImplementationProvider, vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider,
+  vscode.DocumentHighlightProvider, vscode.FoldingRangeProvider, vscode.InlayHintsProvider {
   /** The section-level features this class adapts to VS Code. */
   readonly sections: SectionFeatures;
   private readonly symbolLocs = new WeakMap<vscode.SymbolInformation, Loc>();
@@ -379,6 +366,38 @@ export class LanguageFeatures implements
     return out;
   }
 
+  // ------------------------------------------------------------------ document highlights
+
+  /** The keywords of the block at the cursor (IF ... END_IF), or the occurrences of the symbol there, written or read. */
+  provideDocumentHighlights(doc: vscode.TextDocument, pos: vscode.Position): vscode.DocumentHighlight[] {
+    const info = cellInfo(doc);
+    const ctx = info && this.index.context(info.fileKey, info.sectionKey);
+    const kinds = { text: vscode.DocumentHighlightKind.Text, read: vscode.DocumentHighlightKind.Read, write: vscode.DocumentHighlightKind.Write };
+    return this.sections.highlightsAt(ctx, doc.getText(), doc.offsetAt(pos))
+      .map(h => new vscode.DocumentHighlight(new vscode.Range(doc.positionAt(h.start), doc.positionAt(h.end)), kinds[h.kind]));
+  }
+
+  // ------------------------------------------------------------------ inlay hints
+
+  /** Before an argument passed by position, the parameter it goes to: `LIMIT(min: 0, in: fIn, max: 100)`. */
+  provideInlayHints(doc: vscode.TextDocument, range: vscode.Range): vscode.InlayHint[] {
+    const r = this.analysisForDocument(doc);
+    if (!r) return [];
+    return r.analysis.paramHints.map(h => {
+      const hint = new vscode.InlayHint(doc.positionAt(h.offset), `${h.name}:`, vscode.InlayHintKind.Parameter);
+      hint.paddingRight = true;
+      return hint;
+    }).filter(h => range.contains(h.position));
+  }
+
+  // ------------------------------------------------------------------ folding
+
+  /** Folding by the blocks of the code, not by indentation (see foldingRanges). */
+  provideFoldingRanges(doc: vscode.TextDocument): vscode.FoldingRange[] {
+    const kinds = { comment: vscode.FoldingRangeKind.Comment, region: vscode.FoldingRangeKind.Region };
+    return foldingRanges(doc.getText()).map(f => new vscode.FoldingRange(f.startLine, f.endLine, f.kind && kinds[f.kind]));
+  }
+
   // ------------------------------------------------------------------ implementations
 
   async provideImplementation(doc: vscode.TextDocument, pos: vscode.Position): Promise<vscode.Location[]> {
@@ -395,14 +414,17 @@ export class LanguageFeatures implements
   // ------------------------------------------------------------------ document symbols (Outline)
 
   provideDocumentSymbols(doc: vscode.TextDocument): vscode.DocumentSymbol[] {
-    const r = this.analysisForDocument(doc);
-    if (!r) return [];
-    return r.analysis.occurrences.filter(o => o.decl).map(o => {
-      const range = new vscode.Range(doc.positionAt(o.start), doc.positionAt(o.end));
-      const detail = o.sym.kind === 'var' ? o.sym.signature.slice(o.sym.name.length).replace(/^\s*:\s*/, '') : '';
-      return new vscode.DocumentSymbol(o.sym.name, detail, symbolKind(o.sym), range, range);
-    });
+    const info = cellInfo(doc);
+    const ctx = info && this.index.context(info.fileKey, info.sectionKey);
+    const range = (start: number, end: number) => new vscode.Range(doc.positionAt(start), doc.positionAt(end));
+    const toSymbol = (s: OutlineSymbol): vscode.DocumentSymbol => {
+      const d = new vscode.DocumentSymbol(s.name, s.detail, vscode.SymbolKind[s.kind], range(s.start, s.end), range(s.nameStart, s.nameEnd));
+      d.children = s.children.map(toSymbol);
+      return d;
+    };
+    return this.sections.outlineOf(ctx, doc.getText()).map(toSymbol);
   }
+
 
   // ------------------------------------------------------------------ workspace symbols
 

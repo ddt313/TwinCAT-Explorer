@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.17.0 - 2026-10-29
 
 ### Added
 - Saving an object in the split editor or an object notebook goes through TwinCAT XAE when XAE has the

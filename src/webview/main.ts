@@ -517,7 +517,22 @@ function registerProviders(): void {
 
 // ------------------------------------------------------------------ layout
 
+/**
+ * Editors were created while the page was hidden (the commit diff panel behind another tab, built again when the
+ * index changes): Monaco measured the font as nothing there, so clicks land columns away from the pointer and the
+ * line numbers are cut. Measured again once the page shows.
+ */
+let measuredHidden = false;
+
+function noteIfHidden(): void {
+  if (document.hidden || root.clientWidth === 0) measuredHidden = true;
+}
+
 function layout(): void {
+  if (measuredHidden && !document.hidden && root.clientWidth > 0) {
+    measuredHidden = false;
+    monaco.editor.remeasureFonts();
+  }
   const height = root.clientHeight;
   if (panes.length === 1) {
     panes[0].element.style.top = '0px';
@@ -538,6 +553,7 @@ function layout(): void {
     if (p.diff) layoutDiff(p.diff);
     else p.standalone.layout();
   }
+  if (revealWhenShown && height > 0 && !document.hidden) revealFirstChange();
 }
 
 /**
@@ -657,6 +673,7 @@ function createPane(section: PaneSection): Pane {
   model.setEOL(monaco.editor.EndOfLineSequence.LF);
   applyIndentation(model);
   models.set(uri.toString(), {});
+  noteIfHidden();
   const editor = monaco.editor.create(host, { ...editorOptions(section), model });
   const pane: Pane = {
     section, model, standalone: editor, editor, element, host, baseNew: false, changes: [],
@@ -943,13 +960,33 @@ function updateLabel(pane: Pane): void {
 }
 
 /** Each pane goes to its first change; the focus goes to the first pane with changes. */
+/** The first change is to be revealed once the page shows: hidden, the panes have no height to center it in. */
+let revealWhenShown = false;
+
 function revealFirstChange(): void {
+  if (document.hidden || root.clientHeight === 0) {
+    revealWhenShown = true;
+    return;
+  }
+  revealWhenShown = false;
   let target: Pane | undefined;
   for (const p of panes) {
     if (p.changes.length === 0) continue;
     const line = markLine(p.changes[0]);
-    p.editor.setPosition({ lineNumber: line, column: 1 });
-    p.editor.revealLineInCenter(line);
+    const reveal = (editor: Monaco.editor.ICodeEditor) => {
+      editor.setPosition({ lineNumber: line, column: 1 });
+      editor.revealLineInCenter(line);
+    };
+    const diff = p.diff?.editor;
+    // A diff still computing has not hidden its unchanged lines yet: centered now, the line would end up far below.
+    if (diff && diff.getLineChanges() === null) {
+      const once = diff.onDidUpdateDiff(() => {
+        once.dispose();
+        if (p.diff?.editor === diff) reveal(diff.getModifiedEditor());
+      });
+    } else {
+      reveal(p.editor);
+    }
     target ??= p;
   }
   target?.editor.focus();
@@ -1004,6 +1041,7 @@ function enterDiff(pane: Pane): void {
   const hadFocus = pane.standalone.hasTextFocus();
   pane.host.style.display = 'none';
   const collapsed = pane.changes.length > 0;
+  noteIfHidden();
   const editor = monaco.editor.createDiffEditor(host, diffOptions(pane.section, collapsed));
   editor.setModel({ original: pane.base, modified: pane.model });
   pane.diff = { editor, host, collapsed };
@@ -1159,6 +1197,7 @@ function init(m: Extract<HostMessage, { type: 'init' }>): void {
   }
   root.textContent = '';
   crossHighlights = undefined;
+  revealWhenShown = false;
   // The HEAD texts follow this message; the changes shown before come back with them.
   baseState = 'pending';
   changesMode = false;
@@ -1466,6 +1505,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
 });
 
 window.addEventListener('resize', () => layout());
+document.addEventListener('visibilitychange', () => layout());
 // Focus returns to the section edited last when the tab is activated, unless something in the page
 // (the Find box, a peek view, the rename box, a pane) keeps it.
 window.addEventListener('focus', () => setTimeout(() => {

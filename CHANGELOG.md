@@ -35,6 +35,11 @@ All notable changes to Explorer for TwinCAT. The format follows
   panes is dragged, it kept its earlier height and left an empty gap below.
 - The split editor highlights the bracket that matches the one at the cursor, colors bracket pairs and
   shows their guides, as VS Code's editors do (it ignored every bracket).
+- A click in the panel of staged changes (or of a commit's changes) puts the cursor where it was clicked again.
+  The panel built its panes again behind another tab when the index changed, after staging an object, and the
+  panes then placed the cursor columns away from the pointer and cut the line numbers.
+- The panel of staged changes (or of a commit's changes) shows the first change of each pane: in a long
+  implementation it was scrolled past its changes, near the end.
 
 ## 0.16.1 - 2026-10-26
 

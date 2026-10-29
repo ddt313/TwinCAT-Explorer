@@ -591,6 +591,8 @@ export class EditorSession implements vscode.Disposable {
       if (m.kind === 'highlights') {
         result = features.sections.highlightsAt(ctx, m.text, m.offset,
           (m.others ?? []).map(o => ({ ...o, ctx: this.provider.index.context(this.fileKey, o.key) })));
+      } else if (m.kind === 'symbols') {
+        result = features.sections.outlineOf(ctx, m.text);
       } else if (ctx) {
         switch (m.kind) {
           case 'codeActions':

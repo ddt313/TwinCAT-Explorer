@@ -456,6 +456,11 @@ These work in both panes and in notebook cells. They come from a parser of the T
   (`ELSIF`, `ELSE`), `CASE`, `FOR`, `WHILE`, `REPEAT`, `VAR ... END_VAR`, `STRUCT`, `UNION`, `TYPE`, comments
   over several lines and `{region}` ... `{endregion}`. Fold All (`Ctrl+K Ctrl+0`) and the fold levels
   (`Ctrl+K Ctrl+2`) follow them. `editor.foldingStrategy` set to `indentation` folds by indentation instead.
+- **Go to Symbol** (`Ctrl+Shift+O`; type `@:` to group by kind) and the outline of notebook cells: in a
+  declaration, the POU, method or type with its `VAR` blocks (`VAR_INPUT`, `VAR CONSTANT`, ...) and their
+  variables, members and enumeration values; in an implementation, the branches of each `CASE` (the steps
+  of a state machine) with the comment on their line, as `20 — Wait for the axis`, which can be searched
+  for; and the `{region}`s of both.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it.
 - **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that

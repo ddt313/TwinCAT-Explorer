@@ -24,6 +24,9 @@ All notable changes to Explorer for TwinCAT. The format follows
   `IF ... END_IF` and each of its branches, `CASE`, `FOR`, `WHILE`, `REPEAT`, `VAR ... END_VAR`, `STRUCT`,
   `UNION`, `TYPE`, comments over several lines and `{region}` ... `{endregion}`, also where the indentation is
   off. `editor.foldingStrategy` set to `indentation` folds by indentation instead.
+- Go to Symbol (`Ctrl+Shift+O`) in the split editor, and a richer outline of notebook cells: the declarations
+  in their `VAR` blocks (`VAR_INPUT`, `VAR CONSTANT`, ...), the branches of each `CASE` with the comment on
+  their line (`20 — Wait for the axis`, which Go to Symbol searches too), and `{region}`s.
 
 ### Changed
 - The line blame of the split editor is off by default: `TwinCAT: Toggle Line Blame` or the setting

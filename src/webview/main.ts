@@ -8,7 +8,7 @@
 import * as monacoAll from 'monaco-editor/esm/vs/editor/edcore.main.js';
 import type * as Monaco from 'monaco-editor';
 import {
-  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HighlightResult, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
+  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HighlightResult, HostMessage, HoverResult, OutlineResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
   ProbeState, RenameInfo, RequestKind, SectionBlame, SectionRef, SignatureResult, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
 import { escapeMarkdown } from '../shared/markdown';
@@ -369,6 +369,25 @@ function registerProviders(): void {
       pruneForeign();
       const ts = await request<TargetRange[]>('references', pane.section.key, model, model.getOffsetAt(position), context.includeDeclaration);
       return (ts ?? []).map(locationOf);
+    },
+  });
+  // Go to Symbol (Ctrl+Shift+O): the declarations of the pane in their VAR blocks, its regions and CASE branches.
+  monaco.languages.registerDocumentSymbolProvider(LANG, {
+    displayName: 'TwinCAT',
+    async provideDocumentSymbols(model) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const symbols = await request<OutlineResult[]>('symbols', pane.section.key, model, 0);
+      const kinds = monaco.languages.SymbolKind as unknown as Record<string, Monaco.languages.SymbolKind>;
+      // Monaco's Go to Symbol shows no detail: it goes in the name, where it can be searched for too (the comment of
+      // a CASE branch, `20 — Wait for the axis`; the type of a variable, `bEnable : BOOL`).
+      const label = (s: OutlineResult) => !s.detail ? s.name
+        : s.kind === 'Variable' || s.kind === 'Constant' ? `${s.name} : ${s.detail}` : `${s.name} — ${s.detail}`;
+      const toSymbol = (s: OutlineResult): Monaco.languages.DocumentSymbol => ({
+        name: label(s), detail: s.detail, kind: kinds[s.kind] ?? monaco.languages.SymbolKind.Object, tags: [],
+        range: rangeOf(model, s.start, s.end), selectionRange: rangeOf(model, s.nameStart, s.nameEnd), children: s.children.map(toSymbol),
+      });
+      return (symbols ?? []).map(toSymbol);
     },
   });
   // Folding by the blocks of the code (IF ... END_IF and each of its branches, VAR ... END_VAR, comments, regions),

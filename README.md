@@ -114,7 +114,7 @@ XAE, with its changes against `HEAD` and the blame of the current line.
   - The hover adds the date, `Open Changes` and `Show History`. `Open Changes` shows the commit's
     changes of this object in the commit diff panel.
   - Lines changed since `HEAD`, saved or not, show `Uncommitted changes`.
-  - `TwinCAT: Toggle Line Blame` or `twincatExplorer.blame.currentLine` turns it off.
+  - Off by default: `TwinCAT: Toggle Line Blame` or the setting `twincatExplorer.blame.currentLine` turns it on.
 
 </details>
 
@@ -148,7 +148,10 @@ disk meanwhile is never overwritten.
 On Windows, when a running TwinCAT XAE has the project open, saving an object in the split editor or an
 object notebook sets the edited sections in XAE instead of writing the file. XAE shows the change at once,
 saves the object itself, and never asks to reload it or writes its older copy back. With XAE closed the
-file is written as before. Turn it off with `twincatExplorer.saveThroughXae`.
+file is written as before.
+
+Off by default: turn it on with `twincatExplorer.saveThroughXae`. Off, saves write the file and never ask
+XAE anything.
 
 <details>
 <summary>Details</summary>
@@ -443,6 +446,12 @@ These work in both panes and in notebook cells. They come from a parser of the T
   parameter at the cursor. That parameter follows the argument's position, or the name being typed.
   An action shows the inputs and outputs of its function block; a declaration shows those of `FB_init`
   (`fbValve : FB_Valve(`). `Ctrl+Shift+Space` shows it again, as in XAE.
+- **Highlights at the cursor**: on a keyword, the others of its block (`IF`, `THEN`, `ELSIF`, `ELSE`,
+  `END_IF`; `CASE ... OF ... ELSE ... END_CASE`; `FOR ... TO ... BY ... DO ... END_FOR` with the loop's
+  `EXIT` and `CONTINUE`; `VAR_INPUT ... END_VAR`, `STRUCT ... END_STRUCT`, ...); on a name, its uses, those
+  that write it (`:=`, `=> bDone`, `S=`, `REF=`, its declaration) apart from those that read it, in both panes
+  of the split editor: on `bDone` in the implementation, its declaration above too. On a bracket, the one
+  that matches it.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it.
 - **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that
@@ -860,8 +869,8 @@ Commit SHA and Copy Name.
 | `twincatExplorer.foldersFirst` | `true` | Sort folders before objects in the TwinCAT tree. |
 | `twincatExplorer.diagnostics.enabled` | `true` | Report Structured Text problems in open TwinCAT editors and notebooks. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
-| `twincatExplorer.saveThroughXae` | `true` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
-| `twincatExplorer.blame.currentLine` | `true` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
+| `twincatExplorer.saveThroughXae` | `false` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
+| `twincatExplorer.blame.currentLine` | `false` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files: absolute paths, or paths relative to the first workspace folder (see [Library stubs](#library-stubs)). |
 | `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)). |
 | `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Folders ignored when searching for `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |
@@ -922,8 +931,8 @@ sources.
   keep in the file. TwinCAT 3.1.4026 writes none either in the projects it creates (their option
   `WriteLineIDs` is off).
 - If TwinCAT XAE has the same project open (checked with XAE 3.1.4026):
-  - Saves of the split editor and the object notebooks go through XAE, on Windows (see
-    [Saving through TwinCAT XAE](#saving-through-twincat-xae)). What follows is about the other changes
+  - With `twincatExplorer.saveThroughXae` on, saves of the split editor and the object notebooks go
+    through XAE, on Windows (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). What follows is about the other changes
     made here, and about saves with `twincatExplorer.saveThroughXae` off.
   - XAE reloads a source file changed on disk by itself, within about a second, when the object is not
     open in one of its editors and has no unsaved changes there.

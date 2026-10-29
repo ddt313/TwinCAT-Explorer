@@ -219,7 +219,11 @@ export class CommitDiffPanel implements vscode.Disposable {
     try {
       const live = this.content?.livePath;
       const ctx = live ? this.provider.index.context(fileKey(live), m.key) : undefined;
-      if (ctx) {
+      // A deleted object, or one the working tree lacks: the keywords of blocks still are.
+      if (m.kind === 'highlights') {
+        result = this.provider.features.sections.highlightsAt(ctx, m.text, m.offset,
+          (m.others ?? []).map(o => ({ ...o, ctx: live ? this.provider.index.context(fileKey(live), o.key) : undefined })));
+      } else if (ctx) {
         const features = this.provider.features;
         switch (m.kind) {
           case 'definition': {

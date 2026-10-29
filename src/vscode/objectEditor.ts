@@ -587,7 +587,11 @@ export class EditorSession implements vscode.Disposable {
     try {
       const features = this.provider.features;
       const ctx = this.provider.index.context(this.fileKey, m.key);
-      if (ctx) {
+      // Outside the index (not in a PLC project), the keywords of blocks still are.
+      if (m.kind === 'highlights') {
+        result = features.sections.highlightsAt(ctx, m.text, m.offset,
+          (m.others ?? []).map(o => ({ ...o, ctx: this.provider.index.context(this.fileKey, o.key) })));
+      } else if (ctx) {
         switch (m.kind) {
           case 'codeActions':
             result = this.provider.fixes?.quickFixes(this, m.key, m.text, m.offset);
@@ -658,7 +662,7 @@ export class EditorSession implements vscode.Disposable {
 
 /** The annotation of the current line with the commit that last changed it (twincatExplorer.blame.currentLine). */
 function blameEnabled(): boolean {
-  return vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('blame.currentLine', true);
+  return vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('blame.currentLine', false);
 }
 
 export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vscode.Disposable {

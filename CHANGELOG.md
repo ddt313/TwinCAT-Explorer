@@ -11,15 +11,26 @@ All notable changes to Explorer for TwinCAT. The format follows
   reload the file or writing its older copy back over it. Unsaved edits of the object in XAE, which XAE
   would save along or which the save would replace, are asked about first. A save is refused, and the file
   left alone, while a dialog in XAE blocks it, or when XAE's copy of the object lacks a member of the file
-  or has one the file has not. With XAE closed the file is written as before. Setting
-  `twincatExplorer.saveThroughXae` (on by default) turns it off.
+  or has one the file has not. With XAE closed the file is written as before. Off by default: setting
+  `twincatExplorer.saveThroughXae` turns it on.
 - The MCP server's error when TwinCAT XAE does not answer names the dialogs open in every running XAE, also
   while it looks for the XAE that has the project open.
+- Highlights at the cursor, in the split editor and in notebook cells: on a keyword, the others of its block
+  (`IF`, `THEN`, `ELSIF`, `ELSE`, `END_IF`; `CASE`, `FOR`, `WHILE`, `REPEAT` with a loop's `EXIT` and
+  `CONTINUE`; `VAR ... END_VAR`, `STRUCT ... END_STRUCT`, ...); on a name, its uses, those that write it apart
+  from those that read it, instead of the same word in any meaning. In the split editor in both panes: on a
+  variable in the implementation, its declaration too.
+
+### Changed
+- The line blame of the split editor is off by default: `TwinCAT: Toggle Line Blame` or the setting
+  `twincatExplorer.blame.currentLine` turns it on.
 
 ### Fixed
 - A pane showing changes (a commit's changes from the TwinCAT Commits view, or Show Changes in the split editor)
   fills the pane again when it grows: after the panel below the editor is closed or the splitter between the
   panes is dragged, it kept its earlier height and left an empty gap below.
+- The split editor highlights the bracket that matches the one at the cursor, colors bracket pairs and
+  shows their guides, as VS Code's editors do (it ignored every bracket).
 
 ## 0.16.1 - 2026-10-26
 

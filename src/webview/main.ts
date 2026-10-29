@@ -8,7 +8,7 @@
 import * as monacoAll from 'monaco-editor/esm/vs/editor/edcore.main.js';
 import type * as Monaco from 'monaco-editor';
 import {
-  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
+  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HighlightResult, HostMessage, HoverResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
   ProbeState, RenameInfo, RequestKind, SectionBlame, SectionRef, SignatureResult, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
 import { escapeMarkdown } from '../shared/markdown';
@@ -164,11 +164,11 @@ const NOT_COMMITTED: BlameCommitInfo = { sha: '', author: '', you: true, time: 0
 const TYPING_PAUSE = 800;
 
 function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextModel, offset: number, includeDeclaration?: boolean,
-  newName?: string): Promise<T | null> {
+  newName?: string, others?: { key: string; text: string }[]): Promise<T | null> {
   const id = ++requestId;
   return new Promise(resolve => {
     pending.set(id, r => resolve(r as T | null));
-    post({ type: 'request', id, kind, key, text: model.getValue(), offset, includeDeclaration, newName });
+    post({ type: 'request', id, kind, key, text: model.getValue(), offset, includeDeclaration, newName, others });
   });
 }
 
@@ -368,6 +368,23 @@ function registerProviders(): void {
       pruneForeign();
       const ts = await request<TargetRange[]>('references', pane.section.key, model, model.getOffsetAt(position), context.includeDeclaration);
       return (ts ?? []).map(locationOf);
+    },
+  });
+  // The keywords of the block at the cursor (IF, ELSIF, ELSE, END_IF), or the occurrences of the symbol there, written
+  // or read: in this pane, and in the other panes (the declaration of a variable used in the implementation).
+  monaco.languages.registerDocumentHighlightProvider(LANG, {
+    async provideDocumentHighlights(model, position, token) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const others = panes.filter(p => p !== pane).map(p => ({ key: p.section.key, text: p.model.getValue() }));
+      const hs = await request<HighlightResult[]>('highlights', pane.section.key, model, model.getOffsetAt(position), undefined, undefined,
+        others);
+      if (token.isCancellationRequested) return null;
+      const own = (hs ?? []).filter(h => h.key === undefined);
+      showCrossHighlights(pane, own.map(h => rangeOf(model, h.start, h.end)), (hs ?? []).filter(h => h.key !== undefined));
+      const kinds = { text: monaco.languages.DocumentHighlightKind.Text, read: monaco.languages.DocumentHighlightKind.Read,
+        write: monaco.languages.DocumentHighlightKind.Write };
+      return own.map(h => ({ range: rangeOf(model, h.start, h.end), kind: kinds[h.kind] }));
     },
   });
   // Go to Implementations (Ctrl+F12) and Peek Implementations: the function blocks that implement an interface or
@@ -638,6 +655,8 @@ function createPane(section: PaneSection): Pane {
   };
   model.onDidChangeContent(e => {
     scheduleChanges(pane);
+    // Monaco's highlights go while typing; so do those of the other panes.
+    clearCrossHighlights();
     // The annotation does not ride along while the line is typed in.
     pane.typedAt = Date.now();
     pane.blameMarks?.clear();
@@ -668,10 +687,57 @@ function createPane(section: PaneSection): Pane {
   return pane;
 }
 
+// ------------------------------------------------------------------ highlights in the other panes
+
+/**
+ * The uses of the symbol at the cursor of `source` highlighted in the other panes (Monaco's highlights stay in the
+ * editor that asked), with the ranges Monaco highlights in `source`: the cursor moving within them keeps them.
+ */
+let crossHighlights: { source: Pane; own: Monaco.Range[]; marks: Map<Pane, string[]> } | undefined;
+
+/** As Monaco's own highlights: their colors, and a mark in the overview ruler. */
+function crossOptions(kind: HighlightResult['kind']): Monaco.editor.IModelDecorationOptions {
+  const [className, ruler] = kind === 'write' ? ['wordHighlightStrong', 'wordHighlightStrongForeground']
+    : kind === 'read' ? ['wordHighlight', 'wordHighlightForeground'] : ['wordHighlightText', 'wordHighlightTextForeground'];
+  return {
+    className,
+    stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+    overviewRuler: { color: { id: `editorOverviewRuler.${ruler}` }, position: monaco.editor.OverviewRulerLane.Center },
+  };
+}
+
+function clearCrossHighlights(): void {
+  for (const [p, ids] of crossHighlights?.marks ?? []) if (!p.model.isDisposed()) p.model.deltaDecorations(ids, []);
+  crossHighlights = undefined;
+}
+
+function showCrossHighlights(source: Pane, own: Monaco.Range[], hs: HighlightResult[]): void {
+  clearCrossHighlights();
+  if (hs.length === 0) return;
+  const marks = new Map<Pane, string[]>();
+  for (const p of panes) {
+    const mine = hs.filter(h => h.key === p.section.key);
+    if (mine.length > 0) {
+      marks.set(p, p.model.deltaDecorations([], mine.map(h => ({ range: rangeOf(p.model, h.start, h.end), options: crossOptions(h.kind) }))));
+    }
+  }
+  crossHighlights = { source, own, marks };
+}
+
+/** The cursor moved: the highlights of the other panes go, unless it stays on a use Monaco highlights. */
+function cursorMoved(pane: Pane, position: Monaco.Position): void {
+  if (crossHighlights && !(crossHighlights.source === pane && crossHighlights.own.some(r => r.containsPosition(position)))) {
+    clearCrossHighlights();
+  }
+}
+
 /** Focus, cursor and mouse handling of an editor a pane shows (its own one, or the modified side of its diff). */
 function wireEditor(pane: Pane, editor: Monaco.editor.ICodeEditor): void {
   editor.onDidFocusEditorText(() => focused(pane));
-  editor.onDidChangeCursorPosition(() => scheduleBlame(pane));
+  editor.onDidChangeCursorPosition(e => {
+    scheduleBlame(pane);
+    cursorMoved(pane, e.position);
+  });
   editor.onMouseMove(e => {
     pointerOnBlame = isBlameElement(e.event.browserEvent.target);
   });
@@ -1083,6 +1149,7 @@ function init(m: Extract<HostMessage, { type: 'init' }>): void {
     p.model.dispose();
   }
   root.textContent = '';
+  crossHighlights = undefined;
   // The HEAD texts follow this message; the changes shown before come back with them.
   baseState = 'pending';
   changesMode = false;

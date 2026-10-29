@@ -132,9 +132,21 @@ export interface HighlightResult {
   kind: 'text' | 'read' | 'write';
 }
 
+/** A symbol of a section's outline (answer to 'symbols'), offsets in the section; `kind` names a SymbolKind. */
+export interface OutlineResult {
+  name: string;
+  detail: string;
+  kind: string;
+  start: number;
+  end: number;
+  nameStart: number;
+  nameEnd: number;
+  children: OutlineResult[];
+}
+
 export type RequestKind =
   | 'definition' | 'hover' | 'completion' | 'references' | 'implementation' | 'signature' | 'prepareRename' | 'rename' | 'codeActions'
-  | 'highlights';
+  | 'highlights' | 'symbols';
 
 export type WebviewMessage =
   | { type: 'ready' }

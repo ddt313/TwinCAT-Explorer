@@ -7,6 +7,7 @@ import { Analysis, Occurrence, analyze } from './analyzer';
 import { Loc, Sym } from './symbols';
 import { implementations } from './hierarchy';
 import { Highlight, highlightsAcross } from './highlights';
+import { OutlineSymbol, outline } from './outline';
 
 /** Where a symbol is declared, for hovers. */
 export function describeOwner(s: Sym): string {
@@ -104,6 +105,11 @@ export class SectionFeatures {
     const section = (c: SectionContext | undefined, t: string) => ({ analysis: c && this.analysisOf(c, t), text: t });
     const r = highlightsAcross(section(ctx, text), offset, others.map(o => section(o.ctx, o.text)));
     return [...r.own, ...r.others.flatMap((hs, i) => hs.map(h => ({ ...h, key: others[i].key })))];
+  }
+
+  /** The outline of a section (see outline); without a context, its VAR blocks, regions and CASE branches only. */
+  outlineOf(ctx: SectionContext | undefined, text: string): OutlineSymbol[] {
+    return outline(ctx && this.analysisOf(ctx, text), text);
   }
 
   /**

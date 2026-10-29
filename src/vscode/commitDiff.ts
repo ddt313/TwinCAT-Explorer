@@ -236,6 +236,9 @@ export class CommitDiffPanel implements vscode.Disposable {
           case 'hover':
             result = features.hoverAt(ctx, m.text, m.offset);
             break;
+          case 'paramHints':
+            result = features.sections.paramHintsOf(ctx, m.text);
+            break;
           case 'references':
             result = features.referencesAt(ctx, m.text, m.offset, m.includeDeclaration ?? true)
               .map(loc => this.provider.target(loc)).filter(t => t !== undefined);

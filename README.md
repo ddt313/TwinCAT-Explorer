@@ -456,6 +456,11 @@ These work in both panes and in notebook cells. They come from a parser of the T
   (`ELSIF`, `ELSE`), `CASE`, `FOR`, `WHILE`, `REPEAT`, `VAR ... END_VAR`, `STRUCT`, `UNION`, `TYPE`, comments
   over several lines and `{region}` ... `{endregion}`. Fold All (`Ctrl+K Ctrl+0`) and the fold levels
   (`Ctrl+K Ctrl+2`) follow them. `editor.foldingStrategy` set to `indentation` folds by indentation instead.
+- **Parameter name hints** before arguments passed by position, in calls of functions, methods,
+  function block instances and built-ins: `LIMIT(min: 0, in: fIn, max: 100)`,
+  `fbAxis.MoveTo(fPos: 10.0, fVelo: 5.0)`. None for the only argument of a call (`ABS(x)`), for the
+  numbered parameters of `MIN`, `MAX`, `CONCAT` and the like, or for a variable named like its parameter.
+  `editor.inlayHints.enabled` turns them off, or shows them only while `Ctrl+Alt` is held.
 - **Go to Symbol** (`Ctrl+Shift+O`; type `@:` to group by kind) and the outline of notebook cells: in a
   declaration, the POU, method or type with its `VAR` blocks (`VAR_INPUT`, `VAR CONSTANT`, ...) and their
   variables, members and enumeration values; in an implementation, the branches of each `CASE` (the steps

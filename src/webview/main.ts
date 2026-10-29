@@ -8,7 +8,7 @@
 import * as monacoAll from 'monaco-editor/esm/vs/editor/edcore.main.js';
 import type * as Monaco from 'monaco-editor';
 import {
-  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HighlightResult, HostMessage, HoverResult, OutlineResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
+  BlameCommitInfo, BlameProbe, CompletionResult, EditorConfig, HighlightResult, HostMessage, HoverResult, OutlineResult, ParamHintResult, LanguageConfig, PaneSection, PaneState, ProbeAction,
   ProbeState, RenameInfo, RequestKind, SectionBlame, SectionRef, SignatureResult, TargetRange, TokenRule, WORKBENCH_CHORDS, WebviewMessage,
 } from '../shared/protocol';
 import { escapeMarkdown } from '../shared/markdown';
@@ -369,6 +369,19 @@ function registerProviders(): void {
       pruneForeign();
       const ts = await request<TargetRange[]>('references', pane.section.key, model, model.getOffsetAt(position), context.includeDeclaration);
       return (ts ?? []).map(locationOf);
+    },
+  });
+  // Before an argument passed by position, the parameter it goes to: LIMIT(min: 0, in: fIn, max: 100).
+  monaco.languages.registerInlayHintsProvider(LANG, {
+    async provideInlayHints(model, range, token) {
+      const pane = ownPane(model);
+      if (!pane) return null;
+      const hs = await request<ParamHintResult[]>('paramHints', pane.section.key, model, 0);
+      if (token.isCancellationRequested) return null;
+      const hints = (hs ?? []).map((h): Monaco.languages.InlayHint => ({
+        position: model.getPositionAt(h.offset), label: `${h.name}:`, kind: monaco.languages.InlayHintKind.Parameter, paddingRight: true,
+      })).filter(h => range.containsPosition(h.position));
+      return { hints, dispose() {} };
     },
   });
   // Go to Symbol (Ctrl+Shift+O): the declarations of the pane in their VAR blocks, its regions and CASE branches.

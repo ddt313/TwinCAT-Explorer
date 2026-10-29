@@ -405,7 +405,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   };
   if (xae) {
     objectFs.saveThroughXae = async (file, edits) => {
-      if (!config().get<boolean>('saveThroughXae', true)) return false;
+      if (!config().get<boolean>('saveThroughXae', false)) return false;
       const done = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Saving in TwinCAT XAE' },
         () => saveThroughXae(ws, xae, file, edits, xaeHost));
       if (done) {

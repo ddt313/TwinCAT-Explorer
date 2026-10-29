@@ -1232,8 +1232,8 @@
         },
         "twincatExplorer.saveThroughXae": {
           "type": "boolean",
-          "default": true,
-          "markdownDescription": "When TwinCAT XAE has the project open, save edits of TwinCAT objects through XAE: XAE shows the change at once and saves the object itself, instead of asking to reload the file. Unsaved edits of the same object in XAE are asked about first. Windows only; with XAE closed the file is written."
+          "default": false,
+          "markdownDescription": "When TwinCAT XAE has the project open, save edits of TwinCAT objects through XAE: XAE shows the change at once and saves the object itself, instead of asking to reload the file. Unsaved edits of the same object in XAE are asked about first. Each save then looks for the running XAE instances first. Windows only; with XAE closed the file is written. Off: saves write the file, and never ask XAE anything."
         },
         "twincatExplorer.blame.currentLine": {
           "type": "boolean",

@@ -11,8 +11,8 @@ All notable changes to Explorer for TwinCAT. The format follows
   reload the file or writing its older copy back over it. Unsaved edits of the object in XAE, which XAE
   would save along or which the save would replace, are asked about first. A save is refused, and the file
   left alone, while a dialog in XAE blocks it, or when XAE's copy of the object lacks a member of the file
-  or has one the file has not. With XAE closed the file is written as before. Setting
-  `twincatExplorer.saveThroughXae` (on by default) turns it off.
+  or has one the file has not. With XAE closed the file is written as before. Off by default: setting
+  `twincatExplorer.saveThroughXae` turns it on.
 - The MCP server's error when TwinCAT XAE does not answer names the dialogs open in every running XAE, also
   while it looks for the XAE that has the project open.
 - Highlights at the cursor, in the split editor and in notebook cells: on a keyword, the others of its block

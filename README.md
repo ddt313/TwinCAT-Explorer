@@ -148,7 +148,10 @@ disk meanwhile is never overwritten.
 On Windows, when a running TwinCAT XAE has the project open, saving an object in the split editor or an
 object notebook sets the edited sections in XAE instead of writing the file. XAE shows the change at once,
 saves the object itself, and never asks to reload it or writes its older copy back. With XAE closed the
-file is written as before. Turn it off with `twincatExplorer.saveThroughXae`.
+file is written as before.
+
+Off by default: turn it on with `twincatExplorer.saveThroughXae`. Off, saves write the file and never ask
+XAE anything.
 
 <details>
 <summary>Details</summary>
@@ -866,7 +869,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.foldersFirst` | `true` | Sort folders before objects in the TwinCAT tree. |
 | `twincatExplorer.diagnostics.enabled` | `true` | Report Structured Text problems in open TwinCAT editors and notebooks. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
-| `twincatExplorer.saveThroughXae` | `true` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
+| `twincatExplorer.saveThroughXae` | `false` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
 | `twincatExplorer.blame.currentLine` | `false` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files: absolute paths, or paths relative to the first workspace folder (see [Library stubs](#library-stubs)). |
 | `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)). |
@@ -928,8 +931,8 @@ sources.
   keep in the file. TwinCAT 3.1.4026 writes none either in the projects it creates (their option
   `WriteLineIDs` is off).
 - If TwinCAT XAE has the same project open (checked with XAE 3.1.4026):
-  - Saves of the split editor and the object notebooks go through XAE, on Windows (see
-    [Saving through TwinCAT XAE](#saving-through-twincat-xae)). What follows is about the other changes
+  - With `twincatExplorer.saveThroughXae` on, saves of the split editor and the object notebooks go
+    through XAE, on Windows (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). What follows is about the other changes
     made here, and about saves with `twincatExplorer.saveThroughXae` off.
   - XAE reloads a source file changed on disk by itself, within about a second, when the object is not
     open in one of its editors and has no unsaved changes there.

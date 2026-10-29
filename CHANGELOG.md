@@ -27,6 +27,10 @@ All notable changes to Explorer for TwinCAT. The format follows
 - Go to Symbol (`Ctrl+Shift+O`) in the split editor, and a richer outline of notebook cells: the declarations
   in their `VAR` blocks (`VAR_INPUT`, `VAR CONSTANT`, ...), the branches of each `CASE` with the comment on
   their line (`20 — Wait for the axis`, which Go to Symbol searches too), and `{region}`s.
+- Parameter name hints before the arguments passed by position, in the split editor and in notebook cells:
+  `LIMIT(min: 0, in: fIn, max: 100)`, `fbAxis.MoveTo(fPos: 10.0, fVelo: 5.0)`. None for the only argument of a
+  call, for numbered parameters (`MIN(in1, in2)`), or for a variable named like its parameter.
+  `editor.inlayHints.enabled` turns them off.
 
 ### Changed
 - The line blame of the split editor is off by default: `TwinCAT: Toggle Line Blame` or the setting

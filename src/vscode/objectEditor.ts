@@ -608,6 +608,9 @@ export class EditorSession implements vscode.Disposable {
           case 'hover':
             result = features.hoverAt(ctx, m.text, m.offset);
             break;
+          case 'paramHints':
+            result = features.sections.paramHintsOf(ctx, m.text);
+            break;
           case 'completion':
             result = features.completionsAt(ctx, m.text, m.offset);
             break;

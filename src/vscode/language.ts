@@ -1,6 +1,6 @@
 // Language features for Structured Text: go to definition, hover, completion,
 // signature help, references, implementations, document highlights, folding,
-// workspace symbols and diagnostics. The *At methods work on a section and an offset and serve the
+// inlay hints, workspace symbols and diagnostics. The *At methods work on a section and an offset and serve the
 // split editor (objectEditor.ts); the VS Code providers serve notebook cells.
 // Locations are in the split editor (through twincat-loc renderings) or in
 // object notebooks, by setting.
@@ -149,7 +149,7 @@ export { describeOwner };
 export class LanguageFeatures implements
   vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.SignatureHelpProvider, vscode.ReferenceProvider,
   vscode.ImplementationProvider, vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider,
-  vscode.DocumentHighlightProvider, vscode.FoldingRangeProvider {
+  vscode.DocumentHighlightProvider, vscode.FoldingRangeProvider, vscode.InlayHintsProvider {
   /** The section-level features this class adapts to VS Code. */
   readonly sections: SectionFeatures;
   private readonly symbolLocs = new WeakMap<vscode.SymbolInformation, Loc>();
@@ -375,6 +375,19 @@ export class LanguageFeatures implements
     const kinds = { text: vscode.DocumentHighlightKind.Text, read: vscode.DocumentHighlightKind.Read, write: vscode.DocumentHighlightKind.Write };
     return this.sections.highlightsAt(ctx, doc.getText(), doc.offsetAt(pos))
       .map(h => new vscode.DocumentHighlight(new vscode.Range(doc.positionAt(h.start), doc.positionAt(h.end)), kinds[h.kind]));
+  }
+
+  // ------------------------------------------------------------------ inlay hints
+
+  /** Before an argument passed by position, the parameter it goes to: `LIMIT(min: 0, in: fIn, max: 100)`. */
+  provideInlayHints(doc: vscode.TextDocument, range: vscode.Range): vscode.InlayHint[] {
+    const r = this.analysisForDocument(doc);
+    if (!r) return [];
+    return r.analysis.paramHints.map(h => {
+      const hint = new vscode.InlayHint(doc.positionAt(h.offset), `${h.name}:`, vscode.InlayHintKind.Parameter);
+      hint.paddingRight = true;
+      return hint;
+    }).filter(h => range.contains(h.position));
   }
 
   // ------------------------------------------------------------------ folding

@@ -278,6 +278,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     vscode.languages.registerDocumentSymbolProvider(stSelector, features),
     vscode.languages.registerDocumentHighlightProvider(stSelector, features),
     vscode.languages.registerFoldingRangeProvider(stSelector, features),
+    vscode.languages.registerInlayHintsProvider(stSelector, features),
     vscode.languages.registerWorkspaceSymbolProvider(features),
   );
 

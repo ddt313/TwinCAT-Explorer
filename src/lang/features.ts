@@ -3,7 +3,7 @@
 // (vscode/language.ts) and the MCP server both build on it. Independent of the VS Code API.
 
 import { LanguageIndex, SectionContext } from './index';
-import { Analysis, Occurrence, analyze } from './analyzer';
+import { Analysis, Occurrence, ParamHint, analyze } from './analyzer';
 import { Loc, Sym } from './symbols';
 import { implementations } from './hierarchy';
 import { Highlight, highlightsAcross } from './highlights';
@@ -105,6 +105,11 @@ export class SectionFeatures {
     const section = (c: SectionContext | undefined, t: string) => ({ analysis: c && this.analysisOf(c, t), text: t });
     const r = highlightsAcross(section(ctx, text), offset, others.map(o => section(o.ctx, o.text)));
     return [...r.own, ...r.others.flatMap((hs, i) => hs.map(h => ({ ...h, key: others[i].key })))];
+  }
+
+  /** The parameters that the arguments passed by position go to (`LIMIT(min: 0, in: fIn, max: 100)`). */
+  paramHintsOf(ctx: SectionContext, text: string): ParamHint[] {
+    return this.analysisOf(ctx, text).paramHints;
   }
 
   /** The outline of a section (see outline); without a context, its VAR blocks, regions and CASE branches only. */

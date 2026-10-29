@@ -144,9 +144,15 @@ export interface OutlineResult {
   children: OutlineResult[];
 }
 
+/** An argument passed by position and the parameter it goes to (answer to 'paramHints'), for an inlay hint. */
+export interface ParamHintResult {
+  offset: number;
+  name: string;
+}
+
 export type RequestKind =
   | 'definition' | 'hover' | 'completion' | 'references' | 'implementation' | 'signature' | 'prepareRename' | 'rename' | 'codeActions'
-  | 'highlights' | 'symbols';
+  | 'highlights' | 'symbols' | 'paramHints';
 
 export type WebviewMessage =
   | { type: 'ready' }

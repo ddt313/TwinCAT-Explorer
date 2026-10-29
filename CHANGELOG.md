@@ -16,6 +16,11 @@ All notable changes to Explorer for TwinCAT. The format follows
 - The MCP server's error when TwinCAT XAE does not answer names the dialogs open in every running XAE, also
   while it looks for the XAE that has the project open.
 
+### Fixed
+- A pane showing changes (a commit's changes from the TwinCAT Commits view, or Show Changes in the split editor)
+  fills the pane again when it grows: after the panel below the editor is closed or the splitter between the
+  panes is dragged, it kept its earlier height and left an empty gap below.
+
 ## 0.16.1 - 2026-10-26
 
 ### Fixed

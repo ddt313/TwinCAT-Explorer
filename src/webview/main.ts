@@ -509,9 +509,17 @@ function layout(): void {
     panes[1].element.style.height = `${usable - top}px`;
   }
   for (const p of panes) {
-    if (p.diff) p.diff.editor.layout();
+    if (p.diff) layoutDiff(p.diff);
     else p.standalone.layout();
   }
+}
+
+/**
+ * Without automatic layout a diff editor measures its own root, which it gives a fixed height: it would never grow
+ * back. It gets the size of the host it fills instead.
+ */
+function layoutDiff(diff: NonNullable<Pane['diff']>): void {
+  diff.editor.layout({ width: diff.host.clientWidth, height: diff.host.clientHeight });
 }
 
 function setRatio(r: number): void {
@@ -927,7 +935,7 @@ function enterDiff(pane: Pane): void {
   const modified = editor.getModifiedEditor();
   wireEditor(pane, modified);
   pane.editor = modified;
-  editor.layout();
+  layoutDiff(pane.diff);
   if (state) modified.restoreViewState(state);
   if (hadFocus) modified.focus();
   updateBlame(pane);

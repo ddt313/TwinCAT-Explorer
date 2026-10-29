@@ -1,6 +1,6 @@
 // Language features for Structured Text: go to definition, hover, completion,
-// signature help, references, implementations, document highlights, workspace
-// symbols and diagnostics. The *At methods work on a section and an offset and serve the
+// signature help, references, implementations, document highlights, folding,
+// workspace symbols and diagnostics. The *At methods work on a section and an offset and serve the
 // split editor (objectEditor.ts); the VS Code providers serve notebook cells.
 // Locations are in the split editor (through twincat-loc renderings) or in
 // object notebooks, by setting.
@@ -13,6 +13,7 @@ import { Loc, Sym, Ty, tyToString } from '../lang/symbols';
 import { completionContext, expressionBeforeDot } from '../lang/completion';
 import { CallParam, Callable, callArguments, callSnippet, callableOfSymbol, returnsValue, signatureAt } from '../lang/calls';
 import { snippetsAt } from '../lang/snippets';
+import { foldingRanges } from '../lang/folding';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { positionIn } from '../core/objectText';
 import { TcSourceFile, sectionOffsetToFileOffset } from '../core/tcfile';
@@ -163,7 +164,7 @@ export { describeOwner };
 export class LanguageFeatures implements
   vscode.DefinitionProvider, vscode.HoverProvider, vscode.CompletionItemProvider, vscode.SignatureHelpProvider, vscode.ReferenceProvider,
   vscode.ImplementationProvider, vscode.WorkspaceSymbolProvider<vscode.SymbolInformation>, vscode.DocumentSymbolProvider,
-  vscode.DocumentHighlightProvider {
+  vscode.DocumentHighlightProvider, vscode.FoldingRangeProvider {
   /** The section-level features this class adapts to VS Code. */
   readonly sections: SectionFeatures;
   private readonly symbolLocs = new WeakMap<vscode.SymbolInformation, Loc>();
@@ -389,6 +390,14 @@ export class LanguageFeatures implements
     const kinds = { text: vscode.DocumentHighlightKind.Text, read: vscode.DocumentHighlightKind.Read, write: vscode.DocumentHighlightKind.Write };
     return this.sections.highlightsAt(ctx, doc.getText(), doc.offsetAt(pos))
       .map(h => new vscode.DocumentHighlight(new vscode.Range(doc.positionAt(h.start), doc.positionAt(h.end)), kinds[h.kind]));
+  }
+
+  // ------------------------------------------------------------------ folding
+
+  /** Folding by the blocks of the code, not by indentation (see foldingRanges). */
+  provideFoldingRanges(doc: vscode.TextDocument): vscode.FoldingRange[] {
+    const kinds = { comment: vscode.FoldingRangeKind.Comment, region: vscode.FoldingRangeKind.Region };
+    return foldingRanges(doc.getText()).map(f => new vscode.FoldingRange(f.startLine, f.endLine, f.kind && kinds[f.kind]));
   }
 
   // ------------------------------------------------------------------ implementations

@@ -452,6 +452,10 @@ These work in both panes and in notebook cells. They come from a parser of the T
   that write it (`:=`, `=> bDone`, `S=`, `REF=`, its declaration) apart from those that read it, in both panes
   of the split editor: on `bDone` in the implementation, its declaration above too. On a bracket, the one
   that matches it.
+- **Folding** by the blocks of the code, not by indentation: `IF ... END_IF` and each of its branches
+  (`ELSIF`, `ELSE`), `CASE`, `FOR`, `WHILE`, `REPEAT`, `VAR ... END_VAR`, `STRUCT`, `UNION`, `TYPE`, comments
+  over several lines and `{region}` ... `{endregion}`. Fold All (`Ctrl+K Ctrl+0`) and the fold levels
+  (`Ctrl+K Ctrl+2`) follow them. `editor.foldingStrategy` set to `indentation` folds by indentation instead.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it.
 - **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that

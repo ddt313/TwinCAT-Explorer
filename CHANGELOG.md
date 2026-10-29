@@ -20,6 +20,10 @@ All notable changes to Explorer for TwinCAT. The format follows
   `CONTINUE`; `VAR ... END_VAR`, `STRUCT ... END_STRUCT`, ...); on a name, its uses, those that write it apart
   from those that read it, instead of the same word in any meaning. In the split editor in both panes: on a
   variable in the implementation, its declaration too.
+- Folding by the blocks of the code instead of by indentation, in the split editor and in notebook cells:
+  `IF ... END_IF` and each of its branches, `CASE`, `FOR`, `WHILE`, `REPEAT`, `VAR ... END_VAR`, `STRUCT`,
+  `UNION`, `TYPE`, comments over several lines and `{region}` ... `{endregion}`, also where the indentation is
+  off. `editor.foldingStrategy` set to `indentation` folds by indentation instead.
 
 ### Changed
 - The line blame of the split editor is off by default: `TwinCAT: Toggle Line Blame` or the setting

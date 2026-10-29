@@ -63,7 +63,7 @@ export const INDEX_BASE: CompareBase = { ref: INDEX, label: 'Index' };
 const EDITOR_OPTIONS = [
   'fontFamily', 'fontSize', 'fontWeight', 'fontLigatures', 'lineHeight', 'letterSpacing', 'lineNumbers', 'renderWhitespace',
   'wordWrap', 'wordWrapColumn', 'cursorStyle', 'cursorBlinking', 'cursorSmoothCaretAnimation', 'cursorWidth', 'smoothScrolling',
-  'mouseWheelZoom', 'folding', 'foldingHighlight', 'showFoldingControls', 'renderLineHighlight', 'rulers', 'bracketPairColorization',
+  'mouseWheelZoom', 'folding', 'foldingStrategy', 'foldingHighlight', 'showFoldingControls', 'renderLineHighlight', 'rulers', 'bracketPairColorization',
   'guides', 'minimap', 'scrollBeyondLastLine', 'stickyScroll', 'roundedSelection', 'renderControlCharacters', 'multiCursorModifier',
   'quickSuggestions', 'quickSuggestionsDelay', 'suggestOnTriggerCharacters', 'acceptSuggestionOnEnter', 'tabCompletion', 'snippetSuggestions',
   'wordBasedSuggestions', 'suggestSelection', 'suggest', 'parameterHints', 'hover', 'autoClosingBrackets', 'autoClosingQuotes',

@@ -15,6 +15,7 @@ import { escapeMarkdown } from '../shared/markdown';
 import { registerQuickFixes } from './quickFixes';
 import { relativeTime } from '../shared/time';
 import { TextMateHighlighter, parseColor, toHex } from './textmate';
+import { foldingRanges } from '../lang/folding';
 // Internal Monaco services: the public registerEditorOpener can only answer with the source editor, which
 // makes Monaco highlight, reveal and move peek views in the wrong pane.
 // @ts-ignore: no type declarations for internal modules
@@ -368,6 +369,14 @@ function registerProviders(): void {
       pruneForeign();
       const ts = await request<TargetRange[]>('references', pane.section.key, model, model.getOffsetAt(position), context.includeDeclaration);
       return (ts ?? []).map(locationOf);
+    },
+  });
+  // Folding by the blocks of the code (IF ... END_IF and each of its branches, VAR ... END_VAR, comments, regions),
+  // not by indentation. Computed here: it needs the text alone, and comes with every change.
+  monaco.languages.registerFoldingRangeProvider(LANG, {
+    provideFoldingRanges(model) {
+      const kinds = { comment: monaco.languages.FoldingRangeKind.Comment, region: monaco.languages.FoldingRangeKind.Region };
+      return foldingRanges(model.getValue()).map(f => ({ start: f.startLine + 1, end: f.endLine + 1, kind: f.kind && kinds[f.kind] }));
     },
   });
   // The keywords of the block at the cursor (IF, ELSIF, ELSE, END_IF), or the occurrences of the symbol there, written

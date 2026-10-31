@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.18.0 - 2026-10-31
 
 ### Added
 - The TwinCAT licenses of this machine, on Windows: the status bar counts down to the end of the license

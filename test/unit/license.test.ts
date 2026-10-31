@@ -3,7 +3,10 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { firstToExpire, licenseFolders, parseLicenseFile, readLicenses, timeLeft } from '../../src/core/license';
+import {
+  firstToExpire, lastLicenseWrite, licenseFolders, netIdOfRegistryXml, parseLicenseFile, readLicenses, runtimeNetId, timeLeft,
+} from '../../src/core/license';
+import { solutionProjects } from '../../src/core/xae';
 
 /** A 7-day trial license as XAE writes one, made up. */
 const TRIAL = `<?xml version="1.0"?>
@@ -73,4 +76,42 @@ test('licenseFolders and readLicenses find the files of each runtime, the trial 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('netIdOfRegistryXml reads the AmsNetId of the System key, not DefaultTransportAmsNetId', () => {
+  const xml = `<TcRegistry><Key Name="HKLM"><Key Name="System">
+	<Value Name="DefaultTransportAmsNetId" Type="BIN">0F0F0F0F0101</Value>
+	<Value Name="AmsNetId" Type="BIN">0A01B4160101</Value>
+</Key></Key></TcRegistry>`;
+  assert.equal(netIdOfRegistryXml(xml), '10.1.180.22.1.1');
+  assert.equal(netIdOfRegistryXml('<Value Name="AmsNetId" Type="BIN">0A01</Value>'), undefined);
+  assert.equal(netIdOfRegistryXml('<TcRegistry/>'), undefined);
+});
+
+test('runtimeNetId reads TcRegistry.xml beside the Target folder; lastLicenseWrite sees a new license file', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tc-netid-'));
+  try {
+    const folder = path.join(root, 'UmRT_Default', '3.1', 'Target', 'License');
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(root, 'UmRT_Default', '3.1', 'TcRegistry.xml'), '<Value Name="AmsNetId" Type="BIN">C0A800010101</Value>');
+    assert.equal(runtimeNetId({ runtime: 'UmRT_Default', folder }), '192.168.0.1.1.1');
+    assert.equal(runtimeNetId({ runtime: 'Other', folder: path.join(root, 'none', 'a', 'b') }), undefined);
+    assert.equal(lastLicenseWrite(folder), 0);
+    fs.writeFileSync(path.join(folder, 'TrialLicense.tclrs'), TRIAL);
+    assert.ok(lastLicenseWrite(folder) > 0);
+    assert.equal(lastLicenseWrite(path.join(root, 'missing')), 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('solutionProjects lists the .tsproj files of a solution, resolved beside it', () => {
+  const sln = `Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{B1E792BE-AA5F-4E3C-8C82-674BF9C0715B}") = "Machine", "..\\..\\Projects\\Machine\\Machine.tsproj", "{11111111-0000-0000-0000-000000000000}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Docs", "Docs", "{22222222-0000-0000-0000-000000000000}"
+EndProject
+`;
+  const at = path.join(os.tmpdir(), 'repo', 'Solutions', 'Machine', 'Machine.sln');
+  assert.deepEqual(solutionProjects(sln, at), [path.resolve(os.tmpdir(), 'repo', 'Projects', 'Machine', 'Machine.tsproj')]);
 });

@@ -531,6 +531,11 @@
         "command": "twincatExplorer.showLicenses",
         "title": "Show Licenses",
         "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.renewTrialLicense",
+        "title": "Renew Trial License in TwinCAT XAE",
+        "category": "TwinCAT"
       }
     ],
     "menus": {
@@ -761,6 +766,10 @@
         },
         {
           "command": "twincatExplorer.showLicenses",
+          "when": "!isWeb"
+        },
+        {
+          "command": "twincatExplorer.renewTrialLicense",
           "when": "!isWeb"
         }
       ],

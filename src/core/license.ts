@@ -1,8 +1,9 @@
 // The TwinCAT licenses of the runtimes on this machine, read from their license files (*.tclrs): the 7-day trial
 // license XAE generates, and license response files. TwinCAT 3.1.4026 keeps them per runtime under
 // %ProgramData%\Beckhoff\TwinCAT\3.1\Runtimes\<runtime>\3.1\Target\License, 4024 under C:\TwinCAT\3.1\Target\License.
-// Only read: renewing the trial license stays in XAE, which asks for a typed security code.
+// Only read: a new trial license comes from XAE, whose dialog asks the user for a typed security code.
 
+import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { children, child, elementText, findAll, parseXml } from './xml';
@@ -78,6 +79,49 @@ export function licenseFolders(env: Record<string, string | undefined> = process
   const legacy = path.win32.join(env.TWINCAT3DIR || 'C:\\TwinCAT\\3.1\\', 'Target', 'License');
   if (fs.existsSync(legacy)) out.push({ runtime: 'TwinCAT', folder: legacy });
   return out;
+}
+
+/** An AMS Net ID from its 6 bytes in hex (`0A01B4160101`: 10.1.180.22.1.1). */
+function netIdOfHex(hex: string): string | undefined {
+  const digits = hex.replace(/\s/g, '');
+  return /^[0-9a-f]{12}$/i.test(digits) ? digits.match(/../g)!.map(b => parseInt(b, 16)).join('.') : undefined;
+}
+
+/** The AMS Net ID in a runtime's TcRegistry.xml (4026): `<Value Name="AmsNetId" Type="BIN">` of its System key. */
+export function netIdOfRegistryXml(text: string): string | undefined {
+  const m = /<Value\s+Name="AmsNetId"\s+Type="BIN"\s*>([^<]*)</i.exec(text);
+  return m ? netIdOfHex(m[1]) : undefined;
+}
+
+/**
+ * The AMS Net ID of a runtime, which a trial license is generated for: 4026's in TcRegistry.xml beside its Target
+ * folder, 4024's in the Windows registry.
+ */
+export function runtimeNetId(folder: LicenseFolder): string | undefined {
+  try {
+    if (folder.runtime !== 'TwinCAT') {
+      return netIdOfRegistryXml(fs.readFileSync(path.join(folder.folder, '..', '..', 'TcRegistry.xml'), 'utf8'));
+    }
+    const out = cp.execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\WOW6432Node\\Beckhoff\\TwinCAT3\\System', '/v', 'AmsNetId'],
+      { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const m = /REG_BINARY\s+([0-9a-f]+)/i.exec(out);
+    return m ? netIdOfHex(m[1]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** When a license file of the folder was last written, 0 without one: a new trial license writes TrialLicense.tclrs. */
+export function lastLicenseWrite(folder: string): number {
+  let latest = 0;
+  try {
+    for (const f of fs.readdirSync(folder)) {
+      if (/\.tclrs$/i.test(f)) latest = Math.max(latest, fs.statSync(path.join(folder, f)).mtimeMs);
+    }
+  } catch {
+    // no folder yet
+  }
+  return latest;
 }
 
 /** The license files of these folders, the trial licenses first. */

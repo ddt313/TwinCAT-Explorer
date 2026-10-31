@@ -1,5 +1,6 @@
 // The TwinCAT licenses of this machine in the status bar: how long the license that ends first has left, warned
-// about a day before and once it has expired, and `TwinCAT: Show Licenses` with each license of each runtime.
+// about a day before and once it has expired, and `TwinCAT: Show Licenses` with each license of each runtime. Both
+// offer `TwinCAT: Renew Trial License in TwinCAT XAE` (trialLicense.ts) for a trial license.
 // Only shown in a workspace with TwinCAT projects, on Windows where a runtime has a license file.
 
 import * as vscode from 'vscode';
@@ -8,6 +9,7 @@ import { LicenseFile, LicenseFolder, firstToExpire, licenseFolders, readLicenses
 /** Left before the status bar and a notification warn. */
 const WARNING_TIME = 24 * 3600_000;
 const RENEW_HINT = 'TwinCAT XAE renews it: SYSTEM > License > 7 Days Trial License.';
+const RENEW = 'Renew in TwinCAT XAE';
 
 function localTime(d: Date): string {
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -114,8 +116,10 @@ export class LicenseStatus implements vscode.Disposable {
     const message = expired
       ? `TwinCAT: ${what} expired ${localTime(f.expires!)}, so TwinCAT cannot start in Run mode.`
       : `TwinCAT: ${what} expires ${localTime(f.expires!)}, in ${timeLeft(f.expires!, now)}.`;
-    void vscode.window.showWarningMessage(f.trial ? `${message} ${RENEW_HINT}` : message, 'Show Licenses').then(choice => {
-      if (choice) void vscode.commands.executeCommand('twincatExplorer.showLicenses');
+    const actions = f.trial ? [RENEW, 'Show Licenses'] : ['Show Licenses'];
+    void vscode.window.showWarningMessage(f.trial ? `${message} ${RENEW_HINT}` : message, ...actions).then(choice => {
+      if (choice === RENEW) void vscode.commands.executeCommand('twincatExplorer.renewTrialLicense', f.runtime);
+      else if (choice) void vscode.commands.executeCommand('twincatExplorer.showLicenses');
     });
   }
 
@@ -132,7 +136,10 @@ export class LicenseStatus implements vscode.Disposable {
     return md;
   }
 
-  /** `TwinCAT: Show Licenses`: each license of each file, by runtime; picking a file's entry reveals the file. */
+  /**
+   * `TwinCAT: Show Licenses`: each license of each file, by runtime; picking a file's entry reveals the file, and a
+   * trial license's Renew entry renews it.
+   */
   async show(): Promise<void> {
     this.refresh();
     if (!this.files.length) {
@@ -142,7 +149,7 @@ export class LicenseStatus implements vscode.Disposable {
         : 'TwinCAT: no TwinCAT runtime on this machine.');
       return;
     }
-    type Item = vscode.QuickPickItem & { file?: string };
+    type Item = vscode.QuickPickItem & { file?: string; renew?: string };
     const now = new Date();
     const items: Item[] = [];
     for (const f of this.files) {
@@ -152,6 +159,7 @@ export class LicenseStatus implements vscode.Disposable {
         detail: f.issued ? `Issued ${localTime(f.issued)}. Pick to reveal ${f.file}` : `Pick to reveal ${f.file}`,
         file: f.file,
       });
+      if (f.trial) items.push({ label: `$(sync) ${RENEW}...`, detail: 'Opens its 7 Days Trial License dialog, where you type the security code', renew: f.runtime });
       for (const l of f.licenses) {
         items.push({ label: `$(key) ${l.name}`, description: [l.orderNo, l.instances && `${l.instances} instances`].filter(Boolean).join(', '), detail: l.id });
       }
@@ -159,7 +167,8 @@ export class LicenseStatus implements vscode.Disposable {
     const picked = await vscode.window.showQuickPick(items, {
       title: 'TwinCAT Licenses', placeHolder: this.files.some(f => f.trial) ? RENEW_HINT : undefined, matchOnDescription: true,
     });
-    if (picked?.file) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(picked.file));
+    if (picked?.renew) await vscode.commands.executeCommand('twincatExplorer.renewTrialLicense', picked.renew);
+    else if (picked?.file) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(picked.file));
   }
 
   dispose(): void {

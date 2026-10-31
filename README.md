@@ -641,17 +641,21 @@ renewed in TwinCAT XAE in a few clicks, on Windows.
 - **`TwinCAT: Show Licenses`** (or a click on the status bar) lists each license of each runtime: name,
   order number, instances, until when it is valid. Picking a file's entry shows the file in Explorer.
 - The licenses are read from the runtimes' license files (`*.tclrs`): under
-  `%ProgramData%\Beckhoff\TwinCAT.1\Runtimes\<runtime>.1\Target\License` with TwinCAT 3.1.4026,
-  `C:\TwinCAT.1\Target\License` with 4024. Nothing is written.
+  `%ProgramData%\Beckhoff\TwinCAT\3.1\Runtimes\<runtime>\3.1\Target\License` with TwinCAT 3.1.4026,
+  `C:\TwinCAT\3.1\Target\License` with 4024. Nothing is written.
 - **`TwinCAT: Renew Trial License in TwinCAT XAE`** (also on the warning and in Show Licenses) brings
   TwinCAT XAE to SYSTEM > License of a TwinCAT project of the workspace and clicks
   `7 Days Trial License...`. You read the security code in XAE's dialog and type it there; the extension
   never reads it. Once the new license file is written, the status bar shows it.
   - The XAE that has the project open is used. Without one, XAE is started on the workspace's `.sln`
     that has the project, and closed again without saving once the license is written.
-  - The trial license is for the runtime of this machine: a project that targets another system is
-    switched to this machine first, after asking, and set back afterwards. XAE then shows the project
-    as changed: don't save it for this.
+  - It asks which system the trial license is for: a runtime of this machine, a remote system this
+    machine has an ADS route to (`tc31-xar-1 15.15.15.15.1.1`, read from the routes' `StaticRoutes.xml`),
+    or an AMS Net ID you type. From the warning or Show Licenses it is that runtime of this machine.
+  - A project that targets another system is switched to the chosen one first, after asking, and set
+    back afterwards. XAE then shows the project as changed: don't save it for this.
+  - A remote system keeps its license file itself, so the status bar does not show it: once XAE's dialog
+    is answered, SYSTEM > License in XAE shows until when it is valid.
   - Where the button is not found (XAE in another language), XAE stays on the License page: click it
     there.
 - Shown in a workspace with TwinCAT projects; `twincatExplorer.licenseStatusBar` hides it.
@@ -879,7 +883,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Check All Structured Text` | Analyse every section of every project and report the problems. |
 | `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` | Hide (or show again) the notebook toolbars in the user settings. |
 | `TwinCAT: Show Licenses` | List each TwinCAT license of each runtime on this machine and until when it is valid (see [TwinCAT licenses](#twincat-licenses)). |
-| `TwinCAT: Renew Trial License in TwinCAT XAE` | Open the 7-day trial license dialog of TwinCAT XAE for this machine, where you type the security code (see [TwinCAT licenses](#twincat-licenses)). |
+| `TwinCAT: Renew Trial License in TwinCAT XAE` | Open the 7-day trial license dialog of TwinCAT XAE for this machine or a remote system, where you type the security code (see [TwinCAT licenses](#twincat-licenses)). |
 | `TwinCAT: Set Up MCP Server for Claude Code` | Register the extension's MCP server with Claude Code for a workspace folder, in your `~/.claude.json`, and give the folder's `.claude/settings.local.json` its permission rules (see [MCP server for AI agents](#mcp-server-for-ai-agents)). |
 | `TwinCAT Changes: Show Uncommitted Changes (vs HEAD)` | Changes view scope: uncommitted changes. |
 | `TwinCAT Changes: Show Branch Changes (vs Merge Base)` | Changes view scope: what the branch changed since it left another one. |

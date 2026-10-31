@@ -111,6 +111,58 @@ export function runtimeNetId(folder: LicenseFolder): string | undefined {
   }
 }
 
+/** A remote system the AMS router of this machine has a route to, which XAE offers as a target. */
+export interface AdsRoute {
+  name: string;
+  netId: string;
+  address?: string;
+}
+
+/** The routes of a StaticRoutes.xml: `<Route>` with `<Name>`, `<Address>` and `<NetId>`. */
+export function routesOfStaticRoutesXml(text: string): AdsRoute[] {
+  let root;
+  try {
+    root = parseXml(text);
+  } catch {
+    return [];
+  }
+  return findAll(root, 'Route').flatMap(r => {
+    const netId = elementText(text, child(r, 'NetId')) ?? '';
+    if (!/^\d{1,3}(\.\d{1,3}){5}$/.test(netId)) return [];
+    return [{ name: elementText(text, child(r, 'Name')) || netId, netId, address: elementText(text, child(r, 'Address')) || undefined }];
+  });
+}
+
+/**
+ * The ADS routes of this machine, by AMS Net ID: 4026 keeps them in StaticRoutes.xml of a runtime's or of the system's
+ * Target folder, or as one file per route in its Target\Routes folder; 4024 in C:\TwinCAT\3.1\Target\StaticRoutes.xml.
+ */
+export function adsRoutes(env: Record<string, string | undefined> = process.env, platform: string = process.platform): AdsRoute[] {
+  if (platform !== 'win32') return [];
+  const tc = path.win32.join(env.ProgramData || 'C:\\ProgramData', 'Beckhoff', 'TwinCAT', '3.1');
+  const files = [
+    ...licenseFolders(env, platform).map(f => path.win32.join(f.folder, '..', 'StaticRoutes.xml')),
+    path.win32.join(tc, 'Target', 'StaticRoutes.xml'),
+  ];
+  const routes = path.win32.join(env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Beckhoff', 'TwinCAT', '3.1', 'Target', 'Routes');
+  try {
+    files.push(...fs.readdirSync(routes).filter(f => /\.xml$/i.test(f)).sort().map(f => path.win32.join(routes, f)));
+  } catch {
+    // no route files
+  }
+  const out = new Map<string, AdsRoute>();
+  for (const file of files) {
+    let text;
+    try {
+      text = decodeXml(fs.readFileSync(file));
+    } catch {
+      continue;
+    }
+    for (const r of routesOfStaticRoutesXml(text)) if (!out.has(r.netId)) out.set(r.netId, r);
+  }
+  return [...out.values()];
+}
+
 /** When a license file of the folder was last written, 0 without one: a new trial license writes TrialLicense.tclrs. */
 export function lastLicenseWrite(folder: string): number {
   let latest = 0;

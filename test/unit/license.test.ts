@@ -4,7 +4,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  firstToExpire, lastLicenseWrite, licenseFolders, netIdOfRegistryXml, parseLicenseFile, readLicenses, runtimeNetId, timeLeft,
+  adsRoutes, firstToExpire, lastLicenseWrite, licenseFolders, netIdOfRegistryXml, parseLicenseFile, readLicenses, routesOfStaticRoutesXml,
+  runtimeNetId, timeLeft,
 } from '../../src/core/license';
 import { solutionProjects } from '../../src/core/xae';
 
@@ -100,6 +101,33 @@ test('runtimeNetId reads TcRegistry.xml beside the Target folder; lastLicenseWri
     fs.writeFileSync(path.join(folder, 'TrialLicense.tclrs'), TRIAL);
     assert.ok(lastLicenseWrite(folder) > 0);
     assert.equal(lastLicenseWrite(path.join(root, 'missing')), 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('adsRoutes reads the routes of the runtimes and of the Routes folder, once per AMS Net ID', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tc-routes-'));
+  try {
+    const target = path.join(root, 'Beckhoff', 'TwinCAT', '3.1', 'Runtimes', 'UmRT_Default', '3.1', 'Target');
+    fs.mkdirSync(path.join(target, 'License'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'StaticRoutes.xml'), `<?xml version="1.0"?>
+<TcConfig><RemoteConnections>
+\t<Route><Name>xar-1</Name><Address>192.168.0.11</Address><NetId>15.15.15.15.1.1</NetId><Type>TCP_IP</Type></Route>
+\t<Route><Name>broken</Name><NetId>15.15</NetId></Route>
+</RemoteConnections></TcConfig>`);
+    const routes = path.join(root, 'x86', 'Beckhoff', 'TwinCAT', '3.1', 'Target', 'Routes');
+    fs.mkdirSync(routes, { recursive: true });
+    fs.writeFileSync(path.join(routes, 'xar.xml'), `<TcConfig><RemoteConnections>
+<Route><Name>xar-1 again</Name><NetId RegKey="x">15.15.15.15.1.1</NetId></Route>
+<Route><Name>xar-2</Name><NetId>15.15.15.16.1.1</NetId></Route>
+</RemoteConnections></TcConfig>`);
+    assert.deepEqual(adsRoutes({ ProgramData: root, 'ProgramFiles(x86)': path.join(root, 'x86'), TWINCAT3DIR: path.join(root, 'none') }, 'win32'), [
+      { name: 'xar-1', netId: '15.15.15.15.1.1', address: '192.168.0.11' },
+      { name: 'xar-2', netId: '15.15.15.16.1.1', address: undefined },
+    ]);
+    assert.deepEqual(adsRoutes({}, 'linux'), []);
+    assert.deepEqual(routesOfStaticRoutesXml('not xml <'), []);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

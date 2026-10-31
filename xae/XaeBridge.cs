@@ -6,7 +6,9 @@
 // Every request runs on one STA worker thread that keeps the COM objects. A request that does not finish in its
 // timeout (a modal dialog of XAE blocks every call) is answered with the texts of XAE's dialogs, and the bridge
 // then exits so that the blocked call dies with it; the MCP server starts a new one for the next request.
-// The bridge never brings a window to the front, never types into XAE and never answers its dialogs.
+// The bridge never types into XAE and never answers its dialogs. It brings XAE to the front and clicks a button for
+// one request only, openTrialLicense, which the user asks for: XAE's 7-day trial license dialog then waits for the
+// security code, which the user reads and types; the bridge never reads it.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -108,6 +110,72 @@ namespace TwinCatXaeBridge {
                 return true;
             }, IntPtr.Zero);
             return found;
+        }
+    }
+
+    // The windows of XAE for the trial license: the button on its License page, and the dialog the button opens.
+    static class Win {
+        public delegate bool EnumProc(IntPtr h, IntPtr l);
+        [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+        [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr h, EnumProc p, IntPtr l);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+        [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+        [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+        [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+        [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint cmd);
+        [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+        [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+        [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+        [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+
+        public static string Text(IntPtr h) { StringBuilder s = new StringBuilder(512); GetWindowText(h, s, 512); return s.ToString(); }
+        static string Class(IntPtr h) { StringBuilder s = new StringBuilder(256); GetClassName(h, s, 256); return s.ToString(); }
+
+        public static int Pid(IntPtr h) { uint p; GetWindowThreadProcessId(h, out p); return (int)p; }
+
+        public static void Front(IntPtr h) {
+            if (IsIconic(h)) ShowWindow(h, 9 /* SW_RESTORE */);
+            SetForegroundWindow(h);
+        }
+
+        static List<IntPtr> TopLevel(int pid) {
+            List<IntPtr> found = new List<IntPtr>();
+            EnumWindows(delegate(IntPtr h, IntPtr l) {
+                if (IsWindowVisible(h) && Pid(h) == pid) found.Add(h);
+                return true;
+            }, IntPtr.Zero);
+            return found;
+        }
+
+        // An enabled, visible button of the process whose text has these words ("7 Days Trial License...").
+        public static IntPtr Button(int pid, string words) {
+            IntPtr button = IntPtr.Zero;
+            foreach (IntPtr top in TopLevel(pid)) {
+                EnumChildWindows(top, delegate(IntPtr c, IntPtr l) {
+                    if (IsWindowVisible(c) && IsWindowEnabled(c) && Class(c).IndexOf("button", StringComparison.OrdinalIgnoreCase) >= 0
+                            && Text(c).Replace("&", "").IndexOf(words, StringComparison.OrdinalIgnoreCase) >= 0) {
+                        button = c;
+                        return false;
+                    }
+                    return true;
+                }, IntPtr.Zero);
+                if (button != IntPtr.Zero) break;
+            }
+            return button;
+        }
+
+        // BM_CLICK, posted: a click that returns at once, while the dialog it opens waits for the user.
+        public static void Click(IntPtr button) { PostMessage(button, 0x00F5, IntPtr.Zero, IntPtr.Zero); }
+
+        // A window of the process that disables the window owning it: the dialog the click opened.
+        public static IntPtr Dialog(int pid, IntPtr main) {
+            foreach (IntPtr top in TopLevel(pid)) {
+                IntPtr owner = GetWindow(top, 4 /* GW_OWNER */);
+                if (top != main && owner != IntPtr.Zero && !IsWindowEnabled(owner)) return top;
+            }
+            return IntPtr.Zero;
         }
     }
 
@@ -339,6 +407,97 @@ namespace TwinCatXaeBridge {
             return "";
         }
 
+        // ------------------------------------------------------------------ trial license
+
+        const string SolutionExplorerKind = "{3AE79031-E1BC-11D0-8F78-00A0C9110057}";
+
+        static Project ProjectOf(DTE2 dte, string tsproj) {
+            foreach (Project p in dte.Solution.Projects) {
+                try {
+                    if (p.Object is ITcSysManager && string.Equals(Path.GetFullPath(p.FullName), Path.GetFullPath(tsproj), StringComparison.OrdinalIgnoreCase)) return p;
+                } catch { }
+            }
+            throw new BridgeError("TwinCAT XAE has no project " + tsproj + " open");
+        }
+
+        static UIHierarchyItem HierarchyChild(UIHierarchyItem parent, string name) {
+            parent.UIHierarchyItems.Expanded = true;
+            List<string> names = new List<string>();
+            foreach (UIHierarchyItem c in parent.UIHierarchyItems) {
+                if (string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)) return c;
+                names.Add(c.Name);
+            }
+            throw new BridgeError("Solution Explorer has no " + name + " under " + parent.Name + ", only " + string.Join(", ", names.ToArray()));
+        }
+
+        // SYSTEM > License of the TwinCAT project, opened as a double-click in Solution Explorer does.
+        static void OpenLicensePage(DTE2 dte, string projectName) {
+            dte.Windows.Item(SolutionExplorerKind).Activate();
+            UIHierarchy tree = dte.ToolWindows.SolutionExplorer;
+            UIHierarchyItem license = HierarchyChild(HierarchyChild(HierarchyChild(tree.UIHierarchyItems.Item(1), projectName), "SYSTEM"), "License");
+            license.Select(vsUISelectionType.vsUISelectionTypeSelect);
+            tree.DoDefaultAction();
+        }
+
+        // XAE with the TwinCAT project on the runtime of this machine, SYSTEM > License open and "7 Days Trial License..."
+        // clicked: its dialog then waits for the user to type the security code. A running XAE (pid) keeps its target
+        // unless setTarget is given, or else the answer is needsTarget; an XAE started here (progId, sln) is the user's
+        // to see, and stays open when the bridge ends.
+        static object OpenTrialLicense(Dictionary<string, object> r) {
+            Dictionary<string, object> a = new Dictionary<string, object>();
+            DTE2 dte;
+            bool started = !r.ContainsKey("pid");
+            if (started) {
+                Type type = Type.GetTypeFromProgID(Str(r, "progId"));
+                if (type == null) throw new BridgeError(Str(r, "progId") + " is not registered");
+                dte = (DTE2)Activator.CreateInstance(type);
+                dte.UserControl = true;
+                dte.MainWindow.Visible = true;
+                dte.Solution.Open(Str(r, "sln"));
+            } else {
+                dte = Dte(Int(r, "pid"));
+            }
+            IntPtr main = new IntPtr(dte.MainWindow.HWnd);
+            int pid = Win.Pid(main);
+            a["pid"] = pid;
+            a["hwnd"] = main.ToInt64();
+            a["started"] = started;
+            Project project = ProjectOf(dte, Str(r, "tsproj"));
+            ITcSysManager4 sm = (ITcSysManager4)project.Object;
+            string netId = Str(r, "netId");
+            string target = sm.GetTargetNetId();
+            a["target"] = target;
+            if (netId != null && !string.Equals(target, netId, StringComparison.OrdinalIgnoreCase)) {
+                if (!started && !(r.ContainsKey("setTarget") && Convert.ToBoolean(r["setTarget"]))) {
+                    a["needsTarget"] = true;
+                    return a;
+                }
+                sm.SetTargetNetId(netId);
+                a["targetChanged"] = true;
+            }
+            OpenLicensePage(dte, project.Name);
+            Win.Front(main);
+            IntPtr button = IntPtr.Zero;
+            for (DateTime end = DateTime.Now.AddSeconds(60); button == IntPtr.Zero && DateTime.Now < end; ) {
+                System.Threading.Thread.Sleep(500);
+                button = Win.Button(pid, "Trial License");
+            }
+            a["clicked"] = button != IntPtr.Zero;
+            if (button == IntPtr.Zero) return a;
+            Win.Click(button);
+            IntPtr dialog = IntPtr.Zero;
+            for (DateTime end = DateTime.Now.AddSeconds(30); dialog == IntPtr.Zero && DateTime.Now < end; ) {
+                System.Threading.Thread.Sleep(250);
+                dialog = Win.Dialog(pid, main);
+            }
+            if (dialog != IntPtr.Zero) {
+                Win.Front(dialog);
+                // Its title only: the security code is for the user to read.
+                a["dialog"] = Win.Text(dialog);
+            }
+            return a;
+        }
+
         // ------------------------------------------------------------------ requests
 
         static string Str(Dictionary<string, object> r, string k) { object v; return r.TryGetValue(k, out v) && v != null ? v.ToString() : null; }
@@ -454,6 +613,19 @@ namespace TwinCatXaeBridge {
                     parent.DeleteChild(Str(r, "name"));
                     return new Dictionary<string, object>();
                 }
+                case "openTrialLicense":
+                    return OpenTrialLicense(r);
+                case "target":
+                    // Sets the target of a TwinCAT project back, after openTrialLicense changed it.
+                    ((ITcSysManager4)ProjectOf(Dte(Int(r, "pid")), Str(r, "tsproj")).Object).SetTargetNetId(Str(r, "netId"));
+                    return new Dictionary<string, object>();
+                case "quit": {
+                    // Closes an XAE that openTrialLicense started, without saving: its target change is dropped.
+                    DTE2 dte = Dte(Int(r, "pid"));
+                    dte.Solution.Close(false);
+                    dte.Quit();
+                    return new Dictionary<string, object>();
+                }
                 case "check": {
                     DTE2 dte = Dte(Int(r, "pid"));
                     ITcSmTreeItem nested = Nested(SysManager(dte, Str(r, "tsproj")), Str(r, "plc"));
@@ -518,6 +690,18 @@ namespace TwinCatXaeBridge {
                     Dictionary<string, object> bad = new Dictionary<string, object>();
                     bad["id"] = null; bad["ok"] = false; bad["error"] = "bad request: " + ex.Message;
                     Write(bad);
+                    continue;
+                }
+                if (Str(request, "cmd") == "window") {
+                    // Whether an XAE still runs, and whether a dialog (which disables it) is open: no COM call, so it
+                    // answers while XAE is busy.
+                    IntPtr h = new IntPtr(Convert.ToInt64(request["hwnd"]));
+                    Dictionary<string, object> w = new Dictionary<string, object>();
+                    w["running"] = Win.IsWindow(h);
+                    w["enabled"] = Win.IsWindow(h) && Win.IsWindowEnabled(h);
+                    Dictionary<string, object> a = new Dictionary<string, object>();
+                    a["id"] = request["id"]; a["ok"] = true; a["result"] = w;
+                    Write(a);
                     continue;
                 }
                 if (Str(request, "cmd") == "dialogs") {

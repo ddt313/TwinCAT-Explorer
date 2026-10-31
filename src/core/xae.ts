@@ -63,8 +63,8 @@ function regDefault(key: string): string | undefined {
   }
 }
 
-/** The PublicAssemblies folder of the XAE registered for COM (64-bit TcXaeShell first). */
-function xaeAssemblies(): string | undefined {
+/** The ProgID and PublicAssemblies folder of the XAE registered for COM (64-bit TcXaeShell first). */
+function xaeInstall(): { progId: string; dir: string } | undefined {
   for (const progId of ['TcXaeShell.DTE.17.0', 'TcXaeShell.DTE.15.0']) {
     const clsid = regDefault(`HKCR\\${progId}\\CLSID`);
     if (!clsid) continue;
@@ -72,7 +72,7 @@ function xaeAssemblies(): string | undefined {
       const server = regDefault(`${view}\\${clsid}\\LocalServer32`);
       const exe = server && /^\s*"?([^"]+?\.exe)/i.exec(server)?.[1];
       const dir = exe && path.join(path.dirname(exe), 'PublicAssemblies');
-      if (dir && fs.existsSync(path.join(dir, 'envdte.dll')) && fs.existsSync(path.join(dir, 'envdte80.dll'))) return dir;
+      if (dir && fs.existsSync(path.join(dir, 'envdte.dll')) && fs.existsSync(path.join(dir, 'envdte80.dll'))) return { progId, dir };
     }
   }
   return undefined;
@@ -111,8 +111,35 @@ function answerOf<R>(stdout: string, stderr: string, error: Error | undefined): 
   return answer.result as R;
 }
 
+/** The TwinCAT projects of a solution file: the .tsproj paths in its `Project(...) = "Name", "path", ...` lines. */
+export function solutionProjects(slnText: string, slnPath: string): string[] {
+  const out: string[] = [];
+  for (const m of slnText.matchAll(/^Project\("[^"]*"\)\s*=\s*"[^"]*"\s*,\s*"([^"]+\.tsproj)"/gim)) {
+    out.push(path.resolve(path.dirname(slnPath), m[1].replace(/\\/g, path.sep)));
+  }
+  return out;
+}
+
+/** What openTrialLicense did: XAE's License page open, its trial license dialog opened when `clicked`. */
+export interface TrialLicensePage {
+  pid: number;
+  /** XAE's main window, for `windowAsync`. */
+  hwnd: number;
+  /** XAE was started for it, and is closed again without saving. */
+  started: boolean;
+  /** The TwinCAT project's target before. */
+  target: string;
+  /** A running XAE's project targets another system: nothing was done, as setTarget was not given. */
+  needsTarget?: boolean;
+  targetChanged?: boolean;
+  clicked?: boolean;
+  /** The title of the dialog the click opened. */
+  dialog?: string;
+}
+
 export class Xae {
   private exe: string | undefined;
+  private progId: string | undefined;
   private unavailable: string | undefined;
   private cache: { at: number; list: XaeInstance[] } | undefined;
 
@@ -126,7 +153,9 @@ export class Xae {
       return undefined;
     }
     const source = bridgeSource();
-    const assemblies = xaeAssemblies();
+    const install = xaeInstall();
+    const assemblies = install?.dir;
+    this.progId = install?.progId;
     const sysManager = sysManagerAssembly();
     const csc = path.join(process.env.WINDIR ?? 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
     if (!source || !assemblies || !sysManager || !fs.existsSync(csc)) {
@@ -306,6 +335,30 @@ export class Xae {
 
   delete(parent: XaeItem, name: string): void {
     this.request({ cmd: 'delete', ...parent, name });
+  }
+
+  /**
+   * XAE on SYSTEM > License of a TwinCAT project, with "7 Days Trial License..." clicked, so that its dialog waits for
+   * the user to type the security code: in the XAE that has the project open (pid), or in one started for it on the
+   * solution (sln). The project's target becomes `netId`; a running XAE's only with setTarget.
+   */
+  openTrialLicenseAsync(req: { pid?: number; sln?: string; tsproj: string; netId: string; setTarget?: boolean }): Promise<TrialLicensePage> {
+    if (!this.bridge()) return Promise.reject(new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`));
+    return this.requestAsync<TrialLicensePage>({ cmd: 'openTrialLicense', progId: this.progId, ...req }, req.pid ? 120_000 : 300_000);
+  }
+
+  /** Whether XAE's main window still exists, and is enabled: a dialog of XAE disables it. */
+  windowAsync(hwnd: number): Promise<{ running: boolean; enabled: boolean }> {
+    return this.requestAsync({ cmd: 'window', hwnd }, 10_000);
+  }
+
+  async targetAsync(pid: number, tsproj: string, netId: string): Promise<void> {
+    await this.requestAsync({ cmd: 'target', pid, tsproj, netId }, 30_000);
+  }
+
+  /** Closes an XAE without saving. */
+  async quitAsync(pid: number): Promise<void> {
+    await this.requestAsync({ cmd: 'quit', pid }, 60_000);
   }
 
   check(item: Omit<XaeItem, 'path'>): string {

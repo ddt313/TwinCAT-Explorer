@@ -3,6 +3,18 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.18.0 - 2026-10-31
+
+### Added
+- The TwinCAT licenses of this machine, on Windows: the status bar counts down to the end of the license
+  that ends first, usually the 7-day trial license, turns yellow with a notification a day before and red
+  once it has expired. `TwinCAT: Show Licenses` lists each license of each runtime and until when it is
+  valid. Read from the runtimes' license files. Setting `twincatExplorer.licenseStatusBar` hides it.
+- `TwinCAT: Renew Trial License in TwinCAT XAE`, also on the warning and in Show Licenses: brings TwinCAT
+  XAE to SYSTEM > License of a TwinCAT project, targeting this machine, and clicks
+  `7 Days Trial License...`, so that you only read and type the security code in XAE's dialog. Uses the
+  XAE that has the project open, or starts one on the solution and closes it without saving afterwards.
+
 ## 0.17.0 - 2026-10-29
 
 ### Added

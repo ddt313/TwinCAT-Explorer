@@ -627,6 +627,37 @@ against git.
 
 </details>
 
+### TwinCAT licenses
+
+How long the TwinCAT license of this machine has left, in the status bar, and its 7-day trial license
+renewed in TwinCAT XAE in a few clicks, on Windows.
+
+<details>
+<summary>Details</summary>
+
+- **Status bar:** `TwinCAT license 6 d 4 h` counts down to the end of the license that ends first, usually
+  the 7-day trial license. Less than a day before, it turns yellow and a notification says when; once
+  expired, it turns red, since TwinCAT then cannot start in Run mode. Its tooltip lists each license.
+- **`TwinCAT: Show Licenses`** (or a click on the status bar) lists each license of each runtime: name,
+  order number, instances, until when it is valid. Picking a file's entry shows the file in Explorer.
+- The licenses are read from the runtimes' license files (`*.tclrs`): under
+  `%ProgramData%\Beckhoff\TwinCAT.1\Runtimes\<runtime>.1\Target\License` with TwinCAT 3.1.4026,
+  `C:\TwinCAT.1\Target\License` with 4024. Nothing is written.
+- **`TwinCAT: Renew Trial License in TwinCAT XAE`** (also on the warning and in Show Licenses) brings
+  TwinCAT XAE to SYSTEM > License of a TwinCAT project of the workspace and clicks
+  `7 Days Trial License...`. You read the security code in XAE's dialog and type it there; the extension
+  never reads it. Once the new license file is written, the status bar shows it.
+  - The XAE that has the project open is used. Without one, XAE is started on the workspace's `.sln`
+    that has the project, and closed again without saving once the license is written.
+  - The trial license is for the runtime of this machine: a project that targets another system is
+    switched to this machine first, after asking, and set back afterwards. XAE then shows the project
+    as changed: don't save it for this.
+  - Where the button is not found (XAE in another language), XAE stays on the License page: click it
+    there.
+- Shown in a workspace with TwinCAT projects; `twincatExplorer.licenseStatusBar` hides it.
+
+</details>
+
 <!-- browser-only:start -->
 ## Browser extension
 
@@ -847,6 +878,8 @@ Commit SHA and Copy Name.
 | `TwinCAT: Toggle Line Blame` | Turn the current line blame of the split editor on or off. |
 | `TwinCAT: Check All Structured Text` | Analyse every section of every project and report the problems. |
 | `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` | Hide (or show again) the notebook toolbars in the user settings. |
+| `TwinCAT: Show Licenses` | List each TwinCAT license of each runtime on this machine and until when it is valid (see [TwinCAT licenses](#twincat-licenses)). |
+| `TwinCAT: Renew Trial License in TwinCAT XAE` | Open the 7-day trial license dialog of TwinCAT XAE for this machine, where you type the security code (see [TwinCAT licenses](#twincat-licenses)). |
 | `TwinCAT: Set Up MCP Server for Claude Code` | Register the extension's MCP server with Claude Code for a workspace folder, in your `~/.claude.json`, and give the folder's `.claude/settings.local.json` its permission rules (see [MCP server for AI agents](#mcp-server-for-ai-agents)). |
 | `TwinCAT Changes: Show Uncommitted Changes (vs HEAD)` | Changes view scope: uncommitted changes. |
 | `TwinCAT Changes: Show Branch Changes (vs Merge Base)` | Changes view scope: what the branch changed since it left another one. |
@@ -885,6 +918,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
 | `twincatExplorer.saveThroughXae` | `false` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
 | `twincatExplorer.blame.currentLine` | `false` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
+| `twincatExplorer.licenseStatusBar` | `true` | Show in the status bar how long the TwinCAT license of this machine has left (see [TwinCAT licenses](#twincat-licenses)). |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files: absolute paths, or paths relative to the first workspace folder (see [Library stubs](#library-stubs)). |
 | `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)). |
 | `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Folders ignored when searching for `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |

@@ -39,6 +39,7 @@ import { AutoDeclare } from './vscode/autoDeclare';
 import { CompareBase, ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
 import { checkMcpSetup, setUpMcpServer } from './vscode/mcpSetup';
+import { LicenseStatus } from './vscode/license';
 import {
   DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME,
   ST_LANGUAGE, fileUri, isFileUri, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf,
@@ -327,6 +328,10 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     objectFs.notifyAllWatched();
   };
 
+  // The licenses of the TwinCAT runtimes on this machine, read from their files on the desktop.
+  const license = web ? undefined : new LicenseStatus();
+  if (license) context.subscriptions.push(license);
+
   let loadTimer: NodeJS.Timeout | undefined;
   let reportedErrors = '';
   const loadProjects = async () => {
@@ -353,6 +358,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       commitsView.schedule(0);
       checkCollection.clear();
       checkHasResults = false;
+      license?.setShown(hasProjects);
       await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', hasProjects);
       if (hasProjects || ws.loadErrors.length) {
         log.info(`Loaded ${ws.tsProjects.length} TwinCAT project(s), ${ws.plcProjects.length} PLC project(s), `
@@ -1273,6 +1279,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       if (node?.name) await vscode.env.clipboard.writeText(node.name);
     }),
     vscode.commands.registerCommand('twincatExplorer.setUpMcpServer', () => setUpMcpServer(context)),
+    vscode.commands.registerCommand('twincatExplorer.showLicenses', () => license?.show()),
   );
   // The MCP server runs in Node, beside VS Code on the desktop.
   if (!web) checkMcpSetup(context);

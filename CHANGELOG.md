@@ -3,6 +3,15 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- The TwinCAT licenses of this machine, on Windows: the status bar counts down to the end of the license
+  that ends first, usually the 7-day trial license, turns yellow with a notification a day before and red
+  once it has expired. `TwinCAT: Show Licenses` lists each license of each runtime and until when it is
+  valid. Read from the runtimes' license files; renewing the trial license stays in TwinCAT XAE. Setting
+  `twincatExplorer.licenseStatusBar` hides it.
+
 ## 0.17.0 - 2026-10-29
 
 ### Added

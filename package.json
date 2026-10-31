@@ -526,6 +526,11 @@
         "command": "twincatExplorer.setUpMcpServer",
         "title": "Set Up MCP Server for Claude Code",
         "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.showLicenses",
+        "title": "Show Licenses",
+        "category": "TwinCAT"
       }
     ],
     "menus": {
@@ -752,6 +757,10 @@
         },
         {
           "command": "twincatExplorer.setUpMcpServer",
+          "when": "!isWeb"
+        },
+        {
+          "command": "twincatExplorer.showLicenses",
           "when": "!isWeb"
         }
       ],
@@ -1234,6 +1243,11 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "When TwinCAT XAE has the project open, save edits of TwinCAT objects through XAE: XAE shows the change at once and saves the object itself, instead of asking to reload the file. Unsaved edits of the same object in XAE are asked about first. Each save then looks for the running XAE instances first. Windows only; with XAE closed the file is written. Off: saves write the file, and never ask XAE anything."
+        },
+        "twincatExplorer.licenseStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show in the status bar how long the TwinCAT license of this machine that ends first (usually the 7-day trial license) has left, warned about a day before it ends and once it has expired. Click it for each license of each runtime (`TwinCAT: Show Licenses`). Windows only, in a workspace with TwinCAT projects."
         },
         "twincatExplorer.blame.currentLine": {
           "type": "boolean",

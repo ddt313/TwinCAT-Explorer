@@ -361,6 +361,20 @@ export class Xae {
     await this.requestAsync({ cmd: 'quit', pid }, 60_000);
   }
 
+  /** The AMS Net ID of this machine and the remote systems its AMS router has routes to, over ADS. */
+  adsRoutesAsync(): Promise<{ local: string; routes: { netId: string; name: string; address: string }[] }> {
+    return this.requestAsync({ cmd: 'adsRoutes' }, 15_000);
+  }
+
+  /**
+   * The license files (*.tclrs) of a system, read over ADS: their names and contents. `found`: its Target folder was
+   * found, so that no file means no license yet; false when its license files are not known.
+   */
+  async adsLicensesAsync(netId: string): Promise<{ found: boolean; files: { name: string; data: Buffer }[] }> {
+    const r = await this.requestAsync<{ found: boolean; files: { name: string; data: string }[] }>({ cmd: 'adsLicenses', netId }, 20_000);
+    return { found: r.found, files: r.files.map(f => ({ name: f.name, data: Buffer.from(f.data, 'base64') })) };
+  }
+
   check(item: Omit<XaeItem, 'path'>): string {
     return this.request<{ output: string }>({ cmd: 'check', ...item, path: [] }, 180_000).output;
   }

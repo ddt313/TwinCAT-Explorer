@@ -1256,7 +1256,12 @@
         "twincatExplorer.licenseStatusBar": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show in the status bar how long the TwinCAT license of this machine that ends first (usually the 7-day trial license) has left, warned about a day before it ends and once it has expired. Click it for each license of each runtime (`TwinCAT: Show Licenses`). Windows only, in a workspace with TwinCAT projects."
+          "markdownDescription": "Show in the status bar how long the TwinCAT license that ends first, of this machine or of a remote system (`twincatExplorer.remoteLicenses`), has left (usually the 7-day trial license), warned about a day before it ends and once it has expired. Click it for each license of each runtime (`TwinCAT: Show Licenses`). Windows only, in a workspace with TwinCAT projects."
+        },
+        "twincatExplorer.remoteLicenses": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Also read the licenses of the remote TwinCAT systems this machine's AMS router has routes to (an XAR in a container or a virtual machine, a PLC), over ADS every 5 minutes, for the status bar and `TwinCAT: Show Licenses`. Only reads their license files. Needs TwinCAT XAE installed here."
         },
         "twincatExplorer.blame.currentLine": {
           "type": "boolean",

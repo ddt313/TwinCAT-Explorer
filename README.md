@@ -74,6 +74,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
   [Adding existing items and folder content](#adding-existing-items-and-folder-content)).
 - Right-click `References` to add a library installed in the TwinCAT library repository (see
   [Adding libraries](#adding-libraries)).
+- Right-click a TwinCAT project to open its solution in TwinCAT XAE, or bring the XAE that has it open to
+  the front, on Windows (see [Opening the solution in TwinCAT XAE](#opening-the-solution-in-twincat-xae)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 
 </details>
@@ -175,6 +177,33 @@ XAE anything.
   the file is written, with a warning once.
 - Only saves of objects go through XAE. Adding, renaming, moving and deleting objects and members (and
   the uses a rename changes), and the `TwinCAT File (Notebook)` editor still write the files.
+
+</details>
+
+### Opening the solution in TwinCAT XAE
+
+Right-click a TwinCAT project in the tree and pick `Open Solution in TwinCAT XAE`, on Windows: the TwinCAT XAE
+that has the project open comes to the front, and without one, XAE starts on the solution that has the
+project. From the Command Palette, `TwinCAT: Open Solution in TwinCAT XAE` asks for the project when the
+workspace has several.
+
+<details>
+<summary>Details</summary>
+
+- **An XAE that has the project open** comes to the front, restored if minimized, also when its solution is
+  another one that has the project too. No second XAE is started on the same files.
+- **Otherwise the solution** is the `.sln` file of the workspace that lists the project's `.tsproj`, picked
+  from a list when several do (folders of `twincatExplorer.exclude` are skipped). An XAE that has it open
+  comes to the front; else TwinCAT XAE starts on it, in front, and the status bar shows
+  `Opening <solution> in TwinCAT XAE` until the solution is open, which takes from half a minute to a few
+  minutes.
+- **The XAE is yours:** it stays open when VS Code closes. The extension never closes it and saves nothing in
+  it.
+- An XAE that a tool started hidden, with the project open, stays hidden: a warning names its process.
+- **A dialog open in a running XAE** blocks it: after 15 seconds an error gives the dialog's text. Answer it in
+  XAE, then try again.
+- No `.sln` file of the workspace lists the project: an error says so.
+- Needs TwinCAT XAE installed. The first use after installing compiles a small helper (about 2 seconds).
 
 </details>
 
@@ -873,6 +902,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Go to Object...` | Pick any object of the workspace and open it (Ctrl+Alt+T). |
 | `TwinCAT: Reveal in TwinCAT Explorer` / `TwinCAT: Reveal Active Editor` | Select the object or file in the TwinCAT tree. |
 | `TwinCAT: Open XML` | Open the object's file as XML text, at the object. |
+| `TwinCAT: Open Solution in TwinCAT XAE` | Bring the TwinCAT XAE that has the project open to the front, or start XAE on the solution that has the project, on Windows (see [Opening the solution in TwinCAT XAE](#opening-the-solution-in-twincat-xae)). |
 | `TwinCAT: Add POU...` / `TwinCAT: Add DUT...` / `TwinCAT: Add Global Variable List...` / `TwinCAT: Add Interface...` | Add an object to a PLC project or one of its folders (see [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)). |
 | `TwinCAT: New Folder...` | Add a folder to a PLC project or one of its folders, on disk and in the `.plcproj`. |
 | `TwinCAT: Add Existing Item...` / `TwinCAT: Add Existing Folder Content...` | Add POU, DUT, GVL and interface files that are on disk already (see [Adding existing items and folder content](#adding-existing-items-and-folder-content)). |

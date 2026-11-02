@@ -207,6 +207,11 @@
         "icon": "$(file-code)"
       },
       {
+        "command": "twincatExplorer.openSolutionInXae",
+        "title": "Open Solution in TwinCAT XAE",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.revealInTree",
         "title": "Reveal in TwinCAT Explorer",
         "category": "TwinCAT"
@@ -629,6 +634,10 @@
           "when": "resourceScheme == twincat || resourceScheme == twincat-diff"
         },
         {
+          "command": "twincatExplorer.openSolutionInXae",
+          "when": "twincatExplorer.hasProjects && isWindows && !isWeb"
+        },
+        {
           "command": "twincatExplorer.openChanges",
           "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
         },
@@ -830,6 +839,11 @@
           "command": "twincatExplorer.openToSide",
           "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
           "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.openSolutionInXae",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^tsproj( |$)/ && isWindows && !isWeb",
+          "group": "navigation@0"
         },
         {
           "command": "twincatExplorer.openXml",

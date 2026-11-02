@@ -41,6 +41,7 @@ import { LocationService } from './vscode/locations';
 import { checkMcpSetup, setUpMcpServer } from './vscode/mcpSetup';
 import { LicenseStatus } from './vscode/license';
 import { TrialLicenseRenewal } from './vscode/trialLicense';
+import { SolutionOpener } from './vscode/openInXae';
 import {
   DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME,
   ST_LANGUAGE, fileUri, isFileUri, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf,
@@ -403,6 +404,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   objectFs.onDidWriteRealFile = (fsPath, savedUri) => onSourceChanged(fsPath, savedUri);
   // Saves go through the TwinCAT XAE that has the project open, which shows them at once and saves the objects.
   const xae = web ? undefined : new Xae();
+  const solutionOpener = xae && new SolutionOpener(xae, () => ws.tsProjects);
   const trialLicense = xae && license
     ? new TrialLicenseRenewal(xae, () => ws.tsProjects.map(t => ({ name: t.name, path: t.path })), () => license.refresh())
     : undefined;
@@ -1128,6 +1130,10 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     vscode.commands.registerCommand('twincatExplorer.open', (node?: TreeNode) => openNode(node)),
     vscode.commands.registerCommand('twincatExplorer.openToSide', (node?: TreeNode) => openNode(node, true)),
     vscode.commands.registerCommand('twincatExplorer.openXml', openXml),
+    vscode.commands.registerCommand('twincatExplorer.openSolutionInXae', (arg?: unknown) => {
+      const root = arg instanceof TreeNode ? arg.root : undefined;
+      return solutionOpener?.open(root?.kind === 'tsproj' && root.fsPath ? { name: root.label, path: root.fsPath } : undefined);
+    }),
     vscode.commands.registerCommand('twincatExplorer.revealInTree', async (arg?: unknown) => {
       const uri = arg instanceof vscode.Uri ? arg : activeUri();
       await vscode.commands.executeCommand('twincatExplorer.tree.focus');

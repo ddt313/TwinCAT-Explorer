@@ -120,6 +120,28 @@ export function solutionProjects(slnText: string, slnPath: string): string[] {
   return out;
 }
 
+/** The solution files, of those given, that list the TwinCAT project; a file that cannot be read is left out. */
+export function solutionsWith(tsproj: string, slnPaths: string[]): string[] {
+  const key = fileKey(tsproj);
+  return slnPaths.filter(sln => {
+    try {
+      return solutionProjects(fs.readFileSync(sln, 'utf8'), sln).some(p => fileKey(p) === key);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * The XAE that has the TwinCAT project open, or else the solution file (where the project may not have loaded): the
+ * one to bring to the front rather than start a second XAE on the same files.
+ */
+export function xaeWith(instances: XaeInstance[], tsproj: string, sln?: string): XaeInstance | undefined {
+  const key = fileKey(tsproj);
+  return instances.find(i => i.projects.some(p => fileKey(p) === key))
+    ?? (sln ? instances.find(i => i.solution && fileKey(i.solution) === fileKey(sln)) : undefined);
+}
+
 /** What openTrialLicense did: XAE's License page open, its trial license dialog opened when `clicked`. */
 export interface TrialLicensePage {
   pid: number;
@@ -345,6 +367,20 @@ export class Xae {
   openTrialLicenseAsync(req: { pid?: number; sln?: string; tsproj: string; netId: string; setTarget?: boolean }): Promise<TrialLicensePage> {
     if (!this.bridge()) return Promise.reject(new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`));
     return this.requestAsync<TrialLicensePage>({ cmd: 'openTrialLicense', progId: this.progId, ...req }, req.pid ? 120_000 : 300_000);
+  }
+
+  /**
+   * TwinCAT XAE started on a solution, shown in front, and the user's own: it stays open when the bridge ends, as one
+   * the user started. Answers once the solution is open.
+   */
+  openSolutionAsync(sln: string): Promise<{ pid: number }> {
+    if (!this.bridge()) return Promise.reject(new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`));
+    return this.requestAsync<{ pid: number }>({ cmd: 'open', progId: this.progId, sln }, 300_000);
+  }
+
+  /** Brings the main window of an XAE to the front; `shown` false when it has none, as an XAE a tool started hidden. */
+  frontAsync(pid: number): Promise<{ shown: boolean }> {
+    return this.requestAsync({ cmd: 'front', pid }, 10_000);
   }
 
   /** Whether XAE's main window still exists, and is enabled: a dialog of XAE disables it. */

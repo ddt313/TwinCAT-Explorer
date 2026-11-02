@@ -6,10 +6,11 @@
 // Every request runs on one STA worker thread that keeps the COM objects. A request that does not finish in its
 // timeout (a modal dialog of XAE blocks every call) is answered with the texts of XAE's dialogs, and the bridge
 // then exits so that the blocked call dies with it; the MCP server starts a new one for the next request.
-// The bridge never types into XAE and never answers its dialogs. It brings XAE to the front and clicks a button for
-// one request only, openTrialLicense, which the user asks for: XAE's 7-day trial license dialog then waits for the
-// security code, which the user reads and types; the bridge never reads it. Over ADS it only reads: the routes of
-// this machine, and the license files of a system.
+// The bridge never types into XAE and never answers its dialogs. It starts XAE and brings it to the front only for
+// the requests the user asks for: open and front, for the solution of a project, and openTrialLicense, the only one
+// that clicks a button: XAE's 7-day trial license dialog then waits for the security code, which the user reads and
+// types; the bridge never reads it. Over ADS it only reads: the routes of this machine, and the license files of a
+// system.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -617,6 +618,19 @@ namespace TwinCatXaeBridge {
             tree.DoDefaultAction();
         }
 
+        // TwinCAT XAE started on a solution, in front: the user's to see and to close, so that it stays open when the
+        // bridge ends. Returns once the solution is open.
+        static DTE2 Start(string progId, string sln) {
+            Type type = Type.GetTypeFromProgID(progId);
+            if (type == null) throw new BridgeError(progId + " is not registered");
+            DTE2 dte = (DTE2)Activator.CreateInstance(type);
+            dte.UserControl = true;
+            dte.MainWindow.Visible = true;
+            Win.Front(new IntPtr(dte.MainWindow.HWnd));
+            dte.Solution.Open(sln);
+            return dte;
+        }
+
         // XAE with the TwinCAT project targeting netId, SYSTEM > License open and "7 Days Trial License..." clicked: its
         // dialog then waits for the user to type the security code. A running XAE (pid) keeps its target unless setTarget
         // is given, or else the answer is needsTarget; an XAE started here (progId, sln) takes netId at once. Either stays
@@ -624,18 +638,8 @@ namespace TwinCatXaeBridge {
         // not open.
         static object OpenTrialLicense(Dictionary<string, object> r) {
             Dictionary<string, object> a = new Dictionary<string, object>();
-            DTE2 dte;
             bool started = !r.ContainsKey("pid");
-            if (started) {
-                Type type = Type.GetTypeFromProgID(Str(r, "progId"));
-                if (type == null) throw new BridgeError(Str(r, "progId") + " is not registered");
-                dte = (DTE2)Activator.CreateInstance(type);
-                dte.UserControl = true;
-                dte.MainWindow.Visible = true;
-                dte.Solution.Open(Str(r, "sln"));
-            } else {
-                dte = Dte(Int(r, "pid"));
-            }
+            DTE2 dte = started ? Start(Str(r, "progId"), Str(r, "sln")) : Dte(Int(r, "pid"));
             IntPtr main = new IntPtr(dte.MainWindow.HWnd);
             int pid = Win.Pid(main);
             a["pid"] = pid;
@@ -799,6 +803,25 @@ namespace TwinCatXaeBridge {
                 }
                 case "openTrialLicense":
                     return OpenTrialLicense(r);
+                case "open": {
+                    // XAE started on the solution of a project, as the user asks: theirs, never closed or saved here.
+                    DTE2 dte = Start(Str(r, "progId"), Str(r, "sln"));
+                    Dictionary<string, object> a = new Dictionary<string, object>();
+                    a["pid"] = Win.Pid(new IntPtr(dte.MainWindow.HWnd));
+                    return a;
+                }
+                case "front": {
+                    // The main window of an XAE in front, as the user asks, without a COM call: a busy XAE comes too. An
+                    // XAE a tool started hidden has none, and stays hidden.
+                    int pid = Int(r, "pid");
+                    IntPtr main;
+                    try { main = System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle; }
+                    catch (ArgumentException) { throw new BridgeError("TwinCAT XAE (process " + pid + ") is no longer running"); }
+                    if (main != IntPtr.Zero) Win.Front(main);
+                    Dictionary<string, object> a = new Dictionary<string, object>();
+                    a["shown"] = main != IntPtr.Zero;
+                    return a;
+                }
                 case "target":
                     // Sets the target of a TwinCAT project back, after openTrialLicense changed it.
                     ((ITcSysManager4)ProjectOf(Dte(Int(r, "pid")), Str(r, "tsproj")).Object).SetTargetNetId(Str(r, "netId"));

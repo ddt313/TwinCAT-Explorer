@@ -6,24 +6,17 @@
 // The new license is seen in the runtime's license folder, or read over ADS from the remote system.
 
 import * as crypto from 'crypto';
-import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LicenseFile, LicenseFolder, adsRoutes, lastLicenseWrite, licenseFolders, readLicenses, remoteLicenses, runtimeNetId, timeLeft } from '../core/license';
-import { fileKey } from '../core/workspace';
-import { TrialLicensePage, Xae, XaeError, solutionProjects } from '../core/xae';
+import { TrialLicensePage, Xae, XaeError } from '../core/xae';
+import { pick, solutionOf } from './openInXae';
 
 /** How long XAE's dialog waits for the user, and how long XAE stays enabled before it counts as cancelled. */
 const WAIT_MS = 10 * 60_000;
 const CANCELLED_MS = 20_000;
 /** How often a remote system's license files are read while XAE's dialog is open. */
 const REMOTE_POLL_MS = 3000;
-
-async function pick<T>(items: T[], label: (t: T) => vscode.QuickPickItem, title: string): Promise<T | undefined> {
-  if (items.length <= 1) return items[0];
-  const picked = await vscode.window.showQuickPick(items.map(t => ({ ...label(t), t })), { title });
-  return picked?.t;
-}
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -64,7 +57,7 @@ export class TrialLicenseRenewal {
     }
     let sln: string | undefined;
     if (!running) {
-      sln = await this.solutionOf(tsproj.path);
+      sln = await solutionOf(tsproj.path);
       if (!sln) {
         void vscode.window.showErrorMessage(`TwinCAT: no .sln file of the workspace has ${tsproj.name}. Open the project in TwinCAT XAE, then run this again.`);
         return;
@@ -145,21 +138,6 @@ export class TrialLicenseRenewal {
     } catch {
       return undefined;
     }
-  }
-
-  /** The solution files of the workspace that have the TwinCAT project. */
-  private async solutionOf(tsproj: string): Promise<string | undefined> {
-    const key = fileKey(tsproj);
-    const exclude = vscode.workspace.getConfiguration('twincatExplorer').get<string>('exclude') || undefined;
-    const found: string[] = [];
-    for (const uri of await vscode.workspace.findFiles('**/*.sln', exclude)) {
-      try {
-        if (solutionProjects(fs.readFileSync(uri.fsPath, 'utf8'), uri.fsPath).some(p => fileKey(p) === key)) found.push(uri.fsPath);
-      } catch {
-        // unreadable: not a candidate
-      }
-    }
-    return pick(found, f => ({ label: path.basename(f), description: vscode.workspace.asRelativePath(f) }), 'The solution to open in TwinCAT XAE');
   }
 
   private async run(target: Target, tsproj: string, pid: number | undefined, sln: string | undefined): Promise<void> {

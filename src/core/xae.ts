@@ -366,10 +366,13 @@ export class Xae {
     return this.requestAsync({ cmd: 'adsRoutes' }, 15_000);
   }
 
-  /** The license files (*.tclrs) of a system, read over ADS: their names and contents. */
-  async adsLicensesAsync(netId: string): Promise<{ name: string; data: Buffer }[]> {
-    const files = await this.requestAsync<{ name: string; data: string }[]>({ cmd: 'adsLicenses', netId }, 20_000);
-    return files.map(f => ({ name: f.name, data: Buffer.from(f.data, 'base64') }));
+  /**
+   * The license files (*.tclrs) of a system, read over ADS: their names and contents. `found`: its Target folder was
+   * found, so that no file means no license yet; false when its license files are not known.
+   */
+  async adsLicensesAsync(netId: string): Promise<{ found: boolean; files: { name: string; data: Buffer }[] }> {
+    const r = await this.requestAsync<{ found: boolean; files: { name: string; data: string }[] }>({ cmd: 'adsLicenses', netId }, 20_000);
+    return { found: r.found, files: r.files.map(f => ({ name: f.name, data: Buffer.from(f.data, 'base64') })) };
   }
 
   check(item: Omit<XaeItem, 'path'>): string {

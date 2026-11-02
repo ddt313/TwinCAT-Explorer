@@ -95,7 +95,13 @@ namespace TwinCatXaeBridge {
         [DllImport("TcAdsDll.dll")] static extern int AdsSyncWriteReqEx(int port, ref AmsAddr addr, uint ig, uint io, uint len, byte[] data);
 
         const uint ENUMREMOTE = 803, FOPEN = 120, FCLOSE = 121, FREAD = 122, FFILEFIND = 133;
-        const int NOT_FOUND = 1804, NO_MORE = 1814;
+        // The path type of the file services, in the index offset's high word: generic, any path.
+        const uint GENERIC = 1u << 16;
+        const int NO_MORE = 1814;
+
+        // An error of the system's own service (0x700-0x73F: not found, invalid path), unlike one of the router or of
+        // this client (no route, timeout): the system answered.
+        static bool DeviceError(int e) { return e >= 0x700 && e < 0x740; }
 
         static bool loaded;
         static void Load() {
@@ -128,9 +134,8 @@ namespace TwinCatXaeBridge {
             return port;
         }
 
-        // Each entry of ENUMREMOTE: the AMS Net ID (6), the transport (2), flags (4), the timeout (4), 16 reserved,
-        // the lengths of the address and of the host name and the number of sub-routes (4 each), the address, the host
-        // name, then each sub-route: its AMS Net ID (6), 14 reserved, the length of its name (4), its name.
+        // The routes of the router, by index until 1814 (4026's end of the list). Another error after the first route
+        // ends the list too, so that a router that ends it otherwise still gives the routes before.
         public static Dictionary<string, object> Routes() {
             AmsAddr addr;
             int port = Open(null, out addr, 3000);
@@ -140,17 +145,9 @@ namespace TwinCatXaeBridge {
                 for (uint i = 0; i < 1000; i++) {
                     byte[] b = new byte[4096]; uint read;
                     int e = AdsSyncReadReqEx2(port, ref addr, ENUMREMOTE, i, (uint)b.Length, b, out read);
-                    if (e == NO_MORE) break;
+                    if (e == NO_MORE || (e != 0 && i > 0)) break;
                     if (e != 0) throw new BridgeError("ADS error " + e + " listing the routes");
-                    int addrLen = BitConverter.ToInt32(b, 32), hostLen = BitConverter.ToInt32(b, 36), subs = BitConverter.ToInt32(b, 40);
-                    string address = Str(b, 44, addrLen), host = Str(b, 44 + addrLen, hostLen);
-                    int at = 44 + addrLen + hostLen;
-                    if (subs == 0) routes.Add(Route(NetId(b, 0), host.Length > 0 ? host : address, address));
-                    for (int s = 0; s < subs && at + 24 <= read; s++) {
-                        int nameLen = BitConverter.ToInt32(b, at + 20);
-                        routes.Add(Route(NetId(b, at), Str(b, at + 24, nameLen), address));
-                        at += 24 + nameLen;
-                    }
+                    AddRoutes(b, (int)read, routes);
                 }
                 Dictionary<string, object> a = new Dictionary<string, object>();
                 a["local"] = local;
@@ -159,46 +156,81 @@ namespace TwinCatXaeBridge {
             } finally { AdsPortCloseEx(port); }
         }
 
+        // An entry of ENUMREMOTE, as 4026 gives it: the AMS Net ID (6), the transport (2), flags (4), the timeout (4),
+        // 16 reserved, the lengths of the address and of the host name and the number of sub-routes (4 each), the
+        // address, the host name, then each sub-route: its AMS Net ID (6), 14 reserved, the length of its name (4), its
+        // name. Without sub-routes, the entry is the route. What does not fit in what was read (another layout) is left
+        // out.
+        static void AddRoutes(byte[] b, int read, List<object> routes) {
+            if (read < 44) return;
+            int addrLen = BitConverter.ToInt32(b, 32), hostLen = BitConverter.ToInt32(b, 36), subs = BitConverter.ToInt32(b, 40);
+            if (addrLen < 0 || hostLen < 0 || subs < 0 || 44L + addrLen + hostLen > read) return;
+            string address = Str(b, 44, addrLen), host = Str(b, 44 + addrLen, hostLen);
+            if (subs == 0) {
+                routes.Add(Route(NetId(b, 0), host.Length > 0 ? host : address, address));
+                return;
+            }
+            int at = 44 + addrLen + hostLen;
+            for (int s = 0; s < subs && at + 24 <= read; s++) {
+                int nameLen = BitConverter.ToInt32(b, at + 20);
+                if (nameLen < 0 || at + 24L + nameLen > read) return;
+                routes.Add(Route(NetId(b, at), Str(b, at + 24, nameLen), address));
+                at += 24 + nameLen;
+            }
+        }
+
         static Dictionary<string, object> Route(string netId, string name, string address) {
             Dictionary<string, object> r = new Dictionary<string, object>();
             r["netId"] = netId; r["name"] = name; r["address"] = address;
             return r;
         }
 
-        // The *.tclrs files of a system's license folder, in base64: %TC_TARGETPATH%License (4026), else the
-        // License folder beside its boot folder (Target\License next to Boot).
-        public static List<object> Licenses(string netId) {
+        // Where a system's Target folder may be, with its path separator: %TC_TARGETPATH% (4026, also on Linux), else
+        // 4024's on Windows, or TwinCAT/BSD's. Its License folder holds the license files.
+        static readonly string[][] Targets = {
+            new string[] { "%TC_TARGETPATH%", "\\" },
+            new string[] { @"C:\TwinCAT\3.1\Target\", "\\" },
+            new string[] { "/usr/local/etc/TwinCAT/3.1/Target/", "/" },
+        };
+
+        // The *.tclrs files of a system's License folder, in base64. found: a Target folder was found, so that no file
+        // means no license yet; false when none of the places answered, and its license files are not known.
+        public static Dictionary<string, object> Licenses(string netId) {
             AmsAddr addr;
             int port = Open(netId, out addr, 3000);
             try {
-                string[][] folders = { new string[] { "%TC_TARGETPATH%License\\", "1" }, new string[] { "..\\Target\\License\\", "4" } };
-                foreach (string[] f in folders) {
-                    uint type = uint.Parse(f[1]) << 16;
-                    List<string> names = Find(port, ref addr, f[0] + "*.tclrs", type);
-                    if (names == null) continue;
-                    List<object> files = new List<object>();
-                    foreach (string name in names) {
+                List<object> files = new List<object>();
+                Dictionary<string, object> a = new Dictionary<string, object>();
+                a["found"] = false;
+                a["files"] = files;
+                foreach (string[] t in Targets) {
+                    string folder = t[0] + "License" + t[1];
+                    List<string> names = Find(port, ref addr, folder + "*.tclrs");
+                    if (names == null && Find(port, ref addr, t[0] + "*") == null) continue;
+                    a["found"] = true;
+                    foreach (string name in names ?? new List<string>()) {
                         Dictionary<string, object> file = new Dictionary<string, object>();
                         file["name"] = name;
-                        file["data"] = Convert.ToBase64String(Read(port, ref addr, f[0] + name, type));
+                        file["data"] = Convert.ToBase64String(Read(port, ref addr, folder + name));
                         files.Add(file);
                     }
-                    return files;
+                    break;
                 }
-                return new List<object>();
+                return a;
             } finally { AdsPortCloseEx(port); }
         }
 
-        // The names of the files that match, or null when the folder is not there.
-        static List<string> Find(int port, ref AmsAddr addr, string pattern, uint type) {
+        // The names of the files that match, or null when none does: the system's service answers a path it does not
+        // have with an error of its own (1804 not found), which ends a listing too. Throws when the system does not answer.
+        static List<string> Find(int port, ref AmsAddr addr, string pattern) {
             List<string> names = new List<string>();
             byte[] w = Encoding.Default.GetBytes(pattern + "\0");
-            uint io = type;
+            uint io = GENERIC;
             for (int n = 0; n < 1000; n++) {
                 byte[] b = new byte[324]; uint read;
                 int e = AdsSyncReadWriteReqEx2(port, ref addr, FFILEFIND, io, (uint)b.Length, b, (uint)w.Length, w, out read);
-                if (e == NOT_FOUND) return n == 0 ? null : names;
-                if (e != 0) throw new BridgeError("ADS error " + e + " reading the license folder of " + NetId(addr.netId, 0));
+                if (e != 0 && !DeviceError(e)) throw new BridgeError("ADS error " + e + " reading the license folder of " + NetId(addr.netId, 0));
+                if (e != 0) return n == 0 ? null : names;
                 names.Add(Str(b, 48, 260));
                 io = BitConverter.ToUInt32(b, 0);
                 w = new byte[0];
@@ -206,10 +238,10 @@ namespace TwinCatXaeBridge {
             return names;
         }
 
-        static byte[] Read(int port, ref AmsAddr addr, string file, uint type) {
+        static byte[] Read(int port, ref AmsAddr addr, string file) {
             byte[] w = Encoding.Default.GetBytes(file + "\0"), h = new byte[4]; uint read;
             // read (1), binary (0x10)
-            int e = AdsSyncReadWriteReqEx2(port, ref addr, FOPEN, 1 | 0x10 | type, 4, h, (uint)w.Length, w, out read);
+            int e = AdsSyncReadWriteReqEx2(port, ref addr, FOPEN, 1 | 0x10 | GENERIC, 4, h, (uint)w.Length, w, out read);
             if (e != 0) throw new BridgeError("ADS error " + e + " opening " + file);
             uint handle = BitConverter.ToUInt32(h, 0);
             try {

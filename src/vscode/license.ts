@@ -35,8 +35,8 @@ function licenseLabel(l: { name: string; orderNo?: string; instances?: number })
   return `${l.name}${l.orderNo ? ` (${l.orderNo})` : ''}${l.instances ? ` × ${l.instances}` : ''}`;
 }
 
-/** What renews a file's trial license: its runtime of this machine, or its remote system's AMS Net ID. */
-function renewTarget(f: LicenseFile): string {
+/** The system of a file, as renewing its trial license takes it: its runtime of this machine, or its remote system's AMS Net ID. */
+function systemOf(f: LicenseFile): string {
   return f.netId ?? f.runtime;
 }
 
@@ -113,7 +113,9 @@ export class LicenseStatus implements vscode.Disposable {
         const { local, routes } = await this.xae!.adsRoutesAsync();
         for (const r of routes.filter(r => r.netId !== local)) {
           try {
-            remote.push(...remoteLicenses(await this.xae!.adsLicensesAsync(r.netId), r.name, r.netId));
+            const { found, files } = await this.xae!.adsLicensesAsync(r.netId);
+            if (found) remote.push(...remoteLicenses(files, r.name, r.netId));
+            else unread.push({ name: r.name, netId: r.netId, error: 'its license folder was not found over ADS' });
           } catch (e) {
             unread.push({ name: r.name, netId: r.netId, error: (e as Error).message });
           }
@@ -161,8 +163,8 @@ export class LicenseStatus implements vscode.Disposable {
     const now = new Date();
     const first = firstToExpire(all);
     const left = first?.expires && first.expires.getTime() - now.getTime();
-    // With several systems, which one ends first.
-    const which = first && new Set(all.map(f => f.netId ?? '')).size > 1 ? ` ${first.runtime}` : '';
+    // With several runtimes or systems, which one ends first.
+    const which = first && new Set(all.map(systemOf)).size > 1 ? ` ${first.runtime}` : '';
     if (left === undefined) {
       this.item.text = '$(key) TwinCAT license';
       this.item.backgroundColor = undefined;
@@ -191,7 +193,7 @@ export class LicenseStatus implements vscode.Disposable {
       : `TwinCAT: ${what} expires ${localTime(f.expires!)}, in ${timeLeft(f.expires!, now)}.`;
     const actions = f.trial ? [RENEW, 'Show Licenses'] : ['Show Licenses'];
     void vscode.window.showWarningMessage(f.trial ? `${message} ${RENEW_HINT}` : message, ...actions).then(choice => {
-      if (choice === RENEW) void vscode.commands.executeCommand('twincatExplorer.renewTrialLicense', renewTarget(f));
+      if (choice === RENEW) void vscode.commands.executeCommand('twincatExplorer.renewTrialLicense', systemOf(f));
       else if (choice) void vscode.commands.executeCommand('twincatExplorer.showLicenses');
     });
   }
@@ -243,7 +245,7 @@ export class LicenseStatus implements vscode.Disposable {
         detail: f.netId ? `${issued}${f.file} on ${f.runtime}, read over ADS` : `${issued}Pick to reveal ${f.file}`,
         file: f.netId ? undefined : f.file,
       });
-      if (f.trial) items.push({ label: `$(sync) ${RENEW}...`, detail: 'Opens its 7 Days Trial License dialog, where you type the security code', renew: renewTarget(f) });
+      if (f.trial) items.push({ label: `$(sync) ${RENEW}...`, detail: 'Opens its 7 Days Trial License dialog, where you type the security code', renew: systemOf(f) });
       for (const l of f.licenses) {
         items.push({ label: `$(key) ${l.name}`, description: [l.orderNo, l.instances && `${l.instances} instances`].filter(Boolean).join(', '), detail: l.id });
       }

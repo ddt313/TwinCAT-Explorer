@@ -130,13 +130,17 @@ export class TrialLicenseRenewal {
     return [...out.values()];
   }
 
-  /** A remote system's license files over ADS, and a hash of them that changes when one is written; undefined: not read. */
+  /**
+   * A remote system's license files over ADS, and a hash of them that changes when one is written; undefined: not read,
+   * or its license folder not found, so that no file there says nothing about a new license.
+   */
   private async remoteFiles(target: Target): Promise<{ files: LicenseFile[]; hash: string } | undefined> {
     try {
-      const raw = await this.xae.adsLicensesAsync(target.netId);
+      const { found, files } = await this.xae.adsLicensesAsync(target.netId);
+      if (!found) return undefined;
       const hash = crypto.createHash('sha1');
-      for (const f of raw) hash.update(f.name).update(f.data);
-      return { files: remoteLicenses(raw, target.name, target.netId), hash: hash.digest('hex') };
+      for (const f of files) hash.update(f.name).update(f.data);
+      return { files: remoteLicenses(files, target.name, target.netId), hash: hash.digest('hex') };
     } catch {
       return undefined;
     }

@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  adsRoutes, firstToExpire, lastLicenseWrite, licenseFolders, netIdOfRegistryXml, parseLicenseFile, readLicenses, routesOfStaticRoutesXml,
+  adsRoutes, firstToExpire, lastLicenseWrite, licenseFolders, netIdOfRegistryXml, parseLicenseFile, readLicenses, remoteLicenses, routesOfStaticRoutesXml,
   runtimeNetId, timeLeft,
 } from '../../src/core/license';
 import { solutionProjects } from '../../src/core/xae';
@@ -131,6 +131,18 @@ test('adsRoutes reads the routes of the runtimes and of the Routes folder, once 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('remoteLicenses parses the files read over ADS, with the system and its AMS Net ID', () => {
+  const files = remoteLicenses([
+    { name: 'Response.tclrs', data: Buffer.from(TRIAL.replace(/\s*<ExpireTime>.*<\/ExpireTime>/, '')) },
+    { name: 'TrialLicense.tclrs', data: Buffer.from('﻿' + TRIAL.replace('2026-11-08', '2026-11-05')) },
+    { name: 'broken.tclrs', data: Buffer.from('<Other/>') },
+  ], 'xar-1', '15.15.15.15.1.1');
+  assert.deepEqual(files.map(f => [f.file, f.runtime, f.netId, f.trial, f.expires?.toISOString()]), [
+    ['TrialLicense.tclrs', 'xar-1', '15.15.15.15.1.1', true, '2026-11-05T00:00:00.000Z'],
+    ['Response.tclrs', 'xar-1', '15.15.15.15.1.1', false, undefined],
+  ]);
 });
 
 test('solutionProjects lists the .tsproj files of a solution, resolved beside it', () => {

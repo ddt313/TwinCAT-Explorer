@@ -8,7 +8,8 @@
 // then exits so that the blocked call dies with it; the MCP server starts a new one for the next request.
 // The bridge never types into XAE and never answers its dialogs. It brings XAE to the front and clicks a button for
 // one request only, openTrialLicense, which the user asks for: XAE's 7-day trial license dialog then waits for the
-// security code, which the user reads and types; the bridge never reads it.
+// security code, which the user reads and types; the bridge never reads it. Over ADS it only reads: the routes of
+// this machine, and the license files of a system.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -78,6 +79,151 @@ namespace TwinCatXaeBridge {
     }
 
     class BridgeError : Exception { public BridgeError(string m) : base(m) { } }
+
+    // ADS through TwinCAT's own TcAdsDll (4026's router refuses ADS over TCP from this machine), read only: the routes
+    // of this machine's AMS router, and the license files of a system, through its TcSystemService (port 10000).
+    static class Ads {
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        struct AmsAddr { [MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)] public byte[] netId; public ushort port; }
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr LoadLibrary(string path);
+        [DllImport("TcAdsDll.dll")] static extern int AdsPortOpenEx();
+        [DllImport("TcAdsDll.dll")] static extern int AdsPortCloseEx(int port);
+        [DllImport("TcAdsDll.dll")] static extern int AdsGetLocalAddressEx(int port, ref AmsAddr addr);
+        [DllImport("TcAdsDll.dll")] static extern int AdsSyncSetTimeoutEx(int port, int ms);
+        [DllImport("TcAdsDll.dll")] static extern int AdsSyncReadReqEx2(int port, ref AmsAddr addr, uint ig, uint io, uint len, byte[] data, out uint read);
+        [DllImport("TcAdsDll.dll")] static extern int AdsSyncReadWriteReqEx2(int port, ref AmsAddr addr, uint ig, uint io, uint rlen, byte[] rdata, uint wlen, byte[] wdata, out uint read);
+        [DllImport("TcAdsDll.dll")] static extern int AdsSyncWriteReqEx(int port, ref AmsAddr addr, uint ig, uint io, uint len, byte[] data);
+
+        const uint ENUMREMOTE = 803, FOPEN = 120, FCLOSE = 121, FREAD = 122, FFILEFIND = 133;
+        const int NOT_FOUND = 1804, NO_MORE = 1814;
+
+        static bool loaded;
+        static void Load() {
+            if (loaded) return;
+            string x86 = Environment.GetEnvironmentVariable("ProgramFiles(x86)") ?? @"C:\Program Files (x86)";
+            string common = Environment.Is64BitProcess ? "Common64" : "Common32";
+            foreach (string dll in new string[] { Path.Combine(x86, @"Beckhoff\TwinCAT\" + common + @"\TcAdsDll.dll"), @"C:\TwinCAT\" + common + @"\TcAdsDll.dll" }) {
+                if (File.Exists(dll) && LoadLibrary(dll) != IntPtr.Zero) { loaded = true; return; }
+            }
+            throw new BridgeError("TwinCAT's TcAdsDll.dll is not installed");
+        }
+
+        static string NetId(byte[] b, int at) { return b[at] + "." + b[at + 1] + "." + b[at + 2] + "." + b[at + 3] + "." + b[at + 4] + "." + b[at + 5]; }
+        static string Str(byte[] b, int at, int len) { return Encoding.Default.GetString(b, at, Math.Max(0, len)).Split('\0')[0]; }
+
+        // A port of this process to TcSystemService of a system; the local one when netId is null.
+        static int Open(string netId, out AmsAddr addr, int timeoutMs) {
+            Load();
+            int port = AdsPortOpenEx();
+            if (port == 0) throw new BridgeError("no ADS port: is the TwinCAT router running?");
+            AdsSyncSetTimeoutEx(port, timeoutMs);
+            addr = new AmsAddr { netId = new byte[6] };
+            if (netId == null) {
+                int e = AdsGetLocalAddressEx(port, ref addr);
+                if (e != 0) { AdsPortCloseEx(port); throw new BridgeError("ADS error " + e + " getting the local AMS Net ID"); }
+            } else {
+                addr.netId = Array.ConvertAll(netId.Split('.'), byte.Parse);
+            }
+            addr.port = 10000;
+            return port;
+        }
+
+        // Each entry of ENUMREMOTE: the AMS Net ID (6), the transport (2), flags (4), the timeout (4), 16 reserved,
+        // the lengths of the address and of the host name and the number of sub-routes (4 each), the address, the host
+        // name, then each sub-route: its AMS Net ID (6), 14 reserved, the length of its name (4), its name.
+        public static Dictionary<string, object> Routes() {
+            AmsAddr addr;
+            int port = Open(null, out addr, 3000);
+            try {
+                string local = NetId(addr.netId, 0);
+                List<object> routes = new List<object>();
+                for (uint i = 0; i < 1000; i++) {
+                    byte[] b = new byte[4096]; uint read;
+                    int e = AdsSyncReadReqEx2(port, ref addr, ENUMREMOTE, i, (uint)b.Length, b, out read);
+                    if (e == NO_MORE) break;
+                    if (e != 0) throw new BridgeError("ADS error " + e + " listing the routes");
+                    int addrLen = BitConverter.ToInt32(b, 32), hostLen = BitConverter.ToInt32(b, 36), subs = BitConverter.ToInt32(b, 40);
+                    string address = Str(b, 44, addrLen), host = Str(b, 44 + addrLen, hostLen);
+                    int at = 44 + addrLen + hostLen;
+                    if (subs == 0) routes.Add(Route(NetId(b, 0), host.Length > 0 ? host : address, address));
+                    for (int s = 0; s < subs && at + 24 <= read; s++) {
+                        int nameLen = BitConverter.ToInt32(b, at + 20);
+                        routes.Add(Route(NetId(b, at), Str(b, at + 24, nameLen), address));
+                        at += 24 + nameLen;
+                    }
+                }
+                Dictionary<string, object> a = new Dictionary<string, object>();
+                a["local"] = local;
+                a["routes"] = routes;
+                return a;
+            } finally { AdsPortCloseEx(port); }
+        }
+
+        static Dictionary<string, object> Route(string netId, string name, string address) {
+            Dictionary<string, object> r = new Dictionary<string, object>();
+            r["netId"] = netId; r["name"] = name; r["address"] = address;
+            return r;
+        }
+
+        // The *.tclrs files of a system's license folder, in base64: %TC_TARGETPATH%License (4026), else the
+        // License folder beside its boot folder (Target\License next to Boot).
+        public static List<object> Licenses(string netId) {
+            AmsAddr addr;
+            int port = Open(netId, out addr, 3000);
+            try {
+                string[][] folders = { new string[] { "%TC_TARGETPATH%License\\", "1" }, new string[] { "..\\Target\\License\\", "4" } };
+                foreach (string[] f in folders) {
+                    uint type = uint.Parse(f[1]) << 16;
+                    List<string> names = Find(port, ref addr, f[0] + "*.tclrs", type);
+                    if (names == null) continue;
+                    List<object> files = new List<object>();
+                    foreach (string name in names) {
+                        Dictionary<string, object> file = new Dictionary<string, object>();
+                        file["name"] = name;
+                        file["data"] = Convert.ToBase64String(Read(port, ref addr, f[0] + name, type));
+                        files.Add(file);
+                    }
+                    return files;
+                }
+                return new List<object>();
+            } finally { AdsPortCloseEx(port); }
+        }
+
+        // The names of the files that match, or null when the folder is not there.
+        static List<string> Find(int port, ref AmsAddr addr, string pattern, uint type) {
+            List<string> names = new List<string>();
+            byte[] w = Encoding.Default.GetBytes(pattern + "\0");
+            uint io = type;
+            for (int n = 0; n < 1000; n++) {
+                byte[] b = new byte[324]; uint read;
+                int e = AdsSyncReadWriteReqEx2(port, ref addr, FFILEFIND, io, (uint)b.Length, b, (uint)w.Length, w, out read);
+                if (e == NOT_FOUND) return n == 0 ? null : names;
+                if (e != 0) throw new BridgeError("ADS error " + e + " reading the license folder of " + NetId(addr.netId, 0));
+                names.Add(Str(b, 48, 260));
+                io = BitConverter.ToUInt32(b, 0);
+                w = new byte[0];
+            }
+            return names;
+        }
+
+        static byte[] Read(int port, ref AmsAddr addr, string file, uint type) {
+            byte[] w = Encoding.Default.GetBytes(file + "\0"), h = new byte[4]; uint read;
+            // read (1), binary (0x10)
+            int e = AdsSyncReadWriteReqEx2(port, ref addr, FOPEN, 1 | 0x10 | type, 4, h, (uint)w.Length, w, out read);
+            if (e != 0) throw new BridgeError("ADS error " + e + " opening " + file);
+            uint handle = BitConverter.ToUInt32(h, 0);
+            try {
+                MemoryStream all = new MemoryStream();
+                for (;;) {
+                    byte[] b = new byte[16384];
+                    e = AdsSyncReadWriteReqEx2(port, ref addr, FREAD, handle, (uint)b.Length, b, 0, new byte[0], out read);
+                    if (e != 0) throw new BridgeError("ADS error " + e + " reading " + file);
+                    all.Write(b, 0, (int)read);
+                    if (read < b.Length || all.Length > 1 << 20) return all.ToArray();
+                }
+            } finally { AdsSyncWriteReqEx(port, ref addr, FCLOSE, handle, 0, new byte[0]); }
+        }
+    }
 
     // The visible standard dialogs (#32770) of a process and their texts, through window messages only.
     static class Dialogs {
@@ -641,6 +787,10 @@ namespace TwinCatXaeBridge {
                     a["output"] = text.Substring(Math.Min(before, text.Length));
                     return a;
                 }
+                case "adsRoutes":
+                    return Ads.Routes();
+                case "adsLicenses":
+                    return Ads.Licenses(Str(r, "netId"));
                 default:
                     throw new BridgeError("unknown command " + cmd);
             }

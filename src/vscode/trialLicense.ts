@@ -2,18 +2,21 @@
 // workspace, targeting a runtime of this machine or a remote system it has an ADS route to, and clicks "7 Days Trial
 // License...". XAE's dialog then asks the user for the security code, which only the user reads and types. The XAE
 // that has the project open is used, or one is started on the solution and closed again without saving afterwards.
-// A runtime of this machine shows its new license file; a remote system's license is only seen in XAE.
+// The new license is seen in the runtime's license folder, or read over ADS from the remote system.
 
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { LicenseFolder, adsRoutes, lastLicenseWrite, licenseFolders, readLicenses, runtimeNetId, timeLeft } from '../core/license';
+import { LicenseFile, LicenseFolder, adsRoutes, lastLicenseWrite, licenseFolders, readLicenses, remoteLicenses, runtimeNetId, timeLeft } from '../core/license';
 import { fileKey } from '../core/workspace';
 import { TrialLicensePage, Xae, XaeError, solutionProjects } from '../core/xae';
 
 /** How long XAE's dialog waits for the user, and how long XAE stays enabled before it counts as cancelled. */
 const WAIT_MS = 10 * 60_000;
 const CANCELLED_MS = 20_000;
+/** How often a remote system's license files are read while XAE's dialog is open. */
+const REMOTE_POLL_MS = 3000;
 
 async function pick<T>(items: T[], label: (t: T) => vscode.QuickPickItem, title: string): Promise<T | undefined> {
   if (items.length <= 1) return items[0];
@@ -37,6 +40,7 @@ export class TrialLicenseRenewal {
 
   constructor(private readonly xae: Xae, private readonly projects: () => { name: string; path: string }[], private readonly refresh: () => void) {}
 
+  /** `runtime`: a runtime of this machine by name, or a remote system by AMS Net ID. */
   async renew(runtime?: string): Promise<void> {
     if (this.busy) {
       void vscode.window.showInformationMessage('TwinCAT: a trial license is already being renewed in TwinCAT XAE.');
@@ -78,6 +82,8 @@ export class TrialLicenseRenewal {
    * ID typed in.
    */
   private async pickTarget(runtime: string | undefined): Promise<Target | undefined> {
+    const routes = runtime && !NET_ID.test(runtime) ? [] : await this.routes();
+    if (runtime && NET_ID.test(runtime)) return { name: routes.find(r => r.netId === runtime)?.name ?? runtime, netId: runtime };
     const local: Target[] = [];
     for (const folder of licenseFolders().filter(f => !runtime || f.runtime === runtime)) {
       const netId = runtimeNetId(folder);
@@ -91,7 +97,7 @@ export class TrialLicenseRenewal {
       if (!local.length) void vscode.window.showErrorMessage(`TwinCAT: no TwinCAT runtime ${runtime} on this machine.`);
       return local[0];
     }
-    const remote: Target[] = adsRoutes().filter(r => !local.some(t => t.netId === r.netId)).map(r => ({ name: r.name, netId: r.netId }));
+    const remote: Target[] = routes.filter(r => !local.some(t => t.netId === r.netId)).map(r => ({ name: r.name, netId: r.netId }));
     type Item = vscode.QuickPickItem & { target?: Target };
     const items: Item[] = [
       ...local.map(t => ({ label: `$(vm) ${t.name}`, description: `this machine, ${t.netId}`, target: t })),
@@ -106,6 +112,34 @@ export class TrialLicenseRenewal {
       validateInput: v => NET_ID.test(v.trim()) ? undefined : 'Six numbers separated by dots, such as 5.80.201.232.1.1',
     });
     return netId ? { name: netId.trim(), netId: netId.trim() } : undefined;
+  }
+
+  /** The remote systems of this machine's AMS router (over ADS) and of its route files, by AMS Net ID. */
+  private async routes(): Promise<{ name: string; netId: string }[]> {
+    const out = new Map<string, { name: string; netId: string }>();
+    let local: string | undefined;
+    try {
+      const ads = await this.xae.adsRoutesAsync();
+      local = ads.local;
+      for (const r of ads.routes) out.set(r.netId, r);
+    } catch {
+      // no router to ask: the route files only
+    }
+    for (const r of adsRoutes()) if (!out.has(r.netId)) out.set(r.netId, r);
+    if (local) out.delete(local);
+    return [...out.values()];
+  }
+
+  /** A remote system's license files over ADS, and a hash of them that changes when one is written; undefined: not read. */
+  private async remoteFiles(target: Target): Promise<{ files: LicenseFile[]; hash: string } | undefined> {
+    try {
+      const raw = await this.xae.adsLicensesAsync(target.netId);
+      const hash = crypto.createHash('sha1');
+      for (const f of raw) hash.update(f.name).update(f.data);
+      return { files: remoteLicenses(raw, target.name, target.netId), hash: hash.digest('hex') };
+    } catch {
+      return undefined;
+    }
   }
 
   /** The solution files of the workspace that have the TwinCAT project. */
@@ -126,6 +160,8 @@ export class TrialLicenseRenewal {
   private async run(target: Target, tsproj: string, pid: number | undefined, sln: string | undefined): Promise<void> {
     const { netId, folder } = target;
     const before = folder ? lastLicenseWrite(folder.folder) : 0;
+    const remoteBefore = folder ? undefined : (await this.remoteFiles(target))?.hash;
+    let polled = 0;
     let page: TrialLicensePage | undefined;
     const outcome = await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification, title: 'TwinCAT trial license', cancellable: true,
@@ -150,6 +186,11 @@ export class TrialLicenseRenewal {
       for (const end = Date.now() + WAIT_MS; Date.now() < end; await sleep(1000)) {
         if (token.isCancellationRequested) return 'cancelled';
         if (folder && lastLicenseWrite(folder.folder) > before) return 'written';
+        if (remoteBefore && Date.now() - polled > REMOTE_POLL_MS) {
+          polled = Date.now();
+          const now = await this.remoteFiles(target);
+          if (now && now.hash !== remoteBefore) return 'written';
+        }
         const window = await this.xae.windowAsync(page.hwnd);
         if (!window.running) return 'closed';
         if (!window.enabled) {
@@ -157,8 +198,8 @@ export class TrialLicenseRenewal {
           enabledSince = undefined;
         } else if (dialogSeen) {
           enabledSince ??= Date.now();
-          // A remote system's license file is not seen here: the dialog closed is all there is to know.
-          if (Date.now() - enabledSince > CANCELLED_MS) return folder ? 'cancelled in XAE' : 'answered';
+          // A remote system whose license files were not read: the dialog closed is all there is to know.
+          if (Date.now() - enabledSince > CANCELLED_MS) return folder || remoteBefore ? 'cancelled in XAE' : 'answered';
         }
       }
       return 'timeout';
@@ -174,11 +215,11 @@ export class TrialLicenseRenewal {
       void vscode.window.showErrorMessage(`TwinCAT: the trial license was not renewed: ${outcome instanceof XaeError ? outcome.message : String(outcome)}.${where}`);
       return;
     }
-    if (outcome === 'written' && folder) {
-      const trial = readLicenses([folder]).find(f => f.trial);
+    if (outcome === 'written') {
+      const trial = (folder ? readLicenses([folder]) : (await this.remoteFiles(target))?.files ?? []).find(f => f.trial);
       void vscode.window.showInformationMessage(trial?.expires
-        ? `TwinCAT: new 7-day trial license of ${folder.runtime}, valid until ${trial.expires.toLocaleString()} (${timeLeft(trial.expires, new Date())}).`
-        : `TwinCAT: a new license file of ${folder.runtime} was written.`);
+        ? `TwinCAT: new 7-day trial license of ${target.name}, valid until ${trial.expires.toLocaleString()} (${timeLeft(trial.expires, new Date())}).`
+        : `TwinCAT: a new license file of ${target.name} was written.`);
     } else if (outcome === 'answered') {
       void vscode.window.showInformationMessage(`TwinCAT: the trial license dialog of TwinCAT XAE was answered. The license of ${target.name} (${netId}) is on that system: SYSTEM > License in XAE shows until when it is valid.`);
     } else if (outcome === 'closed') {

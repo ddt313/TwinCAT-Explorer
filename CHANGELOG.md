@@ -6,10 +6,13 @@ All notable changes to Explorer for TwinCAT. The format follows
 ## Unreleased
 
 ### Added
-- `TwinCAT: Renew Trial License in TwinCAT XAE` also renews the trial license of a remote system, such as
-  an XAR in a container or a virtual machine: it asks for the runtime of this machine, a system of this
-  machine's ADS routes, or an AMS Net ID typed in, and targets the project at it. A remote system's license
-  is not in the status bar; XAE's License page shows it.
+- The licenses of the remote TwinCAT systems this machine has ADS routes to, such as an XAR in a container
+  or a virtual machine, with setting `twincatExplorer.remoteLicenses` turned on (off by default): read over
+  ADS every 5 minutes, they are in the status bar, its warnings and `TwinCAT: Show Licenses` next to this
+  machine's, and the status bar names the system whose license ends first.
+- `TwinCAT: Renew Trial License in TwinCAT XAE` also renews the trial license of a remote system: it asks
+  for the runtime of this machine, a system of this machine's ADS routes, or an AMS Net ID typed in, targets
+  the project at it, and tells the new license's end once it is written there.
 
 ### Fixed
 - The README's license folders read `TwinCAT.1` instead of `TwinCAT\3.1`.

@@ -17,9 +17,12 @@ export interface TcLicense {
 }
 
 export interface LicenseFile {
+  /** Its path; a remote system's file: its name there. */
   file: string;
-  /** The runtime the file belongs to: `UmRT_Default`, or `TwinCAT` for 4024's single one. */
+  /** The runtime the file belongs to: `UmRT_Default`, `TwinCAT` for 4024's single one, or a remote system's route name. */
   runtime: string;
+  /** A remote system's file, read over ADS: the system's AMS Net ID. */
+  netId?: string;
   trial: boolean;
   issued?: Date;
   /** Undefined: the file names no end. */
@@ -197,6 +200,14 @@ export function readLicenses(folders: LicenseFolder[]): LicenseFile[] {
     }
   }
   return out.sort((a, b) => Number(b.trial) - Number(a.trial));
+}
+
+/** The license files of a remote system, as read over ADS, the trial licenses first. */
+export function remoteLicenses(files: { name: string; data: Buffer }[], system: string, netId: string): LicenseFile[] {
+  return files.flatMap(f => {
+    const parsed = parseLicenseFile(decodeXml(f.data), f.name, system);
+    return parsed ? [{ ...parsed, netId }] : [];
+  }).sort((a, b) => Number(b.trial) - Number(a.trial));
 }
 
 /** The license file that ends first; undefined when none ends. */

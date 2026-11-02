@@ -406,6 +406,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   const trialLicense = xae && license
     ? new TrialLicenseRenewal(xae, () => ws.tsProjects.map(t => ({ name: t.name, path: t.path })), () => license.refresh())
     : undefined;
+  if (xae) license?.setXae(xae);
   const warnedXae = new Set<string>();
   const xaeHost: XaeSaveHost = {
     confirm: async (message, action) => await vscode.window.showWarningMessage(message, { modal: true }, action) === action,

@@ -18,6 +18,11 @@ All notable changes to Explorer for TwinCAT. The format follows
   front, or starts XAE on the workspace's solution that has the project (a list when several have it), in
   front and left open as yours. XAE is never closed, and nothing is saved in it.
 
+### Changed
+- `TwinCAT: Renew Trial License in TwinCAT XAE` leaves the TwinCAT XAE it started open afterwards, for you to
+  close, instead of closing it without saving. A target it switched for the license is set back, as in an XAE
+  you had open.
+
 ### Fixed
 - The README's license folders read `TwinCAT.1` instead of `TwinCAT\3.1`.
 

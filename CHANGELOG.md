@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.19.0 - 2026-11-02
 
 ### Added
 - The licenses of the remote TwinCAT systems this machine has ADS routes to, such as an XAR in a container

@@ -1,7 +1,8 @@
 // `TwinCAT: Renew Trial License in TwinCAT XAE`: brings TwinCAT XAE to SYSTEM > License of a TwinCAT project of the
 // workspace, targeting a runtime of this machine or a remote system it has an ADS route to, and clicks "7 Days Trial
 // License...". XAE's dialog then asks the user for the security code, which only the user reads and types. The XAE
-// that has the project open is used, or one is started on the solution and closed again without saving afterwards.
+// that has the project open is used, or one is started on the solution; either stays open afterwards, for the user to
+// close, with a target switched for the license set back.
 // The new license is seen in the runtime's license folder, or read over ADS from the remote system.
 
 import * as crypto from 'crypto';
@@ -215,11 +216,8 @@ export class TrialLicenseRenewal {
     const { netId, folder } = target;
     this.refresh();
     if (outcome instanceof Error) {
-      const where = page?.started ? ' TwinCAT XAE stays open: close it without saving.' : '';
-      void vscode.window.showErrorMessage(`TwinCAT: the trial license was not renewed: ${outcome instanceof XaeError ? outcome.message : String(outcome)}.${where}`);
-      return;
-    }
-    if (outcome === 'written') {
+      void vscode.window.showErrorMessage(`TwinCAT: the trial license was not renewed: ${outcome instanceof XaeError ? outcome.message : String(outcome)}.`);
+    } else if (outcome === 'written') {
       const trial = (folder ? readLicenses([folder]) : (await this.remoteFiles(target))?.files ?? []).find(f => f.trial);
       void vscode.window.showInformationMessage(trial?.expires
         ? `TwinCAT: new 7-day trial license of ${target.name}, valid until ${trial.expires.toLocaleString()} (${timeLeft(trial.expires, new Date())}).`
@@ -238,27 +236,31 @@ export class TrialLicenseRenewal {
     await this.restore(page, netId, tsproj);
   }
 
-  /** XAE as it was: one started here closed without saving, a running one's target set back. */
+  /**
+   * The project's target set back when it was switched for the license, once XAE's dialogs are answered. XAE itself
+   * stays open, also one started here: the user closes it.
+   */
   private async restore(page: TrialLicensePage, netId: string, tsproj: string): Promise<void> {
+    if (!page.targetChanged) return;
     // A message XAE shows after the license waits for the user first.
     for (let waited = 0; ; waited += 1000, await sleep(1000)) {
       const window = await this.xae.windowAsync(page.hwnd).catch(() => ({ running: false, enabled: true }));
       if (!window.running) return;
       if (window.enabled) break;
       if (waited > 120_000) {
-        void vscode.window.showWarningMessage(page.started
-          ? 'TwinCAT: TwinCAT XAE still shows a dialog: close XAE without saving once it is answered.'
-          : `TwinCAT: TwinCAT XAE still shows a dialog: set the project's target back to ${page.target} once it is answered.`);
+        void vscode.window.showWarningMessage(`TwinCAT: TwinCAT XAE still shows a dialog: set the project's target back to ${page.target} once it is answered.`);
         return;
       }
     }
     try {
-      if (page.started) await this.xae.quitAsync(page.pid);
-      else if (page.targetChanged) await this.xae.targetAsync(page.pid, tsproj, page.target);
+      await this.xae.targetAsync(page.pid, tsproj, page.target);
     } catch (e) {
-      void vscode.window.showWarningMessage(page.started
-        ? `TwinCAT: TwinCAT XAE was not closed (${(e as Error).message}): close it without saving.`
-        : `TwinCAT: the target of the project in TwinCAT XAE was not set back to ${page.target} from ${netId} (${(e as Error).message}).`);
+      void vscode.window.showWarningMessage(`TwinCAT: the target of the project in TwinCAT XAE was not set back to ${page.target} from ${netId} (${(e as Error).message}).`);
+      return;
+    }
+    // An XAE started here was switched without asking: why it now shows the project as changed.
+    if (page.started) {
+      void vscode.window.showInformationMessage(`TwinCAT: the project's target in TwinCAT XAE is back to ${page.target}. XAE shows the project as changed for this: no need to save it.`);
     }
   }
 }

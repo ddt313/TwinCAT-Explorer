@@ -617,10 +617,11 @@ namespace TwinCatXaeBridge {
             tree.DoDefaultAction();
         }
 
-        // XAE with the TwinCAT project on the runtime of this machine, SYSTEM > License open and "7 Days Trial License..."
-        // clicked: its dialog then waits for the user to type the security code. A running XAE (pid) keeps its target
-        // unless setTarget is given, or else the answer is needsTarget; an XAE started here (progId, sln) is the user's
-        // to see, and stays open when the bridge ends.
+        // XAE with the TwinCAT project targeting netId, SYSTEM > License open and "7 Days Trial License..." clicked: its
+        // dialog then waits for the user to type the security code. A running XAE (pid) keeps its target unless setTarget
+        // is given, or else the answer is needsTarget; an XAE started here (progId, sln) takes netId at once. Either stays
+        // open for the user to close, also when the bridge ends; a target changed here goes back if the License page does
+        // not open.
         static object OpenTrialLicense(Dictionary<string, object> r) {
             Dictionary<string, object> a = new Dictionary<string, object>();
             DTE2 dte;
@@ -653,7 +654,12 @@ namespace TwinCatXaeBridge {
                 sm.SetTargetNetId(netId);
                 a["targetChanged"] = true;
             }
-            OpenLicensePage(dte, project.Name);
+            try {
+                OpenLicensePage(dte, project.Name);
+            } catch {
+                if (a.ContainsKey("targetChanged")) try { sm.SetTargetNetId(target); } catch { }
+                throw;
+            }
             Win.Front(main);
             IntPtr button = IntPtr.Zero;
             for (DateTime end = DateTime.Now.AddSeconds(60); button == IntPtr.Zero && DateTime.Now < end; ) {
@@ -797,13 +803,6 @@ namespace TwinCatXaeBridge {
                     // Sets the target of a TwinCAT project back, after openTrialLicense changed it.
                     ((ITcSysManager4)ProjectOf(Dte(Int(r, "pid")), Str(r, "tsproj")).Object).SetTargetNetId(Str(r, "netId"));
                     return new Dictionary<string, object>();
-                case "quit": {
-                    // Closes an XAE that openTrialLicense started, without saving: its target change is dropped.
-                    DTE2 dte = Dte(Int(r, "pid"));
-                    dte.Solution.Close(false);
-                    dte.Quit();
-                    return new Dictionary<string, object>();
-                }
                 case "check": {
                     DTE2 dte = Dte(Int(r, "pid"));
                     ITcSmTreeItem nested = Nested(SysManager(dte, Str(r, "tsproj")), Str(r, "plc"));

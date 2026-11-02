@@ -658,12 +658,12 @@ in the status bar, and a 7-day trial license renewed in TwinCAT XAE in a few cli
   never reads it. Once the new license file is written, here or on the remote system, the status bar
   shows it.
   - The XAE that has the project open is used. Without one, XAE is started on the workspace's `.sln`
-    that has the project, and closed again without saving once the license is written.
+    that has the project. Either stays open afterwards: close it yourself when you are done.
   - It asks which system the trial license is for: a runtime of this machine, a remote system this
     machine has an ADS route to (`tc31-xar-1 15.15.15.15.1.1`), or an AMS Net ID you type. From the
     warning or Show Licenses it is the system of that license.
-  - A project that targets another system is switched to the chosen one first, after asking, and set
-    back afterwards. XAE then shows the project as changed: don't save it for this.
+  - A project that targets another system is switched to the chosen one first, after asking in an XAE
+    you had open, and set back afterwards. XAE then shows the project as changed: don't save it for this.
   - A remote system whose license files cannot be read over ADS: once XAE's dialog is answered,
     SYSTEM > License in XAE shows until when the license is valid.
   - Where the button is not found (XAE in another language), XAE stays on the License page: click it

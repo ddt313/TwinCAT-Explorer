@@ -125,7 +125,7 @@ export interface TrialLicensePage {
   pid: number;
   /** XAE's main window, for `windowAsync`. */
   hwnd: number;
-  /** XAE was started for it, and is closed again without saving. */
+  /** XAE was started for it. It stays open for the user to close, like one that was running. */
   started: boolean;
   /** The TwinCAT project's target before. */
   target: string;
@@ -354,11 +354,6 @@ export class Xae {
 
   async targetAsync(pid: number, tsproj: string, netId: string): Promise<void> {
     await this.requestAsync({ cmd: 'target', pid, tsproj, netId }, 30_000);
-  }
-
-  /** Closes an XAE without saving. */
-  async quitAsync(pid: number): Promise<void> {
-    await this.requestAsync({ cmd: 'quit', pid }, 60_000);
   }
 
   /** The AMS Net ID of this machine and the remote systems its AMS router has routes to, over ADS. */

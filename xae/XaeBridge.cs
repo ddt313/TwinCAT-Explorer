@@ -6,9 +6,11 @@
 // Every request runs on one STA worker thread that keeps the COM objects. A request that does not finish in its
 // timeout (a modal dialog of XAE blocks every call) is answered with the texts of XAE's dialogs, and the bridge
 // then exits so that the blocked call dies with it; the MCP server starts a new one for the next request.
-// The bridge never types into XAE and never answers its dialogs. It brings XAE to the front and clicks a button for
-// one request only, openTrialLicense, which the user asks for: XAE's 7-day trial license dialog then waits for the
-// security code, which the user reads and types; the bridge never reads it.
+// The bridge never types into XAE and never answers its dialogs. It starts XAE and brings it to the front only for
+// the requests the user asks for: open and front, for the solution of a project, and openTrialLicense, the only one
+// that clicks a button: XAE's 7-day trial license dialog then waits for the security code, which the user reads and
+// types; the bridge never reads it. Over ADS it only reads: the routes of this machine, and the license files of a
+// system.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -78,6 +80,183 @@ namespace TwinCatXaeBridge {
     }
 
     class BridgeError : Exception { public BridgeError(string m) : base(m) { } }
+
+    // ADS through TwinCAT's own TcAdsDll (4026's router refuses ADS over TCP from this machine), read only: the routes
+    // of this machine's AMS router, and the license files of a system, through its TcSystemService (port 10000).
+    static class Ads {
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        struct AmsAddr { [MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)] public byte[] netId; public ushort port; }
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr LoadLibrary(string path);
+        [DllImport("TcAdsDll.dll")] static extern int AdsPortOpenEx();
+        [DllImport("TcAdsDll.dll")] static extern int AdsPortCloseEx(int port);
+        [DllImport("TcAdsDll.dll")] static extern int AdsGetLocalAddressEx(int port, ref AmsAddr addr);
+        [DllImport("TcAdsDll.dll")] static extern int AdsSyncSetTimeoutEx(int port, int ms);
+        [DllImport("TcAdsDll.dll")] static extern int AdsSyncReadReqEx2(int port, ref AmsAddr addr, uint ig, uint io, uint len, byte[] data, out uint read);
+        [DllImport("TcAdsDll.dll")] static extern int AdsSyncReadWriteReqEx2(int port, ref AmsAddr addr, uint ig, uint io, uint rlen, byte[] rdata, uint wlen, byte[] wdata, out uint read);
+        [DllImport("TcAdsDll.dll")] static extern int AdsSyncWriteReqEx(int port, ref AmsAddr addr, uint ig, uint io, uint len, byte[] data);
+
+        const uint ENUMREMOTE = 803, FOPEN = 120, FCLOSE = 121, FREAD = 122, FFILEFIND = 133;
+        // The path type of the file services, in the index offset's high word: generic, any path.
+        const uint GENERIC = 1u << 16;
+        const int NO_MORE = 1814;
+
+        // An error of the system's own service (0x700-0x73F: not found, invalid path), unlike one of the router or of
+        // this client (no route, timeout): the system answered.
+        static bool DeviceError(int e) { return e >= 0x700 && e < 0x740; }
+
+        static bool loaded;
+        static void Load() {
+            if (loaded) return;
+            string x86 = Environment.GetEnvironmentVariable("ProgramFiles(x86)") ?? @"C:\Program Files (x86)";
+            string common = Environment.Is64BitProcess ? "Common64" : "Common32";
+            foreach (string dll in new string[] { Path.Combine(x86, @"Beckhoff\TwinCAT\" + common + @"\TcAdsDll.dll"), @"C:\TwinCAT\" + common + @"\TcAdsDll.dll" }) {
+                if (File.Exists(dll) && LoadLibrary(dll) != IntPtr.Zero) { loaded = true; return; }
+            }
+            throw new BridgeError("TwinCAT's TcAdsDll.dll is not installed");
+        }
+
+        static string NetId(byte[] b, int at) { return b[at] + "." + b[at + 1] + "." + b[at + 2] + "." + b[at + 3] + "." + b[at + 4] + "." + b[at + 5]; }
+        static string Str(byte[] b, int at, int len) { return Encoding.Default.GetString(b, at, Math.Max(0, len)).Split('\0')[0]; }
+
+        // A port of this process to TcSystemService of a system; the local one when netId is null.
+        static int Open(string netId, out AmsAddr addr, int timeoutMs) {
+            Load();
+            int port = AdsPortOpenEx();
+            if (port == 0) throw new BridgeError("no ADS port: is the TwinCAT router running?");
+            AdsSyncSetTimeoutEx(port, timeoutMs);
+            addr = new AmsAddr { netId = new byte[6] };
+            if (netId == null) {
+                int e = AdsGetLocalAddressEx(port, ref addr);
+                if (e != 0) { AdsPortCloseEx(port); throw new BridgeError("ADS error " + e + " getting the local AMS Net ID"); }
+            } else {
+                addr.netId = Array.ConvertAll(netId.Split('.'), byte.Parse);
+            }
+            addr.port = 10000;
+            return port;
+        }
+
+        // The routes of the router, by index until 1814 (4026's end of the list). Another error after the first route
+        // ends the list too, so that a router that ends it otherwise still gives the routes before.
+        public static Dictionary<string, object> Routes() {
+            AmsAddr addr;
+            int port = Open(null, out addr, 3000);
+            try {
+                string local = NetId(addr.netId, 0);
+                List<object> routes = new List<object>();
+                for (uint i = 0; i < 1000; i++) {
+                    byte[] b = new byte[4096]; uint read;
+                    int e = AdsSyncReadReqEx2(port, ref addr, ENUMREMOTE, i, (uint)b.Length, b, out read);
+                    if (e == NO_MORE || (e != 0 && i > 0)) break;
+                    if (e != 0) throw new BridgeError("ADS error " + e + " listing the routes");
+                    AddRoutes(b, (int)read, routes);
+                }
+                Dictionary<string, object> a = new Dictionary<string, object>();
+                a["local"] = local;
+                a["routes"] = routes;
+                return a;
+            } finally { AdsPortCloseEx(port); }
+        }
+
+        // An entry of ENUMREMOTE, as 4026 gives it: the AMS Net ID (6), the transport (2), flags (4), the timeout (4),
+        // 16 reserved, the lengths of the address and of the host name and the number of sub-routes (4 each), the
+        // address, the host name, then each sub-route: its AMS Net ID (6), 14 reserved, the length of its name (4), its
+        // name. Without sub-routes, the entry is the route. What does not fit in what was read (another layout) is left
+        // out.
+        static void AddRoutes(byte[] b, int read, List<object> routes) {
+            if (read < 44) return;
+            int addrLen = BitConverter.ToInt32(b, 32), hostLen = BitConverter.ToInt32(b, 36), subs = BitConverter.ToInt32(b, 40);
+            if (addrLen < 0 || hostLen < 0 || subs < 0 || 44L + addrLen + hostLen > read) return;
+            string address = Str(b, 44, addrLen), host = Str(b, 44 + addrLen, hostLen);
+            if (subs == 0) {
+                routes.Add(Route(NetId(b, 0), host.Length > 0 ? host : address, address));
+                return;
+            }
+            int at = 44 + addrLen + hostLen;
+            for (int s = 0; s < subs && at + 24 <= read; s++) {
+                int nameLen = BitConverter.ToInt32(b, at + 20);
+                if (nameLen < 0 || at + 24L + nameLen > read) return;
+                routes.Add(Route(NetId(b, at), Str(b, at + 24, nameLen), address));
+                at += 24 + nameLen;
+            }
+        }
+
+        static Dictionary<string, object> Route(string netId, string name, string address) {
+            Dictionary<string, object> r = new Dictionary<string, object>();
+            r["netId"] = netId; r["name"] = name; r["address"] = address;
+            return r;
+        }
+
+        // Where a system's Target folder may be, with its path separator: %TC_TARGETPATH% (4026, also on Linux), else
+        // 4024's on Windows, or TwinCAT/BSD's. Its License folder holds the license files.
+        static readonly string[][] Targets = {
+            new string[] { "%TC_TARGETPATH%", "\\" },
+            new string[] { @"C:\TwinCAT\3.1\Target\", "\\" },
+            new string[] { "/usr/local/etc/TwinCAT/3.1/Target/", "/" },
+        };
+
+        // The *.tclrs files of a system's License folder, in base64. found: a Target folder was found, so that no file
+        // means no license yet; false when none of the places answered, and its license files are not known.
+        public static Dictionary<string, object> Licenses(string netId) {
+            AmsAddr addr;
+            int port = Open(netId, out addr, 3000);
+            try {
+                List<object> files = new List<object>();
+                Dictionary<string, object> a = new Dictionary<string, object>();
+                a["found"] = false;
+                a["files"] = files;
+                foreach (string[] t in Targets) {
+                    string folder = t[0] + "License" + t[1];
+                    List<string> names = Find(port, ref addr, folder + "*.tclrs");
+                    if (names == null && Find(port, ref addr, t[0] + "*") == null) continue;
+                    a["found"] = true;
+                    foreach (string name in names ?? new List<string>()) {
+                        Dictionary<string, object> file = new Dictionary<string, object>();
+                        file["name"] = name;
+                        file["data"] = Convert.ToBase64String(Read(port, ref addr, folder + name));
+                        files.Add(file);
+                    }
+                    break;
+                }
+                return a;
+            } finally { AdsPortCloseEx(port); }
+        }
+
+        // The names of the files that match, or null when none does: the system's service answers a path it does not
+        // have with an error of its own (1804 not found), which ends a listing too. Throws when the system does not answer.
+        static List<string> Find(int port, ref AmsAddr addr, string pattern) {
+            List<string> names = new List<string>();
+            byte[] w = Encoding.Default.GetBytes(pattern + "\0");
+            uint io = GENERIC;
+            for (int n = 0; n < 1000; n++) {
+                byte[] b = new byte[324]; uint read;
+                int e = AdsSyncReadWriteReqEx2(port, ref addr, FFILEFIND, io, (uint)b.Length, b, (uint)w.Length, w, out read);
+                if (e != 0 && !DeviceError(e)) throw new BridgeError("ADS error " + e + " reading the license folder of " + NetId(addr.netId, 0));
+                if (e != 0) return n == 0 ? null : names;
+                names.Add(Str(b, 48, 260));
+                io = BitConverter.ToUInt32(b, 0);
+                w = new byte[0];
+            }
+            return names;
+        }
+
+        static byte[] Read(int port, ref AmsAddr addr, string file) {
+            byte[] w = Encoding.Default.GetBytes(file + "\0"), h = new byte[4]; uint read;
+            // read (1), binary (0x10)
+            int e = AdsSyncReadWriteReqEx2(port, ref addr, FOPEN, 1 | 0x10 | GENERIC, 4, h, (uint)w.Length, w, out read);
+            if (e != 0) throw new BridgeError("ADS error " + e + " opening " + file);
+            uint handle = BitConverter.ToUInt32(h, 0);
+            try {
+                MemoryStream all = new MemoryStream();
+                for (;;) {
+                    byte[] b = new byte[16384];
+                    e = AdsSyncReadWriteReqEx2(port, ref addr, FREAD, handle, (uint)b.Length, b, 0, new byte[0], out read);
+                    if (e != 0) throw new BridgeError("ADS error " + e + " reading " + file);
+                    all.Write(b, 0, (int)read);
+                    if (read < b.Length || all.Length > 1 << 20) return all.ToArray();
+                }
+            } finally { AdsSyncWriteReqEx(port, ref addr, FCLOSE, handle, 0, new byte[0]); }
+        }
+    }
 
     // The visible standard dialogs (#32770) of a process and their texts, through window messages only.
     static class Dialogs {
@@ -439,24 +618,28 @@ namespace TwinCatXaeBridge {
             tree.DoDefaultAction();
         }
 
-        // XAE with the TwinCAT project on the runtime of this machine, SYSTEM > License open and "7 Days Trial License..."
-        // clicked: its dialog then waits for the user to type the security code. A running XAE (pid) keeps its target
-        // unless setTarget is given, or else the answer is needsTarget; an XAE started here (progId, sln) is the user's
-        // to see, and stays open when the bridge ends.
+        // TwinCAT XAE started on a solution, in front: the user's to see and to close, so that it stays open when the
+        // bridge ends. Returns once the solution is open.
+        static DTE2 Start(string progId, string sln) {
+            Type type = Type.GetTypeFromProgID(progId);
+            if (type == null) throw new BridgeError(progId + " is not registered");
+            DTE2 dte = (DTE2)Activator.CreateInstance(type);
+            dte.UserControl = true;
+            dte.MainWindow.Visible = true;
+            Win.Front(new IntPtr(dte.MainWindow.HWnd));
+            dte.Solution.Open(sln);
+            return dte;
+        }
+
+        // XAE with the TwinCAT project targeting netId, SYSTEM > License open and "7 Days Trial License..." clicked: its
+        // dialog then waits for the user to type the security code. A running XAE (pid) keeps its target unless setTarget
+        // is given, or else the answer is needsTarget; an XAE started here (progId, sln) takes netId at once. Either stays
+        // open for the user to close, also when the bridge ends; a target changed here goes back if the License page does
+        // not open.
         static object OpenTrialLicense(Dictionary<string, object> r) {
             Dictionary<string, object> a = new Dictionary<string, object>();
-            DTE2 dte;
             bool started = !r.ContainsKey("pid");
-            if (started) {
-                Type type = Type.GetTypeFromProgID(Str(r, "progId"));
-                if (type == null) throw new BridgeError(Str(r, "progId") + " is not registered");
-                dte = (DTE2)Activator.CreateInstance(type);
-                dte.UserControl = true;
-                dte.MainWindow.Visible = true;
-                dte.Solution.Open(Str(r, "sln"));
-            } else {
-                dte = Dte(Int(r, "pid"));
-            }
+            DTE2 dte = started ? Start(Str(r, "progId"), Str(r, "sln")) : Dte(Int(r, "pid"));
             IntPtr main = new IntPtr(dte.MainWindow.HWnd);
             int pid = Win.Pid(main);
             a["pid"] = pid;
@@ -475,7 +658,12 @@ namespace TwinCatXaeBridge {
                 sm.SetTargetNetId(netId);
                 a["targetChanged"] = true;
             }
-            OpenLicensePage(dte, project.Name);
+            try {
+                OpenLicensePage(dte, project.Name);
+            } catch {
+                if (a.ContainsKey("targetChanged")) try { sm.SetTargetNetId(target); } catch { }
+                throw;
+            }
             Win.Front(main);
             IntPtr button = IntPtr.Zero;
             for (DateTime end = DateTime.Now.AddSeconds(60); button == IntPtr.Zero && DateTime.Now < end; ) {
@@ -615,17 +803,29 @@ namespace TwinCatXaeBridge {
                 }
                 case "openTrialLicense":
                     return OpenTrialLicense(r);
+                case "open": {
+                    // XAE started on the solution of a project, as the user asks: theirs, never closed or saved here.
+                    DTE2 dte = Start(Str(r, "progId"), Str(r, "sln"));
+                    Dictionary<string, object> a = new Dictionary<string, object>();
+                    a["pid"] = Win.Pid(new IntPtr(dte.MainWindow.HWnd));
+                    return a;
+                }
+                case "front": {
+                    // The main window of an XAE in front, as the user asks, without a COM call: a busy XAE comes too. An
+                    // XAE a tool started hidden has none, and stays hidden.
+                    int pid = Int(r, "pid");
+                    IntPtr main;
+                    try { main = System.Diagnostics.Process.GetProcessById(pid).MainWindowHandle; }
+                    catch (ArgumentException) { throw new BridgeError("TwinCAT XAE (process " + pid + ") is no longer running"); }
+                    if (main != IntPtr.Zero) Win.Front(main);
+                    Dictionary<string, object> a = new Dictionary<string, object>();
+                    a["shown"] = main != IntPtr.Zero;
+                    return a;
+                }
                 case "target":
                     // Sets the target of a TwinCAT project back, after openTrialLicense changed it.
                     ((ITcSysManager4)ProjectOf(Dte(Int(r, "pid")), Str(r, "tsproj")).Object).SetTargetNetId(Str(r, "netId"));
                     return new Dictionary<string, object>();
-                case "quit": {
-                    // Closes an XAE that openTrialLicense started, without saving: its target change is dropped.
-                    DTE2 dte = Dte(Int(r, "pid"));
-                    dte.Solution.Close(false);
-                    dte.Quit();
-                    return new Dictionary<string, object>();
-                }
                 case "check": {
                     DTE2 dte = Dte(Int(r, "pid"));
                     ITcSmTreeItem nested = Nested(SysManager(dte, Str(r, "tsproj")), Str(r, "plc"));
@@ -641,6 +841,10 @@ namespace TwinCatXaeBridge {
                     a["output"] = text.Substring(Math.Min(before, text.Length));
                     return a;
                 }
+                case "adsRoutes":
+                    return Ads.Routes();
+                case "adsLicenses":
+                    return Ads.Licenses(Str(r, "netId"));
                 default:
                     throw new BridgeError("unknown command " + cmd);
             }

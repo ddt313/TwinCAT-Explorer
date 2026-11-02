@@ -3,6 +3,29 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.19.0 - 2026-11-02
+
+### Added
+- The licenses of the remote TwinCAT systems this machine has ADS routes to, such as an XAR in a container
+  or a virtual machine, with setting `twincatExplorer.remoteLicenses` turned on (off by default): read over
+  ADS every 5 minutes, they are in the status bar, its warnings and `TwinCAT: Show Licenses` next to this
+  machine's, and the status bar names the runtime or system whose license ends first.
+- `TwinCAT: Renew Trial License in TwinCAT XAE` also renews the trial license of a remote system: it asks
+  for the runtime of this machine, a system of this machine's ADS routes, or an AMS Net ID typed in, targets
+  the project at it, and tells the new license's end once it is written there.
+- `Open Solution in TwinCAT XAE`, on the right-click menu of a TwinCAT project in the tree and as
+  `TwinCAT: Open Solution in TwinCAT XAE`, on Windows: brings the TwinCAT XAE that has the project open to the
+  front, or starts XAE on the workspace's solution that has the project (a list when several have it), in
+  front and left open as yours. XAE is never closed, and nothing is saved in it.
+
+### Changed
+- `TwinCAT: Renew Trial License in TwinCAT XAE` leaves the TwinCAT XAE it started open afterwards, for you to
+  close, instead of closing it without saving. A target it switched for the license is set back, as in an XAE
+  you had open.
+
+### Fixed
+- The README's license folders read `TwinCAT.1` instead of `TwinCAT\3.1`.
+
 ## 0.18.0 - 2026-10-31
 
 ### Added

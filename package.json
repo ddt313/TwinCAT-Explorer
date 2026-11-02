@@ -2,7 +2,7 @@
   "name": "explorer-for-twincat",
   "displayName": "Explorer for TwinCAT",
   "description": "XAE-like TwinCAT PLC project tree, an XAE-like declaration/implementation split editor and Structured Text language features",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "publisher": "thanhdang",
   "private": true,
   "license": "MIT",
@@ -205,6 +205,11 @@
         "title": "Open XML",
         "category": "TwinCAT",
         "icon": "$(file-code)"
+      },
+      {
+        "command": "twincatExplorer.openSolutionInXae",
+        "title": "Open Solution in TwinCAT XAE",
+        "category": "TwinCAT"
       },
       {
         "command": "twincatExplorer.revealInTree",
@@ -629,6 +634,10 @@
           "when": "resourceScheme == twincat || resourceScheme == twincat-diff"
         },
         {
+          "command": "twincatExplorer.openSolutionInXae",
+          "when": "twincatExplorer.hasProjects && isWindows && !isWeb"
+        },
+        {
           "command": "twincatExplorer.openChanges",
           "when": "resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i || resourceScheme == twincat"
         },
@@ -830,6 +839,11 @@
           "command": "twincatExplorer.openToSide",
           "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
           "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.openSolutionInXae",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^tsproj( |$)/ && isWindows && !isWeb",
+          "group": "navigation@0"
         },
         {
           "command": "twincatExplorer.openXml",
@@ -1256,7 +1270,12 @@
         "twincatExplorer.licenseStatusBar": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show in the status bar how long the TwinCAT license of this machine that ends first (usually the 7-day trial license) has left, warned about a day before it ends and once it has expired. Click it for each license of each runtime (`TwinCAT: Show Licenses`). Windows only, in a workspace with TwinCAT projects."
+          "markdownDescription": "Show in the status bar how long the TwinCAT license that ends first, of this machine or of a remote system (`twincatExplorer.remoteLicenses`), has left (usually the 7-day trial license), warned about a day before it ends and once it has expired. Click it for each license of each runtime (`TwinCAT: Show Licenses`). Windows only, in a workspace with TwinCAT projects."
+        },
+        "twincatExplorer.remoteLicenses": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Also read the licenses of the remote TwinCAT systems this machine's AMS router has routes to (an XAR in a container or a virtual machine, a PLC), over ADS every 5 minutes, for the status bar and `TwinCAT: Show Licenses`. Only reads their license files. Needs TwinCAT XAE installed here."
         },
         "twincatExplorer.blame.currentLine": {
           "type": "boolean",

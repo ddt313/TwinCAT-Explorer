@@ -1,48 +1,47 @@
 // `TwinCAT: Renew Trial License in TwinCAT XAE`: brings TwinCAT XAE to SYSTEM > License of a TwinCAT project of the
-// workspace, targeting the runtime of this machine, and clicks "7 Days Trial License...". XAE's dialog then asks the
-// user for the security code, which only the user reads and types. The XAE that has the project open is used, or one
-// is started on the solution and closed again without saving once the new license is written.
+// workspace, targeting a runtime of this machine or a remote system it has an ADS route to, and clicks "7 Days Trial
+// License...". XAE's dialog then asks the user for the security code, which only the user reads and types. The XAE
+// that has the project open is used, or one is started on the solution; either stays open afterwards, for the user to
+// close, with a target switched for the license set back.
+// The new license is seen in the runtime's license folder, or read over ADS from the remote system.
 
-import * as fs from 'fs';
+import * as crypto from 'crypto';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { LicenseFolder, lastLicenseWrite, licenseFolders, readLicenses, runtimeNetId, timeLeft } from '../core/license';
-import { fileKey } from '../core/workspace';
-import { TrialLicensePage, Xae, XaeError, solutionProjects } from '../core/xae';
+import { LicenseFile, LicenseFolder, adsRoutes, lastLicenseWrite, licenseFolders, readLicenses, remoteLicenses, runtimeNetId, timeLeft } from '../core/license';
+import { TrialLicensePage, Xae, XaeError } from '../core/xae';
+import { pick, solutionOf } from './openInXae';
 
 /** How long XAE's dialog waits for the user, and how long XAE stays enabled before it counts as cancelled. */
 const WAIT_MS = 10 * 60_000;
 const CANCELLED_MS = 20_000;
-
-async function pick<T>(items: T[], label: (t: T) => vscode.QuickPickItem, title: string): Promise<T | undefined> {
-  if (items.length <= 1) return items[0];
-  const picked = await vscode.window.showQuickPick(items.map(t => ({ ...label(t), t })), { title });
-  return picked?.t;
-}
+/** How often a remote system's license files are read while XAE's dialog is open. */
+const REMOTE_POLL_MS = 3000;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** The system a trial license is generated for: a runtime of this machine, with its license folder, or a remote one. */
+interface Target {
+  name: string;
+  netId: string;
+  folder?: LicenseFolder;
+}
+
+const NET_ID = /^\d{1,3}(\.\d{1,3}){5}$/;
 
 export class TrialLicenseRenewal {
   private busy = false;
 
   constructor(private readonly xae: Xae, private readonly projects: () => { name: string; path: string }[], private readonly refresh: () => void) {}
 
+  /** `runtime`: a runtime of this machine by name, or a remote system by AMS Net ID. */
   async renew(runtime?: string): Promise<void> {
     if (this.busy) {
       void vscode.window.showInformationMessage('TwinCAT: a trial license is already being renewed in TwinCAT XAE.');
       return;
     }
-    const folder = await pick(licenseFolders().filter(f => !runtime || f.runtime === runtime),
-      f => ({ label: f.runtime, description: f.folder }), 'The TwinCAT runtime to renew the trial license of');
-    if (!folder) {
-      if (!licenseFolders().length) void vscode.window.showErrorMessage('TwinCAT: no TwinCAT runtime on this machine.');
-      return;
-    }
-    const netId = runtimeNetId(folder);
-    if (!netId) {
-      void vscode.window.showErrorMessage(`TwinCAT: the AMS Net ID of the runtime ${folder.runtime} was not found.`);
-      return;
-    }
+    const target = await this.pickTarget(runtime);
+    if (!target) return;
     const tsproj = await pick(this.projects(), t => ({ label: t.name, description: vscode.workspace.asRelativePath(t.path) }),
       'The TwinCAT project to generate the trial license with');
     if (!tsproj) {
@@ -58,7 +57,7 @@ export class TrialLicenseRenewal {
     }
     let sln: string | undefined;
     if (!running) {
-      sln = await this.solutionOf(tsproj.path);
+      sln = await solutionOf(tsproj.path);
       if (!sln) {
         void vscode.window.showErrorMessage(`TwinCAT: no .sln file of the workspace has ${tsproj.name}. Open the project in TwinCAT XAE, then run this again.`);
         return;
@@ -66,29 +65,86 @@ export class TrialLicenseRenewal {
     }
     this.busy = true;
     try {
-      await this.run(folder, netId, tsproj.path, running?.pid, sln);
+      await this.run(target, tsproj.path, running?.pid, sln);
     } finally {
       this.busy = false;
     }
   }
 
-  /** The solution files of the workspace that have the TwinCAT project. */
-  private async solutionOf(tsproj: string): Promise<string | undefined> {
-    const key = fileKey(tsproj);
-    const exclude = vscode.workspace.getConfiguration('twincatExplorer').get<string>('exclude') || undefined;
-    const found: string[] = [];
-    for (const uri of await vscode.workspace.findFiles('**/*.sln', exclude)) {
-      try {
-        if (solutionProjects(fs.readFileSync(uri.fsPath, 'utf8'), uri.fsPath).some(p => fileKey(p) === key)) found.push(uri.fsPath);
-      } catch {
-        // unreadable: not a candidate
+  /**
+   * The runtime given, or one picked: the runtimes of this machine, the remote systems of its ADS routes, or an AMS Net
+   * ID typed in.
+   */
+  private async pickTarget(runtime: string | undefined): Promise<Target | undefined> {
+    const routes = runtime && !NET_ID.test(runtime) ? [] : await this.routes();
+    if (runtime && NET_ID.test(runtime)) return { name: routes.find(r => r.netId === runtime)?.name ?? runtime, netId: runtime };
+    const local: Target[] = [];
+    for (const folder of licenseFolders().filter(f => !runtime || f.runtime === runtime)) {
+      const netId = runtimeNetId(folder);
+      if (netId) local.push({ name: folder.runtime, netId, folder });
+      else if (runtime) {
+        void vscode.window.showErrorMessage(`TwinCAT: the AMS Net ID of the runtime ${folder.runtime} was not found.`);
+        return undefined;
       }
     }
-    return pick(found, f => ({ label: path.basename(f), description: vscode.workspace.asRelativePath(f) }), 'The solution to open in TwinCAT XAE');
+    if (runtime) {
+      if (!local.length) void vscode.window.showErrorMessage(`TwinCAT: no TwinCAT runtime ${runtime} on this machine.`);
+      return local[0];
+    }
+    const remote: Target[] = routes.filter(r => !local.some(t => t.netId === r.netId)).map(r => ({ name: r.name, netId: r.netId }));
+    type Item = vscode.QuickPickItem & { target?: Target };
+    const items: Item[] = [
+      ...local.map(t => ({ label: `$(vm) ${t.name}`, description: `this machine, ${t.netId}`, target: t })),
+      ...remote.map(t => ({ label: `$(remote) ${t.name}`, description: t.netId, target: t })),
+      { label: '$(edit) Other AMS Net ID...', description: 'a system this machine has an ADS route to' },
+    ];
+    const picked = await vscode.window.showQuickPick(items, { title: 'The TwinCAT system to renew the trial license of' });
+    if (!picked) return undefined;
+    if (picked.target) return picked.target;
+    const netId = await vscode.window.showInputBox({
+      title: 'The AMS Net ID of the TwinCAT system', placeHolder: '5.80.201.232.1.1',
+      validateInput: v => NET_ID.test(v.trim()) ? undefined : 'Six numbers separated by dots, such as 5.80.201.232.1.1',
+    });
+    return netId ? { name: netId.trim(), netId: netId.trim() } : undefined;
   }
 
-  private async run(folder: LicenseFolder, netId: string, tsproj: string, pid: number | undefined, sln: string | undefined): Promise<void> {
-    const before = lastLicenseWrite(folder.folder);
+  /** The remote systems of this machine's AMS router (over ADS) and of its route files, by AMS Net ID. */
+  private async routes(): Promise<{ name: string; netId: string }[]> {
+    const out = new Map<string, { name: string; netId: string }>();
+    let local: string | undefined;
+    try {
+      const ads = await this.xae.adsRoutesAsync();
+      local = ads.local;
+      for (const r of ads.routes) out.set(r.netId, r);
+    } catch {
+      // no router to ask: the route files only
+    }
+    for (const r of adsRoutes()) if (!out.has(r.netId)) out.set(r.netId, r);
+    if (local) out.delete(local);
+    return [...out.values()];
+  }
+
+  /**
+   * A remote system's license files over ADS, and a hash of them that changes when one is written; undefined: not read,
+   * or its license folder not found, so that no file there says nothing about a new license.
+   */
+  private async remoteFiles(target: Target): Promise<{ files: LicenseFile[]; hash: string } | undefined> {
+    try {
+      const { found, files } = await this.xae.adsLicensesAsync(target.netId);
+      if (!found) return undefined;
+      const hash = crypto.createHash('sha1');
+      for (const f of files) hash.update(f.name).update(f.data);
+      return { files: remoteLicenses(files, target.name, target.netId), hash: hash.digest('hex') };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async run(target: Target, tsproj: string, pid: number | undefined, sln: string | undefined): Promise<void> {
+    const { netId, folder } = target;
+    const before = folder ? lastLicenseWrite(folder.folder) : 0;
+    const remoteBefore = folder ? undefined : (await this.remoteFiles(target))?.hash;
+    let polled = 0;
     let page: TrialLicensePage | undefined;
     const outcome = await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification, title: 'TwinCAT trial license', cancellable: true,
@@ -97,7 +153,7 @@ export class TrialLicenseRenewal {
       page = await this.xae.openTrialLicenseAsync({ pid, sln, tsproj, netId });
       if (page.needsTarget) {
         const choice = await vscode.window.showWarningMessage(
-          `The project in TwinCAT XAE targets ${page.target}, not this machine (${netId}). Switch it to this machine for the trial license?`,
+          `The project in TwinCAT XAE targets ${page.target}, not ${folder ? 'this machine' : target.name} (${netId}). Switch it to ${folder ? 'this machine' : target.name} for the trial license?`,
           { modal: true, detail: 'The target is set back afterwards. XAE then shows the project as changed: do not save it for this.' }, 'Switch Target');
         if (!choice) return 'cancelled';
         page = await this.xae.openTrialLicenseAsync({ pid, sln, tsproj, netId, setTarget: true });
@@ -112,7 +168,12 @@ export class TrialLicenseRenewal {
       let enabledSince: number | undefined;
       for (const end = Date.now() + WAIT_MS; Date.now() < end; await sleep(1000)) {
         if (token.isCancellationRequested) return 'cancelled';
-        if (lastLicenseWrite(folder.folder) > before) return 'written';
+        if (folder && lastLicenseWrite(folder.folder) > before) return 'written';
+        if (remoteBefore && Date.now() - polled > REMOTE_POLL_MS) {
+          polled = Date.now();
+          const now = await this.remoteFiles(target);
+          if (now && now.hash !== remoteBefore) return 'written';
+        }
         const window = await this.xae.windowAsync(page.hwnd);
         if (!window.running) return 'closed';
         if (!window.enabled) {
@@ -120,26 +181,27 @@ export class TrialLicenseRenewal {
           enabledSince = undefined;
         } else if (dialogSeen) {
           enabledSince ??= Date.now();
-          if (Date.now() - enabledSince > CANCELLED_MS) return 'cancelled in XAE';
+          // A remote system whose license files were not read: the dialog closed is all there is to know.
+          if (Date.now() - enabledSince > CANCELLED_MS) return folder || remoteBefore ? 'cancelled in XAE' : 'answered';
         }
       }
       return 'timeout';
     }).then(o => o, (e: unknown) => e as Error);
-    await this.finish(outcome, folder, netId, tsproj, page);
+    await this.finish(outcome, target, tsproj, page);
   }
 
-  private async finish(outcome: string | Error, folder: LicenseFolder, netId: string, tsproj: string, page: TrialLicensePage | undefined): Promise<void> {
+  private async finish(outcome: string | Error, target: Target, tsproj: string, page: TrialLicensePage | undefined): Promise<void> {
+    const { netId, folder } = target;
     this.refresh();
     if (outcome instanceof Error) {
-      const where = page?.started ? ' TwinCAT XAE stays open: close it without saving.' : '';
-      void vscode.window.showErrorMessage(`TwinCAT: the trial license was not renewed: ${outcome instanceof XaeError ? outcome.message : String(outcome)}.${where}`);
-      return;
-    }
-    if (outcome === 'written') {
-      const trial = readLicenses([folder]).find(f => f.trial);
+      void vscode.window.showErrorMessage(`TwinCAT: the trial license was not renewed: ${outcome instanceof XaeError ? outcome.message : String(outcome)}.`);
+    } else if (outcome === 'written') {
+      const trial = (folder ? readLicenses([folder]) : (await this.remoteFiles(target))?.files ?? []).find(f => f.trial);
       void vscode.window.showInformationMessage(trial?.expires
-        ? `TwinCAT: new 7-day trial license of ${folder.runtime}, valid until ${trial.expires.toLocaleString()} (${timeLeft(trial.expires, new Date())}).`
-        : `TwinCAT: a new license file of ${folder.runtime} was written.`);
+        ? `TwinCAT: new 7-day trial license of ${target.name}, valid until ${trial.expires.toLocaleString()} (${timeLeft(trial.expires, new Date())}).`
+        : `TwinCAT: a new license file of ${target.name} was written.`);
+    } else if (outcome === 'answered') {
+      void vscode.window.showInformationMessage(`TwinCAT: the trial license dialog of TwinCAT XAE was answered. The license of ${target.name} (${netId}) is on that system: SYSTEM > License in XAE shows until when it is valid.`);
     } else if (outcome === 'closed') {
       void vscode.window.showWarningMessage('TwinCAT: TwinCAT XAE was closed before a new trial license was written.');
       return;
@@ -152,27 +214,31 @@ export class TrialLicenseRenewal {
     await this.restore(page, netId, tsproj);
   }
 
-  /** XAE as it was: one started here closed without saving, a running one's target set back. */
+  /**
+   * The project's target set back when it was switched for the license, once XAE's dialogs are answered. XAE itself
+   * stays open, also one started here: the user closes it.
+   */
   private async restore(page: TrialLicensePage, netId: string, tsproj: string): Promise<void> {
+    if (!page.targetChanged) return;
     // A message XAE shows after the license waits for the user first.
     for (let waited = 0; ; waited += 1000, await sleep(1000)) {
       const window = await this.xae.windowAsync(page.hwnd).catch(() => ({ running: false, enabled: true }));
       if (!window.running) return;
       if (window.enabled) break;
       if (waited > 120_000) {
-        void vscode.window.showWarningMessage(page.started
-          ? 'TwinCAT: TwinCAT XAE still shows a dialog: close XAE without saving once it is answered.'
-          : `TwinCAT: TwinCAT XAE still shows a dialog: set the project's target back to ${page.target} once it is answered.`);
+        void vscode.window.showWarningMessage(`TwinCAT: TwinCAT XAE still shows a dialog: set the project's target back to ${page.target} once it is answered.`);
         return;
       }
     }
     try {
-      if (page.started) await this.xae.quitAsync(page.pid);
-      else if (page.targetChanged) await this.xae.targetAsync(page.pid, tsproj, page.target);
+      await this.xae.targetAsync(page.pid, tsproj, page.target);
     } catch (e) {
-      void vscode.window.showWarningMessage(page.started
-        ? `TwinCAT: TwinCAT XAE was not closed (${(e as Error).message}): close it without saving.`
-        : `TwinCAT: the target of the project in TwinCAT XAE was not set back to ${page.target} from ${netId} (${(e as Error).message}).`);
+      void vscode.window.showWarningMessage(`TwinCAT: the target of the project in TwinCAT XAE was not set back to ${page.target} from ${netId} (${(e as Error).message}).`);
+      return;
+    }
+    // An XAE started here was switched without asking: why it now shows the project as changed.
+    if (page.started) {
+      void vscode.window.showInformationMessage(`TwinCAT: the project's target in TwinCAT XAE is back to ${page.target}. XAE shows the project as changed for this: no need to save it.`);
     }
   }
 }

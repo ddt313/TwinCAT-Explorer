@@ -120,12 +120,34 @@ export function solutionProjects(slnText: string, slnPath: string): string[] {
   return out;
 }
 
+/** The solution files, of those given, that list the TwinCAT project; a file that cannot be read is left out. */
+export function solutionsWith(tsproj: string, slnPaths: string[]): string[] {
+  const key = fileKey(tsproj);
+  return slnPaths.filter(sln => {
+    try {
+      return solutionProjects(fs.readFileSync(sln, 'utf8'), sln).some(p => fileKey(p) === key);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * The XAE that has the TwinCAT project open, or else the solution file (where the project may not have loaded): the
+ * one to bring to the front rather than start a second XAE on the same files.
+ */
+export function xaeWith(instances: XaeInstance[], tsproj: string, sln?: string): XaeInstance | undefined {
+  const key = fileKey(tsproj);
+  return instances.find(i => i.projects.some(p => fileKey(p) === key))
+    ?? (sln ? instances.find(i => i.solution && fileKey(i.solution) === fileKey(sln)) : undefined);
+}
+
 /** What openTrialLicense did: XAE's License page open, its trial license dialog opened when `clicked`. */
 export interface TrialLicensePage {
   pid: number;
   /** XAE's main window, for `windowAsync`. */
   hwnd: number;
-  /** XAE was started for it, and is closed again without saving. */
+  /** XAE was started for it. It stays open for the user to close, like one that was running. */
   started: boolean;
   /** The TwinCAT project's target before. */
   target: string;
@@ -347,6 +369,20 @@ export class Xae {
     return this.requestAsync<TrialLicensePage>({ cmd: 'openTrialLicense', progId: this.progId, ...req }, req.pid ? 120_000 : 300_000);
   }
 
+  /**
+   * TwinCAT XAE started on a solution, shown in front, and the user's own: it stays open when the bridge ends, as one
+   * the user started. Answers once the solution is open.
+   */
+  openSolutionAsync(sln: string): Promise<{ pid: number }> {
+    if (!this.bridge()) return Promise.reject(new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`));
+    return this.requestAsync<{ pid: number }>({ cmd: 'open', progId: this.progId, sln }, 300_000);
+  }
+
+  /** Brings the main window of an XAE to the front; `shown` false when it has none, as an XAE a tool started hidden. */
+  frontAsync(pid: number): Promise<{ shown: boolean }> {
+    return this.requestAsync({ cmd: 'front', pid }, 10_000);
+  }
+
   /** Whether XAE's main window still exists, and is enabled: a dialog of XAE disables it. */
   windowAsync(hwnd: number): Promise<{ running: boolean; enabled: boolean }> {
     return this.requestAsync({ cmd: 'window', hwnd }, 10_000);
@@ -356,9 +392,18 @@ export class Xae {
     await this.requestAsync({ cmd: 'target', pid, tsproj, netId }, 30_000);
   }
 
-  /** Closes an XAE without saving. */
-  async quitAsync(pid: number): Promise<void> {
-    await this.requestAsync({ cmd: 'quit', pid }, 60_000);
+  /** The AMS Net ID of this machine and the remote systems its AMS router has routes to, over ADS. */
+  adsRoutesAsync(): Promise<{ local: string; routes: { netId: string; name: string; address: string }[] }> {
+    return this.requestAsync({ cmd: 'adsRoutes' }, 15_000);
+  }
+
+  /**
+   * The license files (*.tclrs) of a system, read over ADS: their names and contents. `found`: its Target folder was
+   * found, so that no file means no license yet; false when its license files are not known.
+   */
+  async adsLicensesAsync(netId: string): Promise<{ found: boolean; files: { name: string; data: Buffer }[] }> {
+    const r = await this.requestAsync<{ found: boolean; files: { name: string; data: string }[] }>({ cmd: 'adsLicenses', netId }, 20_000);
+    return { found: r.found, files: r.files.map(f => ({ name: f.name, data: Buffer.from(f.data, 'base64') })) };
   }
 
   check(item: Omit<XaeItem, 'path'>): string {

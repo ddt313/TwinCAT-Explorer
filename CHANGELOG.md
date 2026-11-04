@@ -3,6 +3,17 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- Add Library finds the libraries of a folder of `twincatExplorer.libraryRepositories` that holds its
+  repository in a subfolder, such as a clone of the SPT Libraries (its `Library Repository` folder), and warns
+  about a folder of the setting without libraries, which went unnoticed next to the system repository's
+  libraries ([#91](https://github.com/ddt313/TwinCAT-Explorer/issues/91)).
+- Add Library writes the default namespace of a library its repository's `cache` lacks, such as those of a
+  cloned repository XAE never indexed here, from the `projectinfo` of its folder, instead of its title, which
+  can be no identifier (`SPT Base Types` for `SPT_BaseTypes`).
+
 ## 0.19.0 - 2026-11-02
 
 ### Added

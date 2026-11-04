@@ -355,6 +355,10 @@ XAE's Library Manager.
   `C:\ProgramData\Beckhoff\TwinCAT\PlcEngineering\Managed Libraries` with TwinCAT 3.1.4026,
   `%TWINCAT3DIR%Components\Plc\Managed Libraries` with 3.1.4024 and older, and the folders of
   `twincatExplorer.libraryRepositories` (repositories added in XAE's Library Repository dialog).
+  - A repository holds the folders `<Company>\<Library>\<Version>` of its libraries. A folder of the
+    setting that holds a repository in a subfolder, such as a clone of the SPT Libraries (its
+    `Library Repository` folder), is read as that subfolder. A folder of the setting without libraries
+    is warned about.
   - One entry per library and company: its title, company and newest version, its namespace and
     categories. Typing filters on all of them.
   - A library the PLC project references already, by either kind of reference, is marked and refused.
@@ -370,7 +374,9 @@ XAE's Library Manager.
 
   - The placeholder is the one the repository's profile gives the library (Beckhoff's libraries have
     their title), else the title. The default resolution has the version picked, `*` for always the
-    newest. The namespace is the library's default namespace.
+    newest. The namespace is the library's default namespace: from the repository's `cache`, or, for a
+    library the cache lacks (a cloned repository XAE never indexed here), from the `projectinfo` of its
+    version folder.
   - The reference goes among the others in alphabetical order, as XAE keeps them; the rest of the
     `.plcproj` stays byte-identical.
 - **Then:** the tree selects the new library under `References`, and the language features know the
@@ -1013,8 +1019,10 @@ sources.
   in it is deleted there.
 - XAE's own move of a file or folder could not be driven in a hidden XAE: a move here changes the paths
   of the items in place, as XAE does when it renames a file or folder.
-- Add Library reads the folders, `cache` and `profile` of the library repositories, not the library
-  files: the placeholder of a library comes from the profile, not from the library itself. Libraries
+- Add Library reads the folders, `cache`, `profile` and `projectinfo` files of the library repositories,
+  not the library files: the placeholder of a library comes from the profile, not from the library itself.
+  The repositories do not give the language features a library's symbols: they need its
+  [stub](#library-stubs). Libraries
   are installed, and references removed or changed (version, namespace, properties), in XAE.
 - Rename changes the uses the language index finds in Structured Text. It does not read the other
   implementation languages, visualizations and other files, nor change names it cannot resolve: the

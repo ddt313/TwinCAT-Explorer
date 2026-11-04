@@ -12,7 +12,10 @@ export interface LibraryVersion {
   version: string;
   /** The library file (`.compiled-library-ge33`, `.compiled-library`, `.library`), whose name can differ from the title. */
   file: string;
-  /** Its default namespace, from the cache of the repository; its title when the cache lacks it (installed since). */
+  /**
+   * Its default namespace, from the cache of the repository; when the cache lacks it (installed since, or a repository
+   * without a cache), from the `projectinfo` of its folder; else its title.
+   */
   namespace: string;
   /** Its categories, with those they are in (`Acme / Valves`), as the category files of the repositories name them. */
   categories: string[];
@@ -42,6 +45,8 @@ export interface Repositories {
   libraries: InstalledLibrary[];
   /** The placeholders of their profiles. */
   placeholders: ProfilePlaceholder[];
+  /** The repository folders read that hold no library, as asked for. */
+  empty: string[];
 }
 
 /** A library of a repository's cache, at the folder its Path names. */
@@ -139,6 +144,60 @@ export function parseProfile(text: string): ProfilePlaceholder[] {
   });
 }
 
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** The unsigned LEB128 number at `at` of `b`, and where it ends; undefined past the end. */
+function varint(b: Uint8Array, at: number): { value: number; end: number } | undefined {
+  let value = 0;
+  for (let shift = 0, p = at; p < b.length && shift < 35; shift += 7, p++) {
+    value += (b[p] & 0x7f) * 2 ** shift;
+    if (!(b[p] & 0x80)) return { value, end: p + 1 };
+  }
+  return undefined;
+}
+
+const leb128 = (n: number): number[] => {
+  const out: number[] = [];
+  do {
+    out.push((n & 0x7f) | (n >= 0x80 ? 0x80 : 0));
+    n = Math.floor(n / 128);
+  } while (n);
+  return out;
+};
+
+/**
+ * The default namespace of a library version from the `projectinfo` of its folder, which XAE writes when it installs
+ * the library: for a repository without a `cache` (a cloned one, such as the SPT Libraries, that XAE never indexed
+ * here). The file is binary: a table of the strings it holds (`<index> <length in bytes> <UTF-16 LE>`, the indexes
+ * counting from 1 and the numbers LEB128), then the properties of the library as objects naming those strings: a
+ * string is `D0 00 <index of "System.String"> 2D <its index>`, a property its name's string then its value's. Undefined
+ * when the file is not that, the library has no default namespace, or it is no identifier.
+ */
+export function parseProjectInfoNamespace(bytes: Uint8Array): string | undefined {
+  const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  // The table starts with "System.String", index 1.
+  const first = b.indexOf(Buffer.from('System.String', 'utf16le'));
+  if (first < 2 || b[first - 2] !== 1 || b[first - 1] !== 26) return undefined;
+  const strings: string[] = [];
+  let p = first - 2;
+  for (;;) {
+    const index = varint(b, p);
+    if (!index || index.value !== strings.length + 1) break;
+    const length = varint(b, index.end);
+    if (!length || length.value % 2 || length.end + length.value > b.length) break;
+    strings.push(b.toString('utf16le', length.end, length.end + length.value));
+    p = length.end + length.value;
+  }
+  const key = strings.indexOf('DefaultNamespace') + 1;
+  if (!key) return undefined;
+  const string = (index: number) => [0xd0, 0x00, 0x01, 0x2d, ...leb128(index)];
+  const pattern = Buffer.from([...string(key), 0xd0, 0x00, 0x01, 0x2d]);
+  const at = b.indexOf(pattern, p);
+  const value = at < 0 ? undefined : varint(b, at + pattern.length);
+  const namespace = value && strings[value.value - 1];
+  return namespace && IDENTIFIER.test(namespace) ? namespace : undefined;
+}
+
 /**
  * The categories of a category file (`LibraryCategoryBase.libcat.xml`), by GUID: `<LibraryCategory>` with its `<Id>`,
  * `<DefaultName>` and the `<ParentCategory>` (its `<Id>`) it is in.
@@ -215,6 +274,18 @@ async function readXml<T>(file: string, parse: (text: string) => T): Promise<T |
   }
 }
 
+/** A version folder's key in the cache of its repository. */
+const folderKey = (f: Found) => `${f.company}\\${f.title}\\${f.version}`.toUpperCase();
+
+/** The default namespace in a `projectinfo`; undefined when it is not there or holds none. */
+async function readNamespace(file: string): Promise<string | undefined> {
+  try {
+    return parseProjectInfoNamespace(await fs.promises.readFile(file));
+  } catch {
+    return undefined;
+  }
+}
+
 /** A version found, with the title and company its cache entry gives it. */
 interface Read {
   title: string;
@@ -229,12 +300,16 @@ interface Read {
  * - The folders `<Company>\<Title>\<Version>` that hold a library file are the installed versions; the `cache` can
  *   lack a library installed since, and name one removed since.
  * - The `cache` at the top of a repository gives the title, version, company, default namespace and categories of a
- *   version where it has its folder; else the folders give its names, and its title is its namespace.
+ *   version where it has its folder; else the folders give its names, and the `projectinfo` of its folder its
+ *   namespace (see parseProjectInfoNamespace), or its title.
  * - Its `profile` gives the placeholders, its category files (`*.libcat.xml`) the names of the categories.
+ * - A folder without libraries whose subfolder is a repository is read as that subfolder, which `found` then names:
+ *   a clone of the SPT Libraries holds its repository in `Library Repository`. A folder that holds no library is in
+ *   `empty`.
  * A version in several repositories counts once, from the first.
  */
 export async function readRepositories(folders: string[]): Promise<Repositories> {
-  const result: Repositories = { found: [], missing: [], libraries: [], placeholders: [] };
+  const result: Repositories = { found: [], missing: [], libraries: [], placeholders: [], empty: [] };
   const seen = new Set<string>();
   for (const folder of folders) {
     if (!path.isAbsolute(folder)) {
@@ -250,17 +325,33 @@ export async function readRepositories(folders: string[]): Promise<Repositories>
       result.missing.push({ folder, reason: (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'not found' : (e as Error).message });
     }
   }
-  const repositories = await Promise.all(result.found.map(async repository => {
-    const top = await entries(repository);
+  const repositories = await Promise.all(result.found.map(async asked => {
+    let repository = asked;
+    let top = await entries(repository);
+    let found = await versionFolders(repository, top);
+    if (!found.length) {
+      // A repository in a subfolder: not in the folders of git and the like.
+      const nested = await Promise.all(folderNames(top).filter(n => !n.startsWith('.')).sort(itemOrder).map(async name => {
+        const folder = path.join(asked, name);
+        const list = await entries(folder);
+        return { folder, list, found: await versionFolders(folder, list) };
+      }));
+      const inner = nested.find(n => n.found.length);
+      if (inner) ({ folder: repository, list: top, found } = inner);
+    }
     const categoryFiles = top.filter(e => !e.isDirectory() && /\.libcat\.xml$/i.test(e.name)).map(e => path.join(repository, e.name));
-    const [found, cache, profile, categories] = await Promise.all([
-      versionFolders(repository, top),
+    const [cache, profile, categories] = await Promise.all([
       readXml(path.join(repository, 'cache'), parseRepositoryCache),
       readXml(path.join(repository, 'profile'), parseProfile),
       Promise.all(categoryFiles.map(f => readXml(f, parseCategories))),
     ]);
-    return { found, cache: cache ?? [], profile: profile ?? [], categories };
+    const cached = new Map((cache ?? []).map(e => [e.folder.toUpperCase(), e]));
+    const namespaces = await Promise.all(found.map(f => cached.has(folderKey(f)) ? undefined
+      : readNamespace(path.join(path.dirname(f.file), 'projectinfo'))));
+    return { asked, repository, found: found.map((f, i) => ({ ...f, namespace: namespaces[i] })), cached, profile: profile ?? [], categories };
   }));
+  result.found = repositories.map(r => r.repository);
+  result.empty = repositories.filter(r => !r.found.length).map(r => r.asked);
 
   const categories = new Map<string, LibraryCategory>();
   for (const r of repositories) {
@@ -269,11 +360,10 @@ export async function readRepositories(folders: string[]): Promise<Repositories>
   const byLibrary = new Map<string, Read[]>();
   for (const r of repositories) {
     result.placeholders.push(...r.profile);
-    const cached = new Map(r.cache.map(e => [e.folder.toUpperCase(), e]));
     // Read in parallel: in the order of the folders again.
     r.found.sort((a, b) => itemOrder(a.company, b.company) || itemOrder(a.title, b.title) || compareVersions(b.version, a.version));
     for (const f of r.found) {
-      const e = cached.get(`${f.company}\\${f.title}\\${f.version}`.toUpperCase());
+      const e = r.cached.get(folderKey(f));
       const title = e?.title || f.title;
       const company = e?.company || f.company;
       const key = `${title}\n${company}`.toUpperCase();
@@ -282,7 +372,7 @@ export async function readRepositories(folders: string[]): Promise<Repositories>
       const version = e?.version || f.version;
       if (reads.some(v => compareVersions(v.version.version, version) === 0)) continue;
       const categoryIds = e?.categoryIds ?? [];
-      reads.push({ title, company, categoryIds, version: { version, file: f.file, namespace: e?.namespace || title, categories: [] } });
+      reads.push({ title, company, categoryIds, version: { version, file: f.file, namespace: e?.namespace || f.namespace || title, categories: [] } });
     }
   }
   for (const reads of byLibrary.values()) {

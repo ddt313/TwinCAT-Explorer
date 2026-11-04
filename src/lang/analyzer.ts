@@ -185,6 +185,12 @@ export class Analyzer {
     return out;
   }
 
+  /** Whether the POU extends, through its bases, a POU of a library known by its names only. */
+  private extendsNamesOnly(pou: PouSym, depth = 0): boolean {
+    if (depth > 20) return false;
+    return this.basesOf(pou).some(b => b.namesOnly || this.extendsNamesOnly(b, depth + 1));
+  }
+
   /** True when the POU and all its bases are workspace sources (so a missing member is a real error). */
   private chainComplete(pou: PouSym, depth = 0): boolean {
     if (isLibrarySym(pou) || depth > 20) return false;
@@ -561,7 +567,8 @@ export class Analyzer {
       case 'Ident': {
         const r = this.lookupName(e, expected);
         if (!r) {
-          this.unknown(e, `Unknown identifier '${e.name}'`);
+          // It may be a variable the POU inherits from a library POU whose variables are not known.
+          if (!this.ctx.pou || !this.extendsNamesOnly(this.ctx.pou)) this.unknown(e, `Unknown identifier '${e.name}'`);
           return UNKNOWN;
         }
         this.occ(e, r.sym, 'name');

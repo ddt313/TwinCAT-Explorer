@@ -5,6 +5,17 @@ All notable changes to Explorer for TwinCAT. The format follows
 
 ## Unreleased
 
+### Added
+- The language features know the installed libraries a PLC project references by name, without a stub: the
+  POUs, DUTs, GVLs and interfaces, with their methods, properties, actions and comments, that the
+  `browsercache` XAE writes next to a library names, read from the system library repositories and the
+  folders of `twincatExplorer.libraryRepositories`. They are no longer reported as unknown (`Unknown type
+  'FB_ComponentBase'` for the SPT Libraries,
+  [#91](https://github.com/ddt313/TwinCAT-Explorer/issues/91)), and have a hover and completion. Without their
+  declarations, members and arguments of theirs are not checked, and a POU extending one of their function
+  blocks gets no report of an unknown identifier. A stub still declares what it has; the browsercache adds the
+  rest. The MCP server's check knows them too.
+
 ### Fixed
 - Add Library finds the libraries of a folder of `twincatExplorer.libraryRepositories` that holds its
   repository in a subfolder, such as a clone of the SPT Libraries (its `Library Repository` folder), and warns

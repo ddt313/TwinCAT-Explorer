@@ -34,6 +34,7 @@ function run<A>(fn: (t: T.Tools, a: A) => string) {
   return async (a: A) => {
     try {
       tools.session.refresh();
+      await tools.session.installedLibraries();
       return { content: [{ type: 'text' as const, text: fn(tools, a) }] };
     } catch (e) {
       const message = e instanceof ToolError ? e.message : `${(e as Error).message ?? e}`;

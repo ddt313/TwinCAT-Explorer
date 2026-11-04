@@ -3,7 +3,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { LibrarySpec, PlaceholderReferenceSpec, formatLibrarySpec, itemOrder, parseLibrarySpec, sameName } from './project';
+import {
+  LibrarySpec, PlaceholderReferenceSpec, PlcProject, formatLibrarySpec, itemOrder, parseLibrarySpec, resolutionLibraryName, sameName,
+} from './project';
 import { fileKey } from './workspace';
 import { child, elementText, findAll, parseXml } from './xml';
 
@@ -411,4 +413,104 @@ export function libraryReference(lib: InstalledLibrary, version: string, placeho
     resolution: formatLibrarySpec({ title: lib.title, version, company: lib.company }),
     namespace: installed.namespace,
   };
+}
+
+/** What a library declares, as its `browsercache` names it: names and comments, without the declarations. */
+export interface LibraryObject {
+  name: string;
+  /** A POU is a function block, program or function: the cache does not tell which. */
+  kind: 'pou' | 'dut' | 'interface' | 'gvl';
+  comment?: string;
+  members: { name: string; kind: 'method' | 'property' | 'action'; comment?: string }[];
+}
+
+/** The TypeGUIDs of the nodes of a `browsercache` (XAE's object types); the others are folders, visualizations, ... */
+const OBJECT_KINDS = new Map<string, LibraryObject['kind']>([
+  ['6f9dac99-8de1-4efc-8465-68ac443b7d08', 'pou'],
+  ['2db5746d-d284-4425-9f7f-2663a34b0ebc', 'dut'],
+  ['40989022-e4d2-4dc7-89d2-9a412930b20e', 'dut'],
+  ['6654496c-404d-479a-aad2-8551054e5f1e', 'interface'],
+  ['ffbfa93a-b94d-45fc-a329-229860183b1d', 'gvl'],
+]);
+const MEMBER_KINDS = new Map<string, LibraryObject['members'][number]['kind']>([
+  ['f8a58466-d7f6-439f-bbb8-d4600e41d099', 'method'],
+  ['f89f7675-27f1-46b3-8abb-b7da8e774ffd', 'method'],
+  ['62ebfd1c-d342-43e5-8efb-f22b6d8e4a04', 'method'],
+  ['5a3b8626-d3e9-4f37-98b5-66420063d91e', 'property'],
+  ['8ac092e5-3128-4e26-9e7e-11016c6684f2', 'action'],
+]);
+
+const typeGuid = (attrs: Map<string, string>) => guids(attrs.get('TypeGUID'))[0];
+const nodeComment = (attrs: Map<string, string>) => attrs.get('Comment')?.replace(/\r\n?/g, '\n').trim() || undefined;
+
+/**
+ * The objects of a library version's `browsercache`, which XAE writes next to the library when it installs it, for the
+ * libraries of every company, compiled ones too: `<Library Name="…">` with a `<Node Name TypeGUID Comment>` per
+ * object (its methods, properties and actions inside, a property's Get and Set inside that), folders flat beside them.
+ * Hidden objects (IsHidden) and names that are no identifier are left out.
+ */
+export function parseBrowserCache(text: string): LibraryObject[] {
+  const root = child(parseXml(text.replace(/^﻿/, '')), 'Library');
+  if (!root) return [];
+  const out: LibraryObject[] = [];
+  for (const node of root.children) {
+    if (node.name !== 'Node' || node.attrs.get('IsHidden') === 'true') continue;
+    const kind = OBJECT_KINDS.get(typeGuid(node.attrs) ?? '');
+    const name = node.attrs.get('Name') ?? '';
+    if (!kind || !IDENTIFIER.test(name)) continue;
+    const members = kind === 'pou' || kind === 'interface' ? node.children.flatMap(m => {
+      const memberKind = MEMBER_KINDS.get(typeGuid(m.attrs) ?? '');
+      const memberName = m.attrs.get('Name') ?? '';
+      if (m.name !== 'Node' || !memberKind || !IDENTIFIER.test(memberName) || m.attrs.get('IsHidden') === 'true') return [];
+      // A property's comment is on its accessors.
+      const comment = nodeComment(m.attrs) ?? m.children.map(a => nodeComment(a.attrs)).find(c => c);
+      return [{ name: memberName, kind: memberKind, comment }];
+    }) : [];
+    out.push({ name, kind, comment: nodeComment(node.attrs), members });
+  }
+  return out;
+}
+
+/** The objects of an installed library version, as its `browsercache` names them. */
+export interface InstalledSymbols {
+  title: string;
+  company: string;
+  version: string;
+  objects: LibraryObject[];
+}
+
+/**
+ * The objects of the libraries the references name (`Tc2_Standard, * (Beckhoff Automation GmbH)`), of the version
+ * they name when it is installed, else of the newest; a library not installed is left out, and so is one without a
+ * `browsercache`. One per library, the first reference's.
+ */
+export async function readInstalledSymbols(libraries: InstalledLibrary[], references: LibrarySpec[]): Promise<InstalledSymbols[]> {
+  const picked = new Map<InstalledLibrary, LibraryVersion>();
+  for (const ref of references) {
+    const lib = libraries.find(l => sameName(l.title, ref.title) && sameName(l.company, ref.company))
+      ?? libraries.find(l => sameName(l.title, ref.title));
+    if (!lib || picked.has(lib)) continue;
+    picked.set(lib, lib.versions.find(v => compareVersions(v.version, ref.version) === 0) ?? lib.versions[0]);
+  }
+  const read = await Promise.all([...picked].map(async ([lib, version]) => {
+    try {
+      const text = decodeXml(await fs.promises.readFile(path.join(path.dirname(version.file), 'browsercache')));
+      return [{ title: lib.title, company: lib.company, version: version.version, objects: parseBrowserCache(text) }];
+    } catch {
+      return [];
+    }
+  }));
+  return read.flat();
+}
+
+/**
+ * The objects of the installed libraries the PLC projects reference (see readInstalledSymbols), read from the system
+ * repositories and the folders given (the setting twincatExplorer.libraryRepositories).
+ */
+export async function referencedLibrarySymbols(projects: PlcProject[], folders: string[]): Promise<InstalledSymbols[]> {
+  const references = projects.flatMap(p => p.libraries).map(lib =>
+    parseLibrarySpec(lib.resolution ?? lib.include) ?? { title: resolutionLibraryName(lib), version: '*', company: '' });
+  if (!references.length) return [];
+  const { libraries } = await readRepositories([...systemRepositories(), ...folders]);
+  return readInstalledSymbols(libraries, references);
 }

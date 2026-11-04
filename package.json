@@ -1255,7 +1255,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Folders of TwinCAT library repositories (absolute paths) that Add Library... lists the libraries of, besides the system repository of TwinCAT 3.1.4026 (%ProgramData%\\Beckhoff\\TwinCAT\\PlcEngineering\\Managed Libraries) and of 3.1.4024 and older (%TWINCAT3DIR%Components\\Plc\\Managed Libraries). For the repositories added in XAE's Library Repository dialog: the folder that holds <Company>\\<Library>\\<Version> folders, or one with such a folder in it (a clone of the SPT Libraries). The language features know a library's symbols from its stub (twincatExplorer.stubFiles), not from here."
+          "description": "Folders of TwinCAT library repositories (absolute paths) that Add Library... lists the libraries of, and that the language features read the names of referenced libraries from (their browsercache), besides the system repository of TwinCAT 3.1.4026 (%ProgramData%\\Beckhoff\\TwinCAT\\PlcEngineering\\Managed Libraries) and of 3.1.4024 and older (%TWINCAT3DIR%Components\\Plc\\Managed Libraries). For the repositories added in XAE's Library Repository dialog: the folder that holds <Company>\\<Library>\\<Version> folders, or one with such a folder in it (a clone of the SPT Libraries). Full declarations come from stubs (twincatExplorer.stubFiles)."
         },
         "twincatExplorer.exclude": {
           "type": "string",

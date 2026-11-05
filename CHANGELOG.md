@@ -9,6 +9,10 @@ All notable changes to Explorer for TwinCAT. The format follows
 - The split editor's line blame no longer moves the cursor away from the end of the line: at the end of a line
   with the annotation of its commit, the cursor was drawn past the gap before the annotation, as if a few
   characters after the line's last one.
+- The parameter names shown before the arguments of a call are no longer cut short (`fMaximumV…`) when a line
+  has several: Structured Text files have no limit on their total length by default
+  (`editor.inlayHints.maximumLength`, 43 characters of a line in VS Code), in the text editor and the split
+  editor. A limit set in the settings still applies.
 
 ## 0.20.0 - 2026-11-05
 

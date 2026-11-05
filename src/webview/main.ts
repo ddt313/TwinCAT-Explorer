@@ -643,9 +643,7 @@ function updateSashButtons(): void {
 function createSash(): HTMLElement {
   const el = document.createElement('div');
   el.className = 'sash';
-  const grip = document.createElement('div');
-  grip.className = 'sash-grip';
-  el.appendChild(grip);
+  // In the middle of the bar: ^, the grip dots, v.
   const buttons = document.createElement('div');
   buttons.className = 'sash-buttons';
   for (const dir of ['up', 'down'] as const) {
@@ -664,6 +662,11 @@ function createSash(): HTMLElement {
       maximize(dir);
     });
     buttons.appendChild(button);
+    if (dir === 'up') {
+      const grip = document.createElement('div');
+      grip.className = 'sash-grip';
+      buttons.appendChild(grip);
+    }
   }
   el.appendChild(buttons);
   let dragging = false;
@@ -1627,9 +1630,10 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   border-top: 1px solid var(--sash-line); border-bottom: 1px solid var(--sash-line); }
 .sash.hover, .sash.active { --sash-line: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder)); }
 /* Grip dots in the middle: the splitter can be dragged. */
-.sash-grip { position: absolute; left: 50%; top: 50%; width: 28px; height: 4px; margin: -2px 0 0 -14px; pointer-events: none;
+.sash-grip { width: 28px; height: 4px; margin: 0 4px;
   background: radial-gradient(circle, color-mix(in srgb, var(--vscode-foreground, #888888) 55%, transparent) 1px, transparent 1.4px) 0 0 / 7px 4px; }
-.sash-buttons { position: absolute; right: 24px; top: -1px; bottom: -1px; display: flex; gap: 2px; }
+.sash-buttons { position: absolute; left: 50%; transform: translateX(-50%); top: -1px; bottom: -1px; display: flex; align-items: center; }
+.sash-buttons > .sash-button { align-self: stretch; }
 .sash-button { width: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 2px;
   color: color-mix(in srgb, var(--vscode-foreground, #888888) 75%, transparent); }
 .sash-button:hover { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.25)); }

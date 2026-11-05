@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.20.0 - 2026-11-05
 
 ### Added
 - The language features know the installed libraries a PLC project references by name, without a stub: the

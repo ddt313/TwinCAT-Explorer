@@ -246,14 +246,34 @@
         "icon": "$(eye-closed)"
       },
       {
-        "command": "twincatExplorer.diffSideBySide",
-        "title": "Side by Side View",
-        "category": "TwinCAT"
+        "command": "twincatExplorer.diffView.inline",
+        "title": "Inline",
+        "category": "TwinCAT Diff View"
       },
       {
-        "command": "twincatExplorer.diffInline",
-        "title": "Inline View",
-        "category": "TwinCAT"
+        "command": "twincatExplorer.diffView.inline.current",
+        "title": "✓ Inline",
+        "category": "TwinCAT Diff View"
+      },
+      {
+        "command": "twincatExplorer.diffView.sideBySide",
+        "title": "Side by Side",
+        "category": "TwinCAT Diff View"
+      },
+      {
+        "command": "twincatExplorer.diffView.sideBySide.current",
+        "title": "✓ Side by Side",
+        "category": "TwinCAT Diff View"
+      },
+      {
+        "command": "twincatExplorer.diffView.automatic",
+        "title": "Automatic",
+        "category": "TwinCAT Diff View"
+      },
+      {
+        "command": "twincatExplorer.diffView.automatic.current",
+        "title": "✓ Automatic",
+        "category": "TwinCAT Diff View"
       },
       {
         "command": "twincatExplorer.changes.refresh",
@@ -553,7 +573,45 @@
         "category": "TwinCAT"
       }
     ],
+    "submenus": [
+      {
+        "id": "twincatExplorer.diffView",
+        "label": "Diff View"
+      }
+    ],
     "menus": {
+      "twincatExplorer.diffView": [
+        {
+          "command": "twincatExplorer.diffView.inline.current",
+          "when": "!config.diffEditor.renderSideBySide",
+          "group": "1_view@1"
+        },
+        {
+          "command": "twincatExplorer.diffView.inline",
+          "when": "config.diffEditor.renderSideBySide",
+          "group": "1_view@1"
+        },
+        {
+          "command": "twincatExplorer.diffView.sideBySide.current",
+          "when": "config.diffEditor.renderSideBySide && !config.diffEditor.useInlineViewWhenSpaceIsLimited",
+          "group": "1_view@2"
+        },
+        {
+          "command": "twincatExplorer.diffView.sideBySide",
+          "when": "!config.diffEditor.renderSideBySide || config.diffEditor.useInlineViewWhenSpaceIsLimited",
+          "group": "1_view@2"
+        },
+        {
+          "command": "twincatExplorer.diffView.automatic.current",
+          "when": "config.diffEditor.renderSideBySide && config.diffEditor.useInlineViewWhenSpaceIsLimited",
+          "group": "1_view@3"
+        },
+        {
+          "command": "twincatExplorer.diffView.automatic",
+          "when": "!config.diffEditor.renderSideBySide || !config.diffEditor.useInlineViewWhenSpaceIsLimited",
+          "group": "1_view@3"
+        }
+      ],
       "commandPalette": [
         {
           "command": "twincatExplorer.open",
@@ -664,12 +722,28 @@
           "when": "activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode"
         },
         {
-          "command": "twincatExplorer.diffSideBySide",
+          "command": "twincatExplorer.diffView.inline",
           "when": "activeCustomEditorId == twincatExplorer.objectEditor || activeWebviewPanelId == twincatExplorer.commitDiff"
         },
         {
-          "command": "twincatExplorer.diffInline",
+          "command": "twincatExplorer.diffView.inline.current",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.diffView.sideBySide",
           "when": "activeCustomEditorId == twincatExplorer.objectEditor || activeWebviewPanelId == twincatExplorer.commitDiff"
+        },
+        {
+          "command": "twincatExplorer.diffView.sideBySide.current",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.diffView.automatic",
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor || activeWebviewPanelId == twincatExplorer.commitDiff"
+        },
+        {
+          "command": "twincatExplorer.diffView.automatic.current",
+          "when": "false"
         },
         {
           "command": "twincatExplorer.revealInTree",
@@ -1146,14 +1220,9 @@
           "group": "navigation@2"
         },
         {
-          "command": "twincatExplorer.diffSideBySide",
-          "when": "!config.diffEditor.renderSideBySide && (resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode || activeWebviewPanelId == twincatExplorer.commitDiff)",
+          "submenu": "twincatExplorer.diffView",
+          "when": "resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode || activeWebviewPanelId == twincatExplorer.commitDiff",
           "group": "2_diff@1"
-        },
-        {
-          "command": "twincatExplorer.diffInline",
-          "when": "config.diffEditor.renderSideBySide && (resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode || activeWebviewPanelId == twincatExplorer.commitDiff)",
-          "group": "2_diff@2"
         }
       ],
       "editor/title/context": [

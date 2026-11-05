@@ -6,6 +6,7 @@ import * as path from 'path';
 import {
   LibrarySpec, PlaceholderReferenceSpec, PlcProject, formatLibrarySpec, itemOrder, parseLibrarySpec, resolutionLibraryName, sameName,
 } from './project';
+import { LibraryDeclaration, readLibraryDeclarations } from './libraryFile';
 import { fileKey } from './workspace';
 import { child, elementText, findAll, parseXml } from './xml';
 
@@ -476,13 +477,17 @@ export interface InstalledSymbols {
   title: string;
   company: string;
   version: string;
+  /** The objects its `browsercache` names. */
   objects: LibraryObject[];
+  /** The declarations of a source library (`.library`), read from its file (see readLibraryDeclarations); else none. */
+  declarations: LibraryDeclaration[];
 }
 
 /**
  * The objects of the libraries the references name (`Tc2_Standard, * (Beckhoff Automation GmbH)`), of the version
- * they name when it is installed, else of the newest; a library not installed is left out, and so is one without a
- * `browsercache`. One per library, the first reference's.
+ * they name when it is installed, else of the newest: the names of its `browsercache`, and the declarations of its
+ * file when it is a source library (`.library`). A library not installed is left out, and so is one with neither.
+ * One per library, the first reference's.
  */
 export async function readInstalledSymbols(libraries: InstalledLibrary[], references: LibrarySpec[]): Promise<InstalledSymbols[]> {
   const picked = new Map<InstalledLibrary, LibraryVersion>();
@@ -492,13 +497,14 @@ export async function readInstalledSymbols(libraries: InstalledLibrary[], refere
     if (!lib || picked.has(lib)) continue;
     picked.set(lib, lib.versions.find(v => compareVersions(v.version, ref.version) === 0) ?? lib.versions[0]);
   }
-  const read = await Promise.all([...picked].map(async ([lib, version]) => {
-    try {
-      const text = decodeXml(await fs.promises.readFile(path.join(path.dirname(version.file), 'browsercache')));
-      return [{ title: lib.title, company: lib.company, version: version.version, objects: parseBrowserCache(text) }];
-    } catch {
-      return [];
-    }
+  const read = await Promise.all([...picked].map(async ([lib, version]): Promise<InstalledSymbols[]> => {
+    const [objects, declarations] = await Promise.all([
+      fs.promises.readFile(path.join(path.dirname(version.file), 'browsercache')).then(b => parseBrowserCache(decodeXml(b))).catch(() => []),
+      /.library$/i.test(version.file)
+        ? fs.promises.readFile(version.file).then(b => readLibraryDeclarations(b)).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    return objects.length || declarations.length ? [{ title: lib.title, company: lib.company, version: version.version, objects, declarations }] : [];
   }));
   return read.flat();
 }

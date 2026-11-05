@@ -15,6 +15,12 @@ All notable changes to Explorer for TwinCAT. The format follows
   declarations, members and arguments of theirs are not checked, and a POU extending one of their function
   blocks gets no report of an unknown identifier. A stub still declares what it has; the browsercache adds the
   rest. The MCP server's check knows them too.
+- The language features read the declarations of an installed source library (`.library`) a PLC project
+  references from its file, as a stub would declare them: its POUs, DUTs, GVLs and interfaces, with their
+  methods, properties, actions and comments, such as the SPT Libraries. Hovers, signature help and completion
+  have them; inherited variables, enumeration values and qualified GVLs are found, through the function blocks of
+  another library too, and an unknown identifier is reported again in a POU extending one of them. Compiled
+  libraries hold no declaration text: they stay known by name.
 
 ### Fixed
 - Add Library finds the libraries of a folder of `twincatExplorer.libraryRepositories` that holds its

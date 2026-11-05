@@ -185,10 +185,15 @@ export class Analyzer {
     return out;
   }
 
-  /** Whether the POU extends, through its bases, a POU of a library known by its names only. */
+  /**
+   * Whether the variables the POU inherits are not all known: it extends, through its bases, a library POU known by
+   * its name only, or one whose own base is not found (in a library the projects do not reference).
+   */
   private extendsNamesOnly(pou: PouSym, depth = 0): boolean {
     if (depth > 20) return false;
-    return this.basesOf(pou).some(b => b.namesOnly || this.extendsNamesOnly(b, depth + 1));
+    const bases = this.basesOf(pou);
+    if (isLibrarySym(pou) && bases.length < pou.extendsNames.length) return true;
+    return bases.some(b => b.namesOnly || this.extendsNamesOnly(b, depth + 1));
   }
 
   /** True when the POU and all its bases are workspace sources (so a missing member is a real error). */

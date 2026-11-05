@@ -1,5 +1,5 @@
 // Bundles the extension for the browser (vscode.dev, github.dev) into out/web/extension.js: src/web/extension.ts
-// with the rest of the extension, Node's modules replaced by those of src/web (fs, crypto, child_process), and
+// with the rest of the extension, Node's modules replaced by those of src/web (fs, crypto, child_process, zlib), and
 // path by path-unified (Node's own, both win32 and posix). `process` and `Buffer` are injected; `__dirname`
 // points into the folder that src/web/extension.ts mounts as the extension's.
 // Usage: node scripts/build-web.js [--dev]
@@ -29,6 +29,7 @@ const dev = process.argv.includes('--dev');
       fs: path.join(web, 'fs.ts'),
       crypto: path.join(web, 'crypto.ts'),
       child_process: path.join(web, 'childProcess.ts'),
+      zlib: path.join(web, 'zlib.ts'),
       path: 'path-unified',
     },
     inject: [path.join(web, 'process.ts'), path.join(web, 'buffer.ts')],
@@ -37,7 +38,7 @@ const dev = process.argv.includes('--dev');
     plugins: [{
       name: 'no-node',
       setup(build) {
-        build.onResolve({ filter: /^(node:|os$|net$|http$|https$|stream$|zlib$|worker_threads$|readline$)/ }, args => ({
+        build.onResolve({ filter: /^(node:|os$|net$|http$|https$|stream$|worker_threads$|readline$)/ }, args => ({
           errors: [{ text: `${args.path} (imported by ${path.relative(root, args.importer)}) is not available in the browser` }],
         }));
       },

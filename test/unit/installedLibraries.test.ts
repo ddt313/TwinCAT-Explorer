@@ -130,13 +130,14 @@ function project(root: string, pous: Record<string, string>): TcWorkspace {
 }
 
 const INSTALLED: InstalledSymbols[] = [
-  { title: 'SPT Base Types', company: SPT, version: '3.9.0', objects: parseBrowserCache(BROWSERCACHE) },
+  { title: 'SPT Base Types', company: SPT, version: '3.9.0', objects: parseBrowserCache(BROWSERCACHE), declarations: [] },
   // Tc2_System has a stub: its browsercache adds what the stub does not declare.
   {
     title: 'Tc2_System', company: 'Beckhoff Automation GmbH', version: '3.4.26.0', objects: [
       { name: 'F_NotInTheStub', kind: 'pou', members: [] },
       { name: 'ADSLOGSTR', kind: 'pou', comment: 'From the browsercache', members: [] },
     ],
+    declarations: [],
   },
 ];
 

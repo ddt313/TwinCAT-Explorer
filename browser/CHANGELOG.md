@@ -12,10 +12,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   merge request*) has the **TwinCAT view** toggles and the **TwinCAT** tab too: what the source branch would change in
   the target branch, as objects. No comments there, as there is no merge request yet.
 
-### Fixed
-- **Firefox**: the part of a TwinCAT view that had scrolled up under its file's sticky header showed above the header,
-  over the page's bars (on GitLab's *New merge request* page). The view is clipped at the header's bottom now.
-
 ## 0.4.2 - 2026-10-27
 
 ### Fixed

@@ -257,20 +257,39 @@ export class LanguageIndex {
         this.addStubDeclarations(scope, m[2], `stub:${src.path}#${name}`);
       }
     }
-    // Installed libraries: the names of what their stubs, if any, do not declare.
+    // Installed libraries, for what their stubs, if any, do not declare: the declarations of a source library's file,
+    // then the names of the browsercache.
     for (const lib of this.installed) {
       const scope = this.libraryScopes.get(lib.title.toUpperCase()) ?? new Scope(lib.title, true);
       this.libraryScopes.set(lib.title.toUpperCase(), scope);
+      for (const d of lib.declarations) {
+        if (scope.globals.has(d.name.toUpperCase())) continue;
+        this.addStubDeclarations(scope, d.text, `library:${lib.title}#${d.name}`, d.kind === 'gvl' ? d.name : undefined);
+      }
       this.addInstalledObjects(scope, lib);
+    }
+    // The values of a library's enumerations that are not qualified only, as a project's.
+    for (const scope of this.libraryScopes.values()) {
+      for (const g of scope.globals.values()) {
+        if (g.kind !== 'type' || g.dutKind !== 'enum' || g.qualifiedOnly) continue;
+        for (const v of g.values) if (!scope.enumValues.has(v.name.toUpperCase())) scope.enumValues.set(v.name.toUpperCase(), v);
+      }
     }
     // Stubs share the basic types of Tc2_System/Tc2_Standard (T_MaxString, ...).
     const common = ['TC2_SYSTEM', 'TC2_STANDARD'].map(n => this.libraryScopes.get(n)).filter((x): x is Scope => !!x);
+    // The installed libraries see each other too: one depends on another (SPT Components' function blocks extend SPT
+    // Base Types' FB_ComponentBase), which the projects reference as well.
+    const installed = [...new Set(this.installed.map(l => this.libraryScopes.get(l.title.toUpperCase())).filter((x): x is Scope => !!x))];
     for (const scope of this.libraryScopes.values()) {
-      scope.refs = common.filter(c => c !== scope);
+      scope.refs = [...common, ...(installed.includes(scope) ? installed : [])].filter((c, i, all) => c !== scope && all.indexOf(c) === i);
     }
   }
 
-  private addStubDeclarations(scope: Scope, text: string, key: string): void {
+  /**
+   * The declarations of a stub text in a library scope. Its variables outside a POU are the globals of the library,
+   * unqualified; with gvlName, those of that GVL of the library, qualified when its attribute says so.
+   */
+  private addStubDeclarations(scope: Scope, text: string, key: string, gvlName?: string): void {
     const parsed = this.parseDecl(text);
     const fake: FileSyms = {
       key, path: key, source: undefined, scope, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(), texts: new Map(),
@@ -290,18 +309,19 @@ export class LanguageIndex {
         this.addGlobal(scope, this.makeType(fake, scope, td, text, parsed.trivia, undefined));
       }
       if (!unit.header && unit.varBlocks.length > 0) {
-        const gvl: GvlSym = {
-          kind: 'gvl', id: `${scope.name}::(globals)`, name: scope.name, scope, signature: '', vars: [], qualifiedOnly: false,
-        };
+        const gvl: GvlSym = gvlName
+          ? { kind: 'gvl', id: `${scope.name}::${gvlName}`, name: gvlName, scope, signature: gvlName, vars: [], qualifiedOnly: hasAttribute(parsed.trivia, 'qualified_only') }
+          : { kind: 'gvl', id: `${scope.name}::(globals)`, name: scope.name, scope, signature: '', vars: [], qualifiedOnly: false };
         for (const block of unit.varBlocks) {
           for (const decl of block.decls) {
             for (const n of decl.names) {
               const v = this.makeVar(fake, gvl, block, decl, n, text, parsed.trivia, undefined, undefined);
               gvl.vars.push(v);
-              scope.gvlVars.set(n.upper, v);
+              if (!gvl.qualifiedOnly && !scope.gvlVars.has(n.upper)) scope.gvlVars.set(n.upper, v);
             }
           }
         }
+        if (gvlName) this.addGlobal(scope, gvl);
       }
     }
   }

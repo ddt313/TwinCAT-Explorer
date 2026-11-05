@@ -380,7 +380,8 @@ XAE's Library Manager.
   - The reference goes among the others in alphabetical order, as XAE keeps them; the rest of the
     `.plcproj` stays byte-identical.
 - **Then:** the tree selects the new library under `References`, and the language features know the
-  symbols of its [stub](#library-stubs), if there is one, and the names of its other objects. A `.plcproj` with unsaved changes in an
+  symbols of its [stub](#library-stubs), if there is one, and those of the library itself (see
+  [Library stubs](#library-stubs)). A `.plcproj` with unsaved changes in an
   editor is refused, and so is a workspace without a repository, with the folders looked in.
 
 </details>
@@ -984,13 +985,23 @@ bundles stubs for the parts in common use:
 - Tc2_MC2: axis function blocks;
 - Tc2_Math, Tc3_Module and TcUnit.
 
-**Installed libraries are known by name.** For a library a PLC project references and that is installed in a
-library repository (the system ones and the folders of `twincatExplorer.libraryRepositories`, as for
-[Add Library](#adding-libraries)), the extension reads the `browsercache` XAE writes next to it, for the
-libraries of every company, compiled ones too. It names the library's POUs, DUTs, GVLs and interfaces, and
-their methods, properties and actions, with their comments, of the version the reference names (the newest
-installed for `*`). What a library's stub declares comes from the stub; the rest from the browsercache. It is
-read again when a `.plcproj` or the setting changes. The browsercache has names, not declarations:
+**Installed libraries are read too.** For a library a PLC project references and that is installed in a library
+repository (the system ones and the folders of `twincatExplorer.libraryRepositories`, as for
+[Add Library](#adding-libraries)), of the version the reference names (the newest installed for `*`), read
+again when a `.plcproj` or the setting changes. What a library's stub declares comes from the stub; then:
+
+**A source library (`.library`) is declared from its file**, as a stub would declare it: the declarations of its
+POUs, DUTs, GVLs and interfaces, with their methods, properties and actions, and their comments, such as the
+SPT Libraries. Its symbols have hovers, signature help and completion; inherited variables, enumeration values
+and its GVLs (qualified when their attribute says so) are found; one library's function blocks can extend
+another's. As with a stub, members and arguments of a library's symbols are not checked. A declaration the
+extension cannot parse (an enumeration declared inside a variable declaration, `State : (IDLE, BUSY);`) loses
+what follows it in that object.
+
+**A compiled library (`.compiled-library`, Beckhoff's) is known by name**: its file holds no declaration text,
+so the extension reads the `browsercache` XAE writes next to every installed library. It names the library's
+POUs, DUTs, GVLs and interfaces, and their methods, properties and actions, with their comments; it also gives
+the names a source library's file does not. The browsercache has names, not declarations:
 - These names are not reported as unknown, and have a hover with their comment and the library, and
   completion.
 - They have no variables, parameters, return types or enumeration values: members of their instances and
@@ -1038,8 +1049,8 @@ sources.
   of the items in place, as XAE does when it renames a file or folder.
 - Add Library reads the folders, `cache`, `profile` and `projectinfo` files of the library repositories,
   not the library files: the placeholder of a library comes from the profile, not from the library itself.
-  The language features know the referenced libraries by the names of their `browsercache`; their
-  declarations need a [stub](#library-stubs). Libraries
+  The language features read the declarations of a referenced source library from its file, and know a
+  compiled one by the names of its `browsercache`; its declarations need a [stub](#library-stubs). Libraries
   are installed, and references removed or changed (version, namespace, properties), in XAE.
 - Rename changes the uses the language index finds in Structured Text. It does not read the other
   implementation languages, visualizations and other files, nor change names it cannot resolve: the

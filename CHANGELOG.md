@@ -3,6 +3,13 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- The split editor's line blame no longer moves the cursor away from the end of the line: at the end of a line
+  with the annotation of its commit, the cursor was drawn past the gap before the annotation, as if a few
+  characters after the line's last one.
+
 ## 0.20.0 - 2026-11-05
 
 ### Added

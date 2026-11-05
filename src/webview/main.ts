@@ -874,6 +874,9 @@ function scheduleBlame(pane: Pane, delay = 120): void {
   pane.blameTimer = window.setTimeout(() => updateBlame(pane), wait);
 }
 
+/** Space between the end of a line and its blame annotation (non-breaking: Monaco would render spaces as whitespace). */
+const BLAME_GAP = '\u00a0'.repeat(5);
+
 /** Shows the blame of the cursor's line at the end of that line, in the pane edited last only. */
 function updateBlame(pane: Pane): void {
   window.clearTimeout(pane.blameTimer);
@@ -898,7 +901,9 @@ function updateBlame(pane: Pane): void {
     options: {
       showIfCollapsed: true,
       hoverMessage: blameHover(commit),
-      after: { content: blameText(commit), inlineClassName: 'tc-blame', cursorStops: monaco.editor.InjectedTextCursorStops.None },
+      // The gap before the text is in its content, not a margin: Monaco puts the cursor at the end of the line where
+      // the annotation's text starts, which a margin would push away from the line's last character.
+      after: { content: BLAME_GAP + blameText(commit), inlineClassName: 'tc-blame', cursorStops: monaco.editor.InjectedTextCursorStops.None },
     },
   }]);
   pane.blameShown = { line, commit };
@@ -1569,10 +1574,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 .changes-label { position: absolute; top: 3px; right: 24px; z-index: 20; pointer-events: none; padding: 1px 6px; border-radius: 2px;
   font: 11px var(--vscode-font-family); color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); opacity: 0.9; }
 /* Blame of the current line, after its end (like GitLens' current line blame). */
-.monaco-editor .view-line .tc-blame { color: var(--vscode-editorCodeLens-foreground, #999999) !important; opacity: 0.8; font-style: italic;
-  margin-left: 3em; }
-/* Monaco renders a long annotation as several spans of 50 characters: the gap goes before the first only. */
-.monaco-editor .view-line .tc-blame + .tc-blame { margin-left: 0; }
+.monaco-editor .view-line .tc-blame { color: var(--vscode-editorCodeLens-foreground, #999999) !important; opacity: 0.8; font-style: italic; }
 `;
 document.head.appendChild(style);
 

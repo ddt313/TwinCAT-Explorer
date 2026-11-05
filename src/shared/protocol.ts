@@ -39,6 +39,10 @@ export interface EditorConfig {
   tabSize: number;
   insertSpaces: boolean;
   detectIndentation: boolean;
+  /** The diffs side by side (VS Code's diffEditor.renderSideBySide), inline when false or the pane is narrow. */
+  diffSideBySide: boolean;
+  /** Inline while a pane is too narrow for two sides (diffEditor.useInlineViewWhenSpaceIsLimited). */
+  diffInlineWhenNarrow: boolean;
 }
 
 export interface LanguageConfig {

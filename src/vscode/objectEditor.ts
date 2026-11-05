@@ -76,6 +76,7 @@ const EDITOR_OPTIONS = [
 
 export function editorConfig(): EditorConfig {
   const cfg = vscode.workspace.getConfiguration('editor', { languageId: ST_LANGUAGE });
+  const diff = vscode.workspace.getConfiguration('diffEditor');
   const options: Record<string, unknown> = {};
   for (const key of EDITOR_OPTIONS) {
     const v = cfg.get(key);
@@ -90,6 +91,8 @@ export function editorConfig(): EditorConfig {
     tabSize: cfg.get<number>('tabSize', 4),
     insertSpaces: cfg.get<boolean>('insertSpaces', false),
     detectIndentation: cfg.get<boolean>('detectIndentation', true),
+    diffSideBySide: diff.get<boolean>('renderSideBySide', true),
+    diffInlineWhenNarrow: diff.get<boolean>('useInlineViewWhenSpaceIsLimited', true),
   };
 }
 
@@ -728,7 +731,7 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
       }),
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('editor.tokenColorCustomizations') || e.affectsConfiguration('workbench.colorTheme')) this.postTheme();
-        if (e.affectsConfiguration('editor')) {
+        if (e.affectsConfiguration('editor') || e.affectsConfiguration('diffEditor')) {
           const config = editorConfig();
           for (const s of this.sessions) if (s.ready) s.post({ type: 'config', config });
         }

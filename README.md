@@ -106,8 +106,12 @@ XAE, with its changes against `HEAD` and the blame of the current line.
     removed), unsaved edits included. `Alt+F5` and `Shift+Alt+F5` go to the next and previous
     change.
   - `Show Changes vs HEAD` (editor title button, or a click on a change marker) turns both panes into
-    inline diffs against `HEAD`. Unchanged lines are folded, the panes stay editable, and the
+    diffs against `HEAD`. Unchanged lines are folded, the panes stay editable, and the
     `Revert Block` button next to a change puts the `HEAD` text back.
+  - The diffs are side by side, `HEAD` on the left, or inline, as VS Code's diff editor
+    (`diffEditor.renderSideBySide`); a pane too narrow for two sides shows inline. `Inline View` and
+    `Side by Side View` in the editor's `...` menu switch, here, in the commit diff panel and in VS
+    Code's diff editor alike.
   - `Hide Changes vs HEAD` returns to the normal panes. A commit, checkout or rebase updates the
     comparison.
 - **Line blame**, like GitLens' current line blame:
@@ -920,7 +924,8 @@ Commit SHA and Copy Name.
 | `Go to Implementation` | In the TwinCAT tree: open what implements or overrides the function block, interface, method or property (Ctrl+F12 in the editors). |
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |
 | `TwinCAT: Auto Declare...` | Declare a variable at the cursor of a split editor or notebook cell, as XAE's Auto Declare (Shift+F2). |
-| `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as inline diffs against `HEAD`, or back as normal panes. |
+| `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as diffs against `HEAD`, or back as normal panes. |
+| `TwinCAT: Side by Side View` / `TwinCAT: Inline View` | Show the diffs of the split editor and of the commit diff panel side by side or inline (VS Code's `diffEditor.renderSideBySide`). |
 | `TwinCAT: Open Changes as TwinCAT Notebook` | Compare a whole file with `HEAD` (or the index), section by section. |
 | `TwinCAT: Compare with Git Ref as TwinCAT Notebook...` | Compare a whole file with any branch, tag or commit. |
 | `TwinCAT: Show History` | Show the commits that changed the object, in the TwinCAT History view. |

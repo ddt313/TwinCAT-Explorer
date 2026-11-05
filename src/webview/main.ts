@@ -658,15 +658,18 @@ function editorOptions(section: PaneSection): Monaco.editor.IStandaloneEditorCon
   } as Monaco.editor.IStandaloneEditorConstructionOptions;
 }
 
-/** Options of the inline diff a pane shows against HEAD: the pane's text editable, HEAD's read-only. */
+/**
+ * Options of the diff a pane shows against HEAD: the pane's text editable, HEAD's read-only. Side by side or
+ * inline as VS Code's diff editor (diffEditor.renderSideBySide), inline anyway while the pane is narrow.
+ */
 function diffOptions(section: PaneSection, collapsed: boolean): Monaco.editor.IStandaloneDiffEditorConstructionOptions {
   return {
     ...(config?.options ?? {}),
     theme: THEME,
     readOnly: !section.editable,
     originalEditable: false,
-    renderSideBySide: false,
-    useInlineViewWhenSpaceIsLimited: true,
+    renderSideBySide: config?.diffSideBySide ?? false,
+    useInlineViewWhenSpaceIsLimited: config?.diffInlineWhenNarrow ?? true,
     automaticLayout: false,
     editContext: false,
     fixedOverflowWidgets: true,

@@ -246,6 +246,16 @@
         "icon": "$(eye-closed)"
       },
       {
+        "command": "twincatExplorer.diffSideBySide",
+        "title": "Side by Side View",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.diffInline",
+        "title": "Inline View",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.changes.refresh",
         "title": "Refresh",
         "category": "TwinCAT Changes",
@@ -652,6 +662,14 @@
         {
           "command": "twincatExplorer.hideChanges",
           "when": "activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode"
+        },
+        {
+          "command": "twincatExplorer.diffSideBySide",
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor || activeWebviewPanelId == twincatExplorer.commitDiff"
+        },
+        {
+          "command": "twincatExplorer.diffInline",
+          "when": "activeCustomEditorId == twincatExplorer.objectEditor || activeWebviewPanelId == twincatExplorer.commitDiff"
         },
         {
           "command": "twincatExplorer.revealInTree",
@@ -1126,6 +1144,16 @@
           "command": "twincatExplorer.history.show",
           "when": "activeWebviewPanelId == twincatExplorer.commitDiff",
           "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.diffSideBySide",
+          "when": "!config.diffEditor.renderSideBySide && (resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode || activeWebviewPanelId == twincatExplorer.commitDiff)",
+          "group": "2_diff@1"
+        },
+        {
+          "command": "twincatExplorer.diffInline",
+          "when": "config.diffEditor.renderSideBySide && (resourceScheme == twincat && activeCustomEditorId == twincatExplorer.objectEditor && twincatExplorer.changesMode || activeWebviewPanelId == twincatExplorer.commitDiff)",
+          "group": "2_diff@2"
         }
       ],
       "editor/title/context": [

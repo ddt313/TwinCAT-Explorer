@@ -9,8 +9,8 @@ All notable changes to Explorer for TwinCAT. The format follows
 - The diffs of the split editor (`Show Changes vs HEAD`, the TwinCAT Changes and History views) and of the
   commit diff panel show side by side, the base on the left, as VS Code's own diff editor does: they follow
   its setting `diffEditor.renderSideBySide`, and are inline while a pane is too narrow
-  (`diffEditor.useInlineViewWhenSpaceIsLimited`). `Diff View` in the editor's `...` menu picks `Inline`,
-  `Side by Side` or `Automatic` as in VS Code's diff editor, for VS Code's diff editor too.
+  (`diffEditor.useInlineViewWhenSpaceIsLimited`). `Diff View` in the editor's `...` menu picks `Inline` or
+  `Side by Side`, for VS Code's diff editor too.
 
 ## 0.20.1 - 2026-11-05
 

@@ -1251,10 +1251,10 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, true)),
     vscode.commands.registerCommand('twincatExplorer.hideChanges', (uri?: unknown) =>
       objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, false)),
-    ...(['inline', 'sideBySide', 'automatic'] as const).flatMap(mode => [
-      vscode.commands.registerCommand(`twincatExplorer.diffView.${mode}`, () => setDiffView(mode)),
-      vscode.commands.registerCommand(`twincatExplorer.diffView.${mode}.current`, () => setDiffView(mode)),
-    ]),
+    // The Diff View menu: `.current` has a check before its title, `.menu` blanks as wide (VS Code trims leading
+    // spaces, the zero-width space keeps them) so that the titles line up; extensions have no menu checks.
+    ...(['inline', 'sideBySide'] as const).flatMap(mode => ['', '.menu', '.current'].map(variant =>
+      vscode.commands.registerCommand(`twincatExplorer.diffView.${mode}${variant}`, () => setDiffSideBySide(mode === 'sideBySide')))),
     vscode.commands.registerCommand('twincatExplorer.compareWithRef', async (arg?: unknown) => {
       const t = target(arg);
       if (!t || !isSourcePath(t.fsPath)) return;
@@ -1338,18 +1338,13 @@ export function deactivate(): void {
 
 /**
  * The layout of the diffs of the split editor and the commit diff panel, as the Diff View menu of VS Code's diff
- * editor sets it: inline, side by side, or automatic (side by side unless the pane is narrow). VS Code's own
- * settings, in the scope that decides them now (a workspace value would hide a user one).
+ * editor sets it: VS Code's own setting, in the scope that decides it now (a workspace value would hide a user one).
  */
-async function setDiffView(mode: 'inline' | 'sideBySide' | 'automatic'): Promise<void> {
+async function setDiffSideBySide(on: boolean): Promise<void> {
   const cfg = vscode.workspace.getConfiguration('diffEditor');
-  const set = async (key: string, value: boolean) => {
-    const where = cfg.inspect<boolean>(key);
-    const target = where?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
-      : where?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace
-      : vscode.ConfigurationTarget.Global;
-    if (cfg.get<boolean>(key) !== value) await cfg.update(key, value, target);
-  };
-  await set('renderSideBySide', mode !== 'inline');
-  if (mode !== 'inline') await set('useInlineViewWhenSpaceIsLimited', mode === 'automatic');
+  const where = cfg.inspect<boolean>('renderSideBySide');
+  const target = where?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+    : where?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace
+    : vscode.ConfigurationTarget.Global;
+  if (cfg.get<boolean>('renderSideBySide') !== on) await cfg.update('renderSideBySide', on, target);
 }

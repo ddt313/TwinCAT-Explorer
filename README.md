@@ -111,8 +111,7 @@ XAE, with its changes against `HEAD` and the blame of the current line.
   - The diffs are side by side, `HEAD` on the left, or inline, as VS Code's diff editor
     (`diffEditor.renderSideBySide`); a pane too narrow for two sides shows inline
     (`diffEditor.useInlineViewWhenSpaceIsLimited`). `Diff View` in the editor's `...` menu picks
-    `Inline`, `Side by Side` or `Automatic` (side by side unless narrow), here, in the commit diff panel
-    and in VS Code's diff editor alike.
+    `Inline` or `Side by Side`, here, in the commit diff panel and in VS Code's diff editor alike.
   - `Hide Changes vs HEAD` returns to the normal panes. A commit, checkout or rebase updates the
     comparison.
 - **Line blame**, like GitLens' current line blame:
@@ -926,7 +925,7 @@ Commit SHA and Copy Name.
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |
 | `TwinCAT: Auto Declare...` | Declare a variable at the cursor of a split editor or notebook cell, as XAE's Auto Declare (Shift+F2). |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as diffs against `HEAD`, or back as normal panes. |
-| `TwinCAT Diff View: Inline` / `Side by Side` / `Automatic` | Show the diffs of the split editor and of the commit diff panel inline, side by side, or side by side unless a pane is narrow (VS Code's `diffEditor.renderSideBySide` and `diffEditor.useInlineViewWhenSpaceIsLimited`). |
+| `TwinCAT Diff View: Inline` / `Side by Side` | Show the diffs of the split editor and of the commit diff panel inline or side by side (VS Code's `diffEditor.renderSideBySide`). |
 | `TwinCAT: Open Changes as TwinCAT Notebook` | Compare a whole file with `HEAD` (or the index), section by section. |
 | `TwinCAT: Compare with Git Ref as TwinCAT Notebook...` | Compare a whole file with any branch, tag or commit. |
 | `TwinCAT: Show History` | Show the commits that changed the object, in the TwinCAT History view. |

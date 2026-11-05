@@ -251,12 +251,8 @@
         "category": "TwinCAT Diff View"
       },
       {
-        "command": "twincatExplorer.diffView.inline.menu",
-        "title": "\u200b\u2003\u2009Inline"
-      },
-      {
         "command": "twincatExplorer.diffView.inline.current",
-        "title": "✓ Inline"
+        "title": "Inline ✓"
       },
       {
         "command": "twincatExplorer.diffView.sideBySide",
@@ -264,12 +260,8 @@
         "category": "TwinCAT Diff View"
       },
       {
-        "command": "twincatExplorer.diffView.sideBySide.menu",
-        "title": "\u200b\u2003\u2009Side by Side"
-      },
-      {
         "command": "twincatExplorer.diffView.sideBySide.current",
-        "title": "✓ Side by Side"
+        "title": "Side by Side ✓"
       },
       {
         "command": "twincatExplorer.changes.refresh",
@@ -583,7 +575,7 @@
           "group": "1_view@1"
         },
         {
-          "command": "twincatExplorer.diffView.inline.menu",
+          "command": "twincatExplorer.diffView.inline",
           "when": "config.diffEditor.renderSideBySide",
           "group": "1_view@1"
         },
@@ -593,7 +585,7 @@
           "group": "1_view@2"
         },
         {
-          "command": "twincatExplorer.diffView.sideBySide.menu",
+          "command": "twincatExplorer.diffView.sideBySide",
           "when": "!config.diffEditor.renderSideBySide",
           "group": "1_view@2"
         }
@@ -712,20 +704,12 @@
           "when": "activeCustomEditorId == twincatExplorer.objectEditor || activeWebviewPanelId == twincatExplorer.commitDiff"
         },
         {
-          "command": "twincatExplorer.diffView.inline.menu",
-          "when": "false"
-        },
-        {
           "command": "twincatExplorer.diffView.inline.current",
           "when": "false"
         },
         {
           "command": "twincatExplorer.diffView.sideBySide",
           "when": "activeCustomEditorId == twincatExplorer.objectEditor || activeWebviewPanelId == twincatExplorer.commitDiff"
-        },
-        {
-          "command": "twincatExplorer.diffView.sideBySide.menu",
-          "when": "false"
         },
         {
           "command": "twincatExplorer.diffView.sideBySide.current",

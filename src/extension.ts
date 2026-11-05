@@ -1251,9 +1251,8 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, true)),
     vscode.commands.registerCommand('twincatExplorer.hideChanges', (uri?: unknown) =>
       objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, false)),
-    // The Diff View menu: `.current` has a check before its title, `.menu` blanks as wide (VS Code trims leading
-    // spaces, the zero-width space keeps them) so that the titles line up; extensions have no menu checks.
-    ...(['inline', 'sideBySide'] as const).flatMap(mode => ['', '.menu', '.current'].map(variant =>
+    // `.current`: the Diff View menu's item of the current mode, a check after its title (extensions have no menu checks).
+    ...(['inline', 'sideBySide'] as const).flatMap(mode => ['', '.current'].map(variant =>
       vscode.commands.registerCommand(`twincatExplorer.diffView.${mode}${variant}`, () => setDiffSideBySide(mode === 'sideBySide')))),
     vscode.commands.registerCommand('twincatExplorer.compareWithRef', async (arg?: unknown) => {
       const t = target(arg);

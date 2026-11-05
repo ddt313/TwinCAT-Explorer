@@ -744,6 +744,7 @@ function onFrameMessage(e: MessageEvent): void {
       return;
     case 'height':
       frame.style.height = `${Math.max(40, Math.ceil(m.height))}px`;
+      resize();
       return;
     case 'goto':
       if (isLine(m.side, m.line)) goto(block, m.side, m.line, oldLine);
@@ -772,6 +773,27 @@ function onFrameMessage(e: MessageEvent): void {
   }
 }
 
+/**
+ * A view's frame clipped at the bottom of its file's sticky header: what of the view has scrolled up under the header
+ * does not show above it. Firefox draws an extension's frame over the host's sticky bars above the header (GitLab's,
+ * on its New merge request page), which cover it in Chrome; there the clip changes nothing.
+ */
+function clipFrames(): void {
+  if (!host) return;
+  for (const block of blocks.values()) {
+    const frame = block.frame;
+    if (!block.on || !frame?.isConnected) continue;
+    const container = containerOf(block);
+    const header = container && host.header(container);
+    if (!container || !header) continue;
+    const { after } = host.layout(container, header);
+    const top = frame.getBoundingClientRect().top;
+    const covered = Math.ceil(Math.max(header.getBoundingClientRect().bottom, after.getBoundingClientRect().bottom) - top);
+    const clip = covered > 0 ? `inset(${covered}px 0 0 0)` : '';
+    if (frame.style.clipPath !== clip) frame.style.clipPath = clip;
+  }
+}
+
 let sizing = false;
 const resize = () => {
   if (sizing) return;
@@ -779,6 +801,7 @@ const resize = () => {
   requestAnimationFrame(() => {
     sizing = false;
     sizeTree();
+    clipFrames();
   });
 };
 // Once per page: the service worker also starts the script in the tab a site was just turned on in, and the popup in

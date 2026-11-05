@@ -3,6 +3,17 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.20.1 - 2026-11-05
+
+### Fixed
+- The split editor's line blame no longer moves the cursor away from the end of the line: at the end of a line
+  with the annotation of its commit, the cursor was drawn past the gap before the annotation, as if a few
+  characters after the line's last one.
+- The parameter names shown before the arguments of a call are no longer cut short (`fMaximumV…`) when a line
+  has several: Structured Text files have no limit on their total length by default
+  (`editor.inlayHints.maximumLength`, 43 characters of a line in VS Code), in the text editor and the split
+  editor. A limit set in the settings still applies.
+
 ## 0.20.0 - 2026-11-05
 
 ### Added
@@ -10,8 +21,8 @@ All notable changes to Explorer for TwinCAT. The format follows
   POUs, DUTs, GVLs and interfaces, with their methods, properties, actions and comments, that the
   `browsercache` XAE writes next to a library names, read from the system library repositories and the
   folders of `twincatExplorer.libraryRepositories`. They are no longer reported as unknown (`Unknown type
-  'FB_ComponentBase'` for the SPT Libraries,
-  [#91](https://github.com/ddt313/TwinCAT-Explorer/issues/91)), and have a hover and completion. Without their
+  'FB_ComponentBase'` for the SPT Libraries, [#91](https://github.com/ddt313/TwinCAT-Explorer/issues/91),
+  reported by [EricControls](https://github.com/EricControls)), and have a hover and completion. Without their
   declarations, members and arguments of theirs are not checked, and a POU extending one of their function
   blocks gets no report of an unknown identifier. A stub still declares what it has; the browsercache adds the
   rest. The MCP server's check knows them too.

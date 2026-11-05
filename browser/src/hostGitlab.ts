@@ -349,6 +349,6 @@ export class GitLabNewMergeRequestHost extends GitLabDiffsHost {
   }
 
   async threads(): Promise<ThreadsResult> {
-    return { threads: [] };
+    return { threads: [], source: 'none: no merge request yet' };
   }
 }

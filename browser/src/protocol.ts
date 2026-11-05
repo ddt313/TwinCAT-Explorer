@@ -53,7 +53,12 @@ export type PageMessage =
   /** To a viewer: the layout of the host's own diffs, as the user set it there (when the page shows it, and as it changes). */
   | { tcx: 'style'; style: DiffStyle }
   /** To a viewer, the threads on its file; to the tree, all of them; or why there are none. */
-  | { tcx: 'threads'; threads: ReviewThread[]; source?: string; problem?: string };
+  | { tcx: 'threads'; threads: ReviewThread[]; source?: string; problem?: string }
+  /**
+   * To a viewer, as the page scrolls: how far from its top the frame is covered by its file's sticky header, where
+   * the header of the object being read (and of its section) sticks; 0 when nothing of it is.
+   */
+  | { tcx: 'viewport'; top: number };
 
 /**
  * A frame to the service worker, with `chrome.runtime.sendMessage`: fetch a URL with the user's session; whether the

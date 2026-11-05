@@ -75,6 +75,8 @@ interface Block extends ChangedFile {
   reveal?: Reveal;
   /** Where the view was left for the host's diff, while it is off: where the back button goes. */
   back?: Back;
+  /** How much of the frame its file's header covers, as the viewer was last told. */
+  viewport?: number;
 }
 
 let host: Host | undefined;
@@ -737,6 +739,8 @@ function onFrameMessage(e: MessageEvent): void {
   switch (m?.tcx) {
     case 'ready':
       block.ready = true;
+      block.viewport = undefined;
+      resize();
       postStyle(block);
       postReveal(block);
       postThreads(frame, block);
@@ -744,6 +748,7 @@ function onFrameMessage(e: MessageEvent): void {
       return;
     case 'height':
       frame.style.height = `${Math.max(40, Math.ceil(m.height))}px`;
+      resize();
       return;
     case 'goto':
       if (isLine(m.side, m.line)) goto(block, m.side, m.line, oldLine);
@@ -772,6 +777,35 @@ function onFrameMessage(e: MessageEvent): void {
   }
 }
 
+/**
+ * Tells each view shown how much of its frame its file's sticky header covers, as the page scrolls: the view sticks
+ * the header of the object being read below it. The frame has no scroll of its own, so it cannot know.
+ */
+function postViewports(): void {
+  if (!host) return;
+  for (const block of blocks.values()) {
+    const frame = block.frame;
+    if (!block.on || !block.ready || !frame?.isConnected) continue;
+    const container = containerOf(block);
+    const header = container && host.header(container);
+    if (!container || !header) continue;
+    const { after } = host.layout(container, header);
+    const r = frame.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) {
+      if (block.viewport) postViewport(block, frame, 0);
+      continue;
+    }
+    postViewport(block, frame, Math.max(0, Math.ceil(Math.max(header.getBoundingClientRect().bottom, after.getBoundingClientRect().bottom) - r.top)));
+  }
+}
+
+function postViewport(block: Block, frame: HTMLIFrameElement, top: number): void {
+  if (block.viewport === top) return;
+  block.viewport = top;
+  const message: PageMessage = { tcx: 'viewport', top };
+  frame.contentWindow?.postMessage(message, EXTENSION);
+}
+
 let sizing = false;
 const resize = () => {
   if (sizing) return;
@@ -779,6 +813,7 @@ const resize = () => {
   requestAnimationFrame(() => {
     sizing = false;
     sizeTree();
+    postViewports();
   });
 };
 // Once per page: the service worker also starts the script in the tab a site was just turned on in, and the popup in

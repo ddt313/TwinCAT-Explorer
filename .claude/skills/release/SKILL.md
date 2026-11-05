@@ -112,12 +112,14 @@ npm run package -- --out explorer-for-twincat-<version>.vsix
 unzip -p explorer-for-twincat-<version>.vsix extension/changelog.md | grep -n '^## ' | head -3   # no Unreleased
 ```
 
-Release notes: the changelog's section, then how to install (as `release.yml` writes them):
+Release notes: the changelog's section, then how to install (as `release.yml` writes them). The awk writes the
+whole line as `$(0)`: in a skill, a dollar sign followed by a digit is an argument placeholder, so with arguments
+the usual spelling reaches you as the first argument and the notes come out empty.
 
 ```bash
 version=<version>
 notes="$(awk -v head="## $version" '
-  index($0, head " ") == 1 || $0 == head { found = 1; next }
+  index($(0), head " ") == 1 || $(0) == head { found = 1; next }
   found && /^## / { exit }
   found { print }
 ' CHANGELOG.md | sed '/./,$!d')"

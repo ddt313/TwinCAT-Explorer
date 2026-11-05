@@ -3,6 +3,34 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.20.0 - 2026-11-05
+
+### Added
+- The language features know the installed libraries a PLC project references by name, without a stub: the
+  POUs, DUTs, GVLs and interfaces, with their methods, properties, actions and comments, that the
+  `browsercache` XAE writes next to a library names, read from the system library repositories and the
+  folders of `twincatExplorer.libraryRepositories`. They are no longer reported as unknown (`Unknown type
+  'FB_ComponentBase'` for the SPT Libraries,
+  [#91](https://github.com/ddt313/TwinCAT-Explorer/issues/91)), and have a hover and completion. Without their
+  declarations, members and arguments of theirs are not checked, and a POU extending one of their function
+  blocks gets no report of an unknown identifier. A stub still declares what it has; the browsercache adds the
+  rest. The MCP server's check knows them too.
+- The language features read the declarations of an installed source library (`.library`) a PLC project
+  references from its file, as a stub would declare them: its POUs, DUTs, GVLs and interfaces, with their
+  methods, properties, actions and comments, such as the SPT Libraries. Hovers, signature help and completion
+  have them; inherited variables, enumeration values and qualified GVLs are found, through the function blocks of
+  another library too, and an unknown identifier is reported again in a POU extending one of them. Compiled
+  libraries hold no declaration text: they stay known by name.
+
+### Fixed
+- Add Library finds the libraries of a folder of `twincatExplorer.libraryRepositories` that holds its
+  repository in a subfolder, such as a clone of the SPT Libraries (its `Library Repository` folder), and warns
+  about a folder of the setting without libraries, which went unnoticed next to the system repository's
+  libraries ([#91](https://github.com/ddt313/TwinCAT-Explorer/issues/91)).
+- Add Library writes the default namespace of a library its repository's `cache` lacks, such as those of a
+  cloned repository XAE never indexed here, from the `projectinfo` of its folder, instead of its title, which
+  can be no identifier (`SPT Base Types` for `SPT_BaseTypes`).
+
 ## 0.19.0 - 2026-11-02
 
 ### Added

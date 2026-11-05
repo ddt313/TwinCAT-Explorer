@@ -12,6 +12,7 @@ import { Builtins } from './builtins';
 import { TcWorkspace, SourceEntry, fileKey } from '../core/workspace';
 import { ObjectKind, Section, TcObject, TcSourceFile } from '../core/tcfile';
 import { PlcProject, resolutionLibraryName } from '../core/project';
+import type { InstalledSymbols } from '../core/libraries';
 
 export interface SectionContext {
   fileKey: string;
@@ -105,6 +106,7 @@ export class LanguageIndex {
   private readonly declCache = new Map<string, DeclParseResult>();
   private readonly bodyCache = new Map<string, BodyParseResult>();
   private stubSources: StubSource[] = [];
+  private installed: InstalledSymbols[] = [];
   private builtWorkspaceVersion = -1;
 
   constructor(readonly ws: TcWorkspace) {}
@@ -136,6 +138,19 @@ export class LanguageIndex {
   setStubs(sources: StubSource[]): void {
     this.stubSources = sources;
     this.allDirty = true;
+  }
+
+  /**
+   * The names of the installed libraries the PLC projects reference (see readInstalledSymbols), for those without a
+   * stub: their POUs, DUTs, GVLs and interfaces are known by name, their declarations are not.
+   */
+  setInstalledLibraries(libraries: InstalledSymbols[]): void {
+    this.installed = libraries;
+    this.allDirty = true;
+  }
+
+  get installedLibraries(): readonly InstalledSymbols[] {
+    return this.installed;
   }
 
   setOverlay(key: string, sectionKey: string, text: string | undefined): void {
@@ -172,6 +187,7 @@ export class LanguageIndex {
     ws.getFile = p => files.get(fileKey(p)) ?? this.ws.getFile(p);
     const other = new LanguageIndex(ws);
     other.setStubs(this.stubSources);
+    other.setInstalledLibraries(this.installed);
     for (const [key, sections] of this.overlays) {
       if (files.has(key)) continue;
       for (const [sectionKey, text] of sections) other.setOverlay(key, sectionKey, text);
@@ -241,14 +257,39 @@ export class LanguageIndex {
         this.addStubDeclarations(scope, m[2], `stub:${src.path}#${name}`);
       }
     }
+    // Installed libraries, for what their stubs, if any, do not declare: the declarations of a source library's file,
+    // then the names of the browsercache.
+    for (const lib of this.installed) {
+      const scope = this.libraryScopes.get(lib.title.toUpperCase()) ?? new Scope(lib.title, true);
+      this.libraryScopes.set(lib.title.toUpperCase(), scope);
+      for (const d of lib.declarations) {
+        if (scope.globals.has(d.name.toUpperCase())) continue;
+        this.addStubDeclarations(scope, d.text, `library:${lib.title}#${d.name}`, d.kind === 'gvl' ? d.name : undefined);
+      }
+      this.addInstalledObjects(scope, lib);
+    }
+    // The values of a library's enumerations that are not qualified only, as a project's.
+    for (const scope of this.libraryScopes.values()) {
+      for (const g of scope.globals.values()) {
+        if (g.kind !== 'type' || g.dutKind !== 'enum' || g.qualifiedOnly) continue;
+        for (const v of g.values) if (!scope.enumValues.has(v.name.toUpperCase())) scope.enumValues.set(v.name.toUpperCase(), v);
+      }
+    }
     // Stubs share the basic types of Tc2_System/Tc2_Standard (T_MaxString, ...).
     const common = ['TC2_SYSTEM', 'TC2_STANDARD'].map(n => this.libraryScopes.get(n)).filter((x): x is Scope => !!x);
+    // The installed libraries see each other too: one depends on another (SPT Components' function blocks extend SPT
+    // Base Types' FB_ComponentBase), which the projects reference as well.
+    const installed = [...new Set(this.installed.map(l => this.libraryScopes.get(l.title.toUpperCase())).filter((x): x is Scope => !!x))];
     for (const scope of this.libraryScopes.values()) {
-      scope.refs = common.filter(c => c !== scope);
+      scope.refs = [...common, ...(installed.includes(scope) ? installed : [])].filter((c, i, all) => c !== scope && all.indexOf(c) === i);
     }
   }
 
-  private addStubDeclarations(scope: Scope, text: string, key: string): void {
+  /**
+   * The declarations of a stub text in a library scope. Its variables outside a POU are the globals of the library,
+   * unqualified; with gvlName, those of that GVL of the library, qualified when its attribute says so.
+   */
+  private addStubDeclarations(scope: Scope, text: string, key: string, gvlName?: string): void {
     const parsed = this.parseDecl(text);
     const fake: FileSyms = {
       key, path: key, source: undefined, scope, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(), texts: new Map(),
@@ -268,18 +309,50 @@ export class LanguageIndex {
         this.addGlobal(scope, this.makeType(fake, scope, td, text, parsed.trivia, undefined));
       }
       if (!unit.header && unit.varBlocks.length > 0) {
-        const gvl: GvlSym = {
-          kind: 'gvl', id: `${scope.name}::(globals)`, name: scope.name, scope, signature: '', vars: [], qualifiedOnly: false,
-        };
+        const gvl: GvlSym = gvlName
+          ? { kind: 'gvl', id: `${scope.name}::${gvlName}`, name: gvlName, scope, signature: gvlName, vars: [], qualifiedOnly: hasAttribute(parsed.trivia, 'qualified_only') }
+          : { kind: 'gvl', id: `${scope.name}::(globals)`, name: scope.name, scope, signature: '', vars: [], qualifiedOnly: false };
         for (const block of unit.varBlocks) {
           for (const decl of block.decls) {
             for (const n of decl.names) {
               const v = this.makeVar(fake, gvl, block, decl, n, text, parsed.trivia, undefined, undefined);
               gvl.vars.push(v);
-              scope.gvlVars.set(n.upper, v);
+              if (!gvl.qualifiedOnly && !scope.gvlVars.has(n.upper)) scope.gvlVars.set(n.upper, v);
             }
           }
         }
+        if (gvlName) this.addGlobal(scope, gvl);
+      }
+    }
+  }
+
+  /**
+   * The objects of an installed library that its stub (if any) does not declare, as its browsercache names them:
+   * without their declarations, a POU is taken for a function block (calling it like a function is no error either), a
+   * DUT for a structure, a GVL is qualified only, and none has variables. They are namesOnly: what is not known about
+   * them is not reported.
+   */
+  private addInstalledObjects(scope: Scope, lib: InstalledSymbols): void {
+    const from = `${lib.title}, ${lib.version} (${lib.company})`;
+    const doc = (comment: string | undefined) => [comment, `From ${from}. Its declaration is not known: add a stub for it.`].filter(c => c).join('\n\n');
+    for (const o of lib.objects) {
+      if (scope.globals.has(o.name.toUpperCase())) continue;
+      const id = `${scope.name}::${o.name}`;
+      const base = { id, name: o.name, scope, signature: o.name, doc: doc(o.comment), namesOnly: true };
+      if (o.kind === 'pou' || o.kind === 'interface') {
+        const pou: PouSym = { ...base, kind: 'pou', pouKind: o.kind === 'interface' ? 'ITF' : 'FB', vars: [], members: [], extendsNames: [], implementsNames: [] };
+        if (o.kind === 'interface') pou.signature = `INTERFACE ${o.name}`;
+        for (const m of o.members) {
+          pou.members.push({
+            id: `${id}.${m.name}`, kind: m.kind, name: m.name, owner: pou, scope, vars: [], getVars: [], setVars: [],
+            signature: `${m.kind.toUpperCase()} ${m.name}`, doc: doc(m.comment), namesOnly: true,
+          });
+        }
+        this.addGlobal(scope, pou);
+      } else if (o.kind === 'dut') {
+        this.addGlobal(scope, { ...base, kind: 'type', dutKind: 'struct', fields: [], values: [], qualifiedOnly: false });
+      } else {
+        this.addGlobal(scope, { ...base, kind: 'gvl', vars: [], qualifiedOnly: true });
       }
     }
   }

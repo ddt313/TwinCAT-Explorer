@@ -355,6 +355,10 @@ XAE's Library Manager.
   `C:\ProgramData\Beckhoff\TwinCAT\PlcEngineering\Managed Libraries` with TwinCAT 3.1.4026,
   `%TWINCAT3DIR%Components\Plc\Managed Libraries` with 3.1.4024 and older, and the folders of
   `twincatExplorer.libraryRepositories` (repositories added in XAE's Library Repository dialog).
+  - A repository holds the folders `<Company>\<Library>\<Version>` of its libraries. A folder of the
+    setting that holds a repository in a subfolder, such as a clone of the SPT Libraries (its
+    `Library Repository` folder), is read as that subfolder. A folder of the setting without libraries
+    is warned about.
   - One entry per library and company: its title, company and newest version, its namespace and
     categories. Typing filters on all of them.
   - A library the PLC project references already, by either kind of reference, is marked and refused.
@@ -370,11 +374,14 @@ XAE's Library Manager.
 
   - The placeholder is the one the repository's profile gives the library (Beckhoff's libraries have
     their title), else the title. The default resolution has the version picked, `*` for always the
-    newest. The namespace is the library's default namespace.
+    newest. The namespace is the library's default namespace: from the repository's `cache`, or, for a
+    library the cache lacks (a cloned repository XAE never indexed here), from the `projectinfo` of its
+    version folder.
   - The reference goes among the others in alphabetical order, as XAE keeps them; the rest of the
     `.plcproj` stays byte-identical.
 - **Then:** the tree selects the new library under `References`, and the language features know the
-  symbols of its [stub](#library-stubs), if there is one. A `.plcproj` with unsaved changes in an
+  symbols of its [stub](#library-stubs), if there is one, and those of the library itself (see
+  [Library stubs](#library-stubs)). A `.plcproj` with unsaved changes in an
   editor is refused, and so is a workspace without a repository, with the folders looked in.
 
 </details>
@@ -965,7 +972,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.licenseStatusBar` | `true` | Show in the status bar how long the TwinCAT license that ends first has left (see [TwinCAT licenses](#twincat-licenses)). |
 | `twincatExplorer.remoteLicenses` | `false` | Also read the licenses of the remote TwinCAT systems this machine has ADS routes to, over ADS (see [TwinCAT licenses](#twincat-licenses)). |
 | `twincatExplorer.stubFiles` | `[]` | Extra library stub files: absolute paths, or paths relative to the first workspace folder (see [Library stubs](#library-stubs)). |
-| `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)). |
+| `twincatExplorer.libraryRepositories` | `[]` | Folders of library repositories besides TwinCAT's own (absolute paths), as added in XAE's Library Repository dialog: Add Library... lists their libraries too (see [Adding libraries](#adding-libraries)), and the language features know the names of the referenced ones (see [Library stubs](#library-stubs)). |
 | `twincatExplorer.exclude` | `**/{node_modules,.git,.claude,_Boot,_CompileInfo,_Libraries}/**` | Folders ignored when searching for `.tsproj` files. Folders whose name starts with a dot (git worktrees in `.claude/worktrees`, ...) are always ignored. |
 
 ## Library stubs
@@ -978,8 +985,35 @@ bundles stubs for the parts in common use:
 - Tc2_MC2: axis function blocks;
 - Tc2_Math, Tc3_Module and TcUnit.
 
+**Installed libraries are read too.** For a library a PLC project references and that is installed in a library
+repository (the system ones and the folders of `twincatExplorer.libraryRepositories`, as for
+[Add Library](#adding-libraries)), of the version the reference names (the newest installed for `*`), read
+again when a `.plcproj` or the setting changes. What a library's stub declares comes from the stub; then:
+
+**A source library (`.library`) is declared from its file**, as a stub would declare it: the declarations of its
+POUs, DUTs, GVLs and interfaces, with their methods, properties and actions, and their comments, such as the
+SPT Libraries. Its symbols have hovers, signature help and completion; inherited variables, enumeration values
+and its GVLs (qualified when their attribute says so) are found; one library's function blocks can extend
+another's. As with a stub, members and arguments of a library's symbols are not checked. A declaration the
+extension cannot parse (an enumeration declared inside a variable declaration, `State : (IDLE, BUSY);`) loses
+what follows it in that object.
+
+**A compiled library (`.compiled-library`, Beckhoff's) is known by name**: its file holds no declaration text,
+so the extension reads the `browsercache` XAE writes next to every installed library. It names the library's
+POUs, DUTs, GVLs and interfaces, and their methods, properties and actions, with their comments; it also gives
+the names a source library's file does not. The browsercache has names, not declarations:
+- These names are not reported as unknown, and have a hover with their comment and the library, and
+  completion.
+- They have no variables, parameters, return types or enumeration values: members of their instances and
+  arguments of their calls are not checked, and a POU that extends one of their function blocks gets no
+  report of an unknown identifier, which may be a variable it inherits.
+- A POU of the browsercache is taken for a function block (it does not tell function blocks, programs and
+  functions apart), a DUT for a structure.
+- Not in the browser (vscode.dev), where the repositories are not found.
+
 Symbols of other libraries are reported as unknown, and have no hover, signature help or call
-completion. Add them to a stub file and list that file in `twincatExplorer.stubFiles`:
+completion. For full declarations (signature help, checked parameters and members), add them to a stub file
+and list that file in `twincatExplorer.stubFiles`:
 
 ```
 LIBRARY Tc2_EtherCAT
@@ -1013,8 +1047,10 @@ sources.
   in it is deleted there.
 - XAE's own move of a file or folder could not be driven in a hidden XAE: a move here changes the paths
   of the items in place, as XAE does when it renames a file or folder.
-- Add Library reads the folders, `cache` and `profile` of the library repositories, not the library
-  files: the placeholder of a library comes from the profile, not from the library itself. Libraries
+- Add Library reads the folders, `cache`, `profile` and `projectinfo` files of the library repositories,
+  not the library files: the placeholder of a library comes from the profile, not from the library itself.
+  The language features read the declarations of a referenced source library from its file, and know a
+  compiled one by the names of its `browsercache`; its declarations need a [stub](#library-stubs). Libraries
   are installed, and references removed or changed (version, namespace, properties), in XAE.
 - Rename changes the uses the language index finds in Structured Text. It does not read the other
   implementation languages, visualizations and other files, nor change names it cannot resolve: the
@@ -1110,8 +1146,10 @@ sources.
 - **The git views say the projects are not in a git repository.** Check that git is installed and on
   `PATH`, or that VS Code's Git extension finds it (`git.path`). Also check that the repository is not
   one git refuses as unsafe. Then run the view's Refresh.
-- **Language features miss a library.** Add a [library stub](#library-stubs), or list the
-  identifiers in `twincatExplorer.diagnostics.ignore`.
+- **Language features miss a library.** Check that it is installed in a library repository the
+  extension reads (the system ones, or a folder of `twincatExplorer.libraryRepositories`): Add Library
+  lists the libraries it finds. Else add a [library stub](#library-stubs), or list the identifiers in
+  `twincatExplorer.diagnostics.ignore`.
 
 ## Release notes
 

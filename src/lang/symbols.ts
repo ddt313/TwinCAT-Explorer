@@ -19,6 +19,11 @@ interface SymBase {
   /** Declaration text shown in hovers. */
   signature: string;
   doc?: string;
+  /**
+   * Known by its name only, not by its declaration: an object of an installed library that its stub (if any) does not
+   * declare, as the library's browsercache names it.
+   */
+  namesOnly?: boolean;
 }
 
 export type PouKindSym = 'FB' | 'PRG' | 'FUN' | 'ITF';

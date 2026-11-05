@@ -4,7 +4,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  ProfilePlaceholder, compareVersions, decodeXml, libraryReference, parseProfile, placeholderName, readRepositories, systemRepositories,
+  ProfilePlaceholder, compareVersions, decodeXml, libraryReference, parseProfile, parseProjectInfoNamespace, placeholderName, readRepositories,
+  systemRepositories,
 } from '../../src/core/libraries';
 import { PlcProjectEditError, addPlaceholderReference, parseLibrarySpec, parsePlcProject, referenceTo } from '../../src/core/project';
 import { decodeBytes, encodeText } from '../../src/core/tcfile';
@@ -189,8 +190,84 @@ test('no repository: the folders looked in; the system ones on Windows only', as
   assert.deepEqual(systemRepositories({ ProgramData: 'C:\\ProgramData' }, 'linux'), []);
   const nowhere = path.join(os.tmpdir(), 'twincat-no-repository', 'Managed Libraries');
   assert.deepEqual(await readRepositories([nowhere]), {
-    found: [], missing: [{ folder: nowhere, reason: 'not found' }], libraries: [], placeholders: [],
+    found: [], missing: [{ folder: nowhere, reason: 'not found' }], libraries: [], placeholders: [], empty: [],
   });
+});
+
+/** A number as LEB128, as `projectinfo` writes its indexes and lengths. */
+function leb128(n: number): number[] {
+  const out: number[] = [];
+  do {
+    out.push((n & 0x7f) | (n >= 0x80 ? 0x80 : 0));
+    n = Math.floor(n / 128);
+  } while (n);
+  return out;
+}
+
+/**
+ * A `projectinfo` as XAE writes one, made up: a header, the table of its strings (System.String first), then the
+ * properties as objects naming them, a pair per property (a string object is `D0 00 01 2D <index>`).
+ */
+function projectinfo(strings: string[], properties: [name: string, value: string][]): Buffer {
+  const table = ['System.String', ...strings];
+  const string = (s: string) => [0xd0, 0x00, 0x01, 0x2d, ...leb128(table.indexOf(s) + 1)];
+  return Buffer.from([
+    0x21, 0x1d, 0x30, 0x85, 0x6a, 0xfc, 0x6f, 0x07, ...new Array(32).fill(0),
+    ...table.flatMap((s, i) => { const text = Buffer.from(s, 'utf16le'); return [...leb128(i + 1), ...leb128(text.length), ...text]; }),
+    0xd0, 0x00, 0x02, 0x1a, 0x0c, 0x9a, 0x03, 0x04,
+    ...properties.flatMap(([name, value]) => [...string(name), ...string(value)]),
+  ]);
+}
+
+test('the default namespace of a projectinfo: the string its property names, not the next one in the table', () => {
+  // SPT Base Types: the namespace follows its name in the table.
+  assert.equal(parseProjectInfoNamespace(projectinfo(['Company', ACME, 'DefaultNamespace', 'SPT_BaseTypes', 'Title', 'SPT Base Types'],
+    [['Company', ACME], ['DefaultNamespace', 'SPT_BaseTypes'], ['Title', 'SPT Base Types']])), 'SPT_BaseTypes');
+  // VisuShared: the namespace is its title, in the table before; another string follows the name.
+  assert.equal(parseProjectInfoNamespace(projectinfo(['Title', 'VisuShared', 'DefaultNamespace', 'LanguageModelAttribute', 'qualified-access-only'],
+    [['Title', 'VisuShared'], ['DefaultNamespace', 'VisuShared'], ['LanguageModelAttribute', 'qualified-access-only']])), 'VisuShared');
+  // Indexes past 127 take two bytes.
+  const many = Array.from({ length: 140 }, (_, i) => `Property${i}`);
+  assert.equal(parseProjectInfoNamespace(projectinfo([...many, 'DefaultNamespace', 'CAA'], [['Property0', 'Property1'], ['DefaultNamespace', 'CAA']])), 'CAA');
+  // None: no namespace, one that is no identifier, no projectinfo.
+  assert.equal(parseProjectInfoNamespace(projectinfo(['Title', 'SPT EtherCat'], [['Title', 'SPT EtherCat']])), undefined);
+  assert.equal(parseProjectInfoNamespace(projectinfo(['DefaultNamespace', 'Not one'], [['DefaultNamespace', 'Not one']])), undefined);
+  assert.equal(parseProjectInfoNamespace(Buffer.from('not a projectinfo')), undefined);
+});
+
+test('a cloned repository without a cache: in a subfolder, the namespaces of its projectinfo files; a folder without libraries', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-libraries-'));
+  const clone = path.join(base, 'SPT-Libraries');
+  const repository = path.join(clone, 'Library Repository');
+  const nothing = path.join(base, 'Nothing');
+  try {
+    const SPT = 'Beckhoff Automation LLC';
+    writeRepository(repository, [
+      [SPT, 'SPT Base Types', '3.3.0', 'SPT_Base_Types.library'], [SPT, 'SPT Base Types', '3.9.0', 'SPT_Base_Types.library'],
+      [SPT, 'SPT EtherCat', '3.9.0', 'SPT_EtherCat.library'],
+    ], {});
+    for (const v of ['3.3.0', '3.9.0']) {
+      fs.writeFileSync(path.join(repository, SPT, 'SPT Base Types', v, 'projectinfo'),
+        projectinfo(['Company', SPT, 'DefaultNamespace', 'SPT_BaseTypes', 'Title', 'SPT Base Types'],
+          [['Company', SPT], ['DefaultNamespace', 'SPT_BaseTypes'], ['Title', 'SPT Base Types']]));
+    }
+    // The other folders of the clone are no repository; git's are not looked in.
+    fs.mkdirSync(path.join(clone, 'docs', 'images'), { recursive: true });
+    fs.mkdirSync(path.join(clone, '.git', 'objects', 'ab'), { recursive: true });
+    fs.mkdirSync(nothing);
+
+    const read = await readRepositories([clone, nothing]);
+    assert.deepEqual(read.found, [repository, nothing]);
+    assert.deepEqual(read.empty, [nothing]);
+    assert.deepEqual(read.libraries.map(l => [l.title, l.company, l.versions.map(v => `${v.version} ${v.namespace}`)]), [
+      ['SPT Base Types', SPT, ['3.9.0 SPT_BaseTypes', '3.3.0 SPT_BaseTypes']],
+      // Its projectinfo names no namespace: its title.
+      ['SPT EtherCat', SPT, ['3.9.0 SPT EtherCat']],
+    ]);
+    assert.deepEqual((await readRepositories([repository])).libraries.map(l => l.versions[0].namespace), ['SPT_BaseTypes', 'SPT EtherCat']);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
 });
 
 test('the XML of a repository is read by its BOM: UTF-16 LE, UTF-16 BE, UTF-8', () => {

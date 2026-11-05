@@ -10,6 +10,7 @@ import { isInHiddenFolder } from './core/paths';
 import { debugLog } from './core/debugLog';
 import { LanguageIndex, SectionContext, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
+import { referencedLibrarySymbols } from './core/libraries';
 import { ObjectFileSystem } from './vscode/objectFs';
 import { Xae } from './core/xae';
 import { XaeSaveHost, saveThroughXae } from './core/xaeSave';
@@ -220,6 +221,26 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     diagnostics.scheduleAll(delay);
     objectEditors.scheduleAll(delay);
   };
+  /**
+   * The names of the installed libraries the PLC projects reference, from their browsercache, for the language
+   * features of those without a stub. Read without XAE, on the desktop; the newest call wins.
+   */
+  let installedGeneration = 0;
+  const loadInstalledLibraries = async () => {
+    if (web) return;
+    const generation = ++installedGeneration;
+    const setting = config().get<unknown>('libraryRepositories');
+    const folders = (Array.isArray(setting) ? setting : []).filter((f): f is string => typeof f === 'string').map(f => f.trim()).filter(f => f);
+    try {
+      const installed = await referencedLibrarySymbols(ws.plcProjects, folders);
+      if (generation !== installedGeneration) return;
+      index.setInstalledLibraries(installed);
+      features.clearAnalysisCache();
+      scheduleAllDiagnostics();
+    } catch (e) {
+      log.warn(`Reading the installed libraries: ${(e as Error).message}`);
+    }
+  };
 
   context.subscriptions.push(
     treeView, diagnostics, checkCollection, log, diffFs, gitChanges, gitDirs, objectEditors, locations,
@@ -351,6 +372,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       if (hasProjects) {
         startProjectServices();
         index.setStubs([...BUNDLED_STUBS, ...userStubs()]);
+        void loadInstalledLibraries();
       }
       index.invalidateAll();
       refreshOverlays();
@@ -576,6 +598,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
         index.setStubs([...BUNDLED_STUBS, ...userStubs()]);
         scheduleAllDiagnostics();
       }
+      if (e.affectsConfiguration('twincatExplorer.libraryRepositories') && ws.tsProjects.length > 0) void loadInstalledLibraries();
       if (e.affectsConfiguration('twincatExplorer.diagnostics')) {
         features.clearAnalysisCache();
         scheduleAllDiagnostics(50);

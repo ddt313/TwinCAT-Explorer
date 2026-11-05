@@ -372,6 +372,13 @@ export class ObjectCommands {
       void vscode.window.showWarningMessage(`${REPOSITORIES_SETTING}: not read: ${unread.map(m => `${m.folder} (${m.reason})`).join('; ')}.`, 'Open Settings')
         .then(openSetting);
     }
+    // A folder of the setting without libraries, while the system repository has some: else it goes unnoticed.
+    const empty = repositories.empty.filter(f => configured.includes(f));
+    if (empty.length && repositories.libraries.length) {
+      void vscode.window.showWarningMessage(`${REPOSITORIES_SETTING}: no libraries in ${empty.join('; ')}. A library repository holds `
+        + 'the folders <Company>\\<Library>\\<Version> of its libraries, as the folder added in XAE\'s Library Repository dialog.', 'Open Settings')
+        .then(openSetting);
+    }
     if (!repositories.libraries.length) {
       void vscode.window.showWarningMessage(`No libraries are installed in ${repositories.found.join('; ')}.`);
       return;

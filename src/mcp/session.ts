@@ -14,6 +14,7 @@ import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
 import { SectionFeatures } from '../lang/features';
 import { LanguageIndex, SectionContext, StubSource } from '../lang/index';
 import { BUNDLED_STUBS } from '../lang/stubs';
+import { referencedLibrarySymbols } from '../core/libraries';
 import { Loc } from '../lang/symbols';
 
 /** What a tool name stands for: an object (POU, member, DUT, GVL, interface) or one accessor of a property. */
@@ -41,6 +42,10 @@ export class Session {
   private scannedAt = 0;
   /** Modification time and size of the project files (.tsproj, .plcproj, .xti) when the projects were loaded. */
   private projectStamp = '';
+  /** The folders of the setting twincatExplorer.libraryRepositories. */
+  private repositories: string[] = [];
+  /** The projectStamp the installed libraries were read for. */
+  private librariesStamp: string | undefined;
 
   constructor(readonly root: string) {
     this.features = new SectionFeatures(this.index, () => this.ignore);
@@ -100,6 +105,23 @@ export class Session {
       }
     }
     this.index.setStubs(stubs);
+    this.repositories = list('twincatExplorer.libraryRepositories').map(f => f.trim()).filter(f => f);
+  }
+
+  /**
+   * After refresh: the names of the installed libraries the projects reference, read again when the projects were
+   * loaded again (see referencedLibrarySymbols), as the extension reads them.
+   */
+  async installedLibraries(): Promise<void> {
+    if (this.librariesStamp === this.projectStamp) return;
+    const stamp = this.projectStamp;
+    try {
+      this.index.setInstalledLibraries(await referencedLibrarySymbols(this.ws.plcProjects, this.repositories));
+    } catch {
+      // the language features go without them
+    }
+    this.librariesStamp = stamp;
+    this.index.ensure();
   }
 
   get projects(): PlcProject[] {

@@ -11,6 +11,12 @@ All notable changes to Explorer for TwinCAT. The format follows
   its setting `diffEditor.renderSideBySide`, and are inline while a pane is too narrow
   (`diffEditor.useInlineViewWhenSpaceIsLimited`). `Diff View` in the editor's `...` menu picks `Inline` or
   `Side by Side`, for VS Code's diff editor too.
+- The bar between the split editor's two panes has `^` and `v` arrows, as in TwinCAT XAE: `^` gives the whole
+  editor to the Implementation, `v` to the Declaration, and the other arrow brings the bar back where it was.
+
+### Changed
+- The bar between the split editor's two panes stands out from the code: a band with a border on each side and
+  grip dots in its middle, instead of a thin line that was hard to see in dark themes.
 
 ## 0.20.1 - 2026-11-05
 

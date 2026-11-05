@@ -74,7 +74,7 @@ window.MonacoEnvironment = {
 
 const LANG = 'twincat-st';
 const THEME = 'twincat-vscode';
-const SASH = 4;
+const SASH = 12;
 const MIN_PANE = 40;
 monaco.languages.register({ id: LANG });
 
@@ -128,6 +128,8 @@ let sash: HTMLElement | undefined;
 const root = document.getElementById('root')!;
 const models = new Map<string, ModelInfo>();
 let ratio = 0.5;
+/** Ratio to come back to from a maximized pane (ratio 0: the lower pane fills the editor, 1: the upper one). */
+let restoreRatio = 0.5;
 let seq = 0;
 /** Seq of the last edit sent per section: a sync older than it is not applied to that section. */
 const lastSeqOf = new Map<string, number>();
@@ -177,17 +179,19 @@ function request<T>(kind: RequestKind, key: string, model: Monaco.editor.ITextMo
 
 interface SavedState {
   ratio?: number;
+  restore?: number;
   changes?: boolean;
 }
 
 function saveState(): void {
-  vscodeApi.setState({ ratio, changes: wantChanges } satisfies SavedState);
+  vscodeApi.setState({ ratio, restore: restoreRatio, changes: wantChanges } satisfies SavedState);
   // Also kept by the host: a webview that is rebuilt (its tab replaced, moved) gets it back.
   post({ type: 'ratio', ratio });
 }
 
 const saved = (vscodeApi.getState() ?? {}) as SavedState;
 if (typeof saved.ratio === 'number') ratio = saved.ratio;
+if (typeof saved.restore === 'number') restoreRatio = saved.restore;
 
 // ------------------------------------------------------------------ theme
 
@@ -572,14 +576,16 @@ function layout(): void {
   } else if (panes.length >= 2) {
     const usable = Math.max(0, height - SASH);
     const minRatio = Math.min(0.5, MIN_PANE / Math.max(1, usable));
-    // Clamped for this size only: the chosen ratio comes back when the editor grows again.
-    const r = Math.max(minRatio, Math.min(1 - minRatio, ratio));
+    // Clamped for this size only: the chosen ratio comes back when the editor grows again. A maximized pane
+    // (ratio 0 or 1) takes the whole editor.
+    const r = ratio <= 0 || ratio >= 1 ? ratio : Math.max(minRatio, Math.min(1 - minRatio, ratio));
     const top = Math.round(usable * r);
     panes[0].element.style.top = '0px';
     panes[0].element.style.height = `${top}px`;
     sash!.style.top = `${top}px`;
     panes[1].element.style.top = `${top + SASH}px`;
     panes[1].element.style.height = `${usable - top}px`;
+    updateSashButtons();
   }
   for (const p of panes) {
     if (p.diff) layoutDiff(p.diff);
@@ -602,9 +608,64 @@ function setRatio(r: number): void {
   saveState();
 }
 
+/**
+ * The arrows of the splitter, as in TwinCAT XAE: up gives the whole editor to the lower pane, down to the upper
+ * one; the other arrow of a maximized pane brings the splitter back where it was.
+ */
+function maximize(dir: 'up' | 'down'): void {
+  if (panes.length < 2) return;
+  const maxed = ratio <= 0 || ratio >= 1;
+  if (maxed && (dir === 'up') === (ratio >= 1)) {
+    setRatio(restoreRatio > 0 && restoreRatio < 1 ? restoreRatio : 0.5);
+    return;
+  }
+  if (dir === 'up' ? ratio <= 0 : ratio >= 1) return;
+  if (!maxed) restoreRatio = ratio;
+  const shown = panes[dir === 'up' ? 1 : 0];
+  const hidden = panes[dir === 'up' ? 0 : 1];
+  const hadFocus = hidden.element.contains(document.activeElement);
+  setRatio(dir === 'up' ? 0 : 1);
+  if (hadFocus) shown.editor.focus();
+}
+
+function updateSashButtons(): void {
+  if (!sash || panes.length < 2) return;
+  const [upper, lower] = panes;
+  for (const button of sash.querySelectorAll<HTMLElement>('.sash-button')) {
+    const up = button.dataset.dir === 'up';
+    const restores = up ? ratio >= 1 : ratio <= 0;
+    const disabled = up ? ratio <= 0 : ratio >= 1;
+    button.classList.toggle('disabled', disabled);
+    button.title = disabled ? '' : restores ? 'Restore Both Panes' : `Maximize ${(up ? lower : upper).section.label}`;
+  }
+}
+
 function createSash(): HTMLElement {
   const el = document.createElement('div');
   el.className = 'sash';
+  const grip = document.createElement('div');
+  grip.className = 'sash-grip';
+  el.appendChild(grip);
+  const buttons = document.createElement('div');
+  buttons.className = 'sash-buttons';
+  for (const dir of ['up', 'down'] as const) {
+    const button = document.createElement('div');
+    button.className = 'sash-button';
+    button.dataset.dir = dir;
+    button.setAttribute('role', 'button');
+    // A chevron pointing the way the splitter goes.
+    button.innerHTML = `<svg width="10" height="6" viewBox="0 0 10 6"><path d="${dir === 'up' ? 'M1 5l4-4 4 4' : 'M1 1l4 4 4-4'}"
+      fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    // Clicking an arrow does not start a drag.
+    button.addEventListener('pointerdown', e => e.stopPropagation());
+    button.addEventListener('dblclick', e => e.stopPropagation());
+    button.addEventListener('click', e => {
+      e.stopPropagation();
+      maximize(dir);
+    });
+    buttons.appendChild(button);
+  }
+  el.appendChild(buttons);
   let dragging = false;
   let hoverTimer: number | undefined;
   el.addEventListener('pointerenter', () => {
@@ -1560,11 +1621,19 @@ style.textContent = `
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--vscode-editor-background); }
 #root { position: relative; height: 100vh; overflow: hidden; }
 .pane { position: absolute; left: 0; right: 0; overflow: hidden; }
-.sash { position: absolute; left: 0; right: 0; height: ${SASH}px; cursor: row-resize; z-index: 10; }
-.sash::before { content: ''; position: absolute; left: 0; right: 0; top: ${Math.floor(SASH / 2)}px; height: 1px;
-  background: var(--vscode-editorGroup-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35))); }
-.sash.hover, .sash.active { background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder)); }
-.sash.hover::before, .sash.active::before { display: none; }
+.sash { position: absolute; left: 0; right: 0; height: ${SASH}px; box-sizing: border-box; cursor: row-resize; z-index: 10;
+  --sash-line: color-mix(in srgb, var(--vscode-foreground, #888888) 20%, transparent);
+  background: var(--vscode-sideBar-background, var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background)));
+  border-top: 1px solid var(--sash-line); border-bottom: 1px solid var(--sash-line); }
+.sash.hover, .sash.active { --sash-line: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder)); }
+/* Grip dots in the middle: the splitter can be dragged. */
+.sash-grip { position: absolute; left: 50%; top: 50%; width: 28px; height: 4px; margin: -2px 0 0 -14px; pointer-events: none;
+  background: radial-gradient(circle, color-mix(in srgb, var(--vscode-foreground, #888888) 55%, transparent) 1px, transparent 1.4px) 0 0 / 7px 4px; }
+.sash-buttons { position: absolute; right: 24px; top: -1px; bottom: -1px; display: flex; gap: 2px; }
+.sash-button { width: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 2px;
+  color: color-mix(in srgb, var(--vscode-foreground, #888888) 75%, transparent); }
+.sash-button:hover { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.25)); }
+.sash-button.disabled { opacity: 0.3; pointer-events: none; }
 .editor-host { position: absolute; inset: 0; }
 /* Change markers against HEAD, drawn like VS Code's (bar for added and changed lines, wedge for removed ones). */
 .monaco-editor .tc-change { margin-left: 3px; z-index: 5; cursor: pointer; box-sizing: border-box; width: 3px !important; }

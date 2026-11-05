@@ -94,6 +94,8 @@ XAE, with its changes against `HEAD` and the blame of the current line.
     own scroll bar, and both start at the same height.
   - Drag the bar between them to change the heights; the tab remembers it. Double-click the bar to
     get equal halves again.
+  - The arrows on the right of the bar give the whole editor to one pane, as in XAE: `^` to the
+    Implementation, `v` to the Declaration. The other arrow brings the bar back where it was.
 - **Which tab shows what:** a property tab shows the property declaration, and its `Get` and `Set`
   open in their own tabs. DUTs, GVLs and interfaces have a single pane.
 - **Opening:** a single click in the tree opens a preview tab; a double click, or an edit, keeps it.

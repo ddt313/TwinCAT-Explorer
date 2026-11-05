@@ -55,7 +55,7 @@ A click on an object opens its file's TwinCAT view at that object.
 On the pages of a repository's files and folders (GitHub, GitLab, Bitbucket), a file's **TwinCAT view** and the **Files | TwinCAT** tabs show
 the repository at that ref, without a diff (see [A repository's files](#a-repositorys-files)).
 
-The same on a GitLab merge request's *Changes* tab: on gitlab.com right away; on a self-managed instance once the
+The same on a GitLab merge request's *Changes* tab, also while it is being created (*New merge request*): on gitlab.com right away; on a self-managed instance once the
 extension's popup (its toolbar button, on a page of the instance) has turned it on for that site. And on a Bitbucket
 Cloud pull request's *Files changed* tab (`bitbucket.org/<workspace>/<repo>/pull-requests/<id>/diff`), right away.
 
@@ -203,6 +203,13 @@ template and the order of the ways to read, and know no host.
   is built, since the app's mount point loses the endpoint's attribute when it starts. Else the REST API's
   `diff_refs`. GitLab's REST API takes the session cookie on its own origin: a private project needs no token. On
   MR !4 of the project below all three give `0717d44 → d0d506d`.
+- **A merge request being created.** Its *Changes* tab (`/<source project>/-/merge_requests/new/diffs`, `data-page`
+  `projects:merge_requests:creations:…`), what the branches would change before *Create merge request*: the same
+  blocks. The branches from the page's form fields (`merge_request[source_branch]`, `…[target_branch]`, the projects'
+  ids), which have the target branch GitLab chose when the URL names none (the link GitLab gives after a push), else
+  the URL's. Commits: a Rapid Diffs block's `data-file-data`, else the REST API, the source branch's head
+  (`repository/commits/<branch>`) and its merge base with the target branch (`repository/merge_base`, as GitLab
+  diffs); files: the REST API's comparison of the two. No threads: there is no merge request yet.
 - **Files.** The REST API: `…/merge_requests/:iid/diffs`, page by page (GitLab 15.7+; `…/changes` before). Paths,
   old paths, added and deleted files: the tree's list, and what a block lacks (a classic block has its new path only).
 - **Reading.** `/<project>/-/raw/<sha>/<path>` answers `200` directly, with no CORS header: from the page first (same

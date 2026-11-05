@@ -14,13 +14,13 @@ import { pullRequestPage, sourcePage } from './bitbucket';
 import { ReviewThread, Side, ThreadsResult, currentPosition, threadsOfFile } from './comments';
 import { fetchText } from './fetchText';
 import { filesPage, githubRepositoryPage } from './github';
-import { isChangesTab, mergeRequestPage, repositoryPage } from './gitlab';
+import { isChangesTab, mergeRequestPage, newMergeRequest, newMergeRequestProject, repositoryPage } from './gitlab';
 import { Host } from './host';
 import { BitbucketHost } from './hostBitbucket';
 import { BitbucketRepositoryHost } from './hostBitbucketRepo';
 import { GitHubHost } from './hostGithub';
 import { GitHubRepositoryHost } from './hostGithubRepo';
-import { GitLabHost } from './hostGitlab';
+import { GitLabHost, GitLabNewMergeRequestHost } from './hostGitlab';
 import { GitLabRepositoryHost } from './hostGitlabRepo';
 import { Lookup } from './lookup';
 import { hasObjectView } from './model';
@@ -52,6 +52,13 @@ function detectHost(): Host | undefined {
   }
   const mr = mergeRequestPage(location.pathname);
   if (mr && isChangesTab(location.pathname) && document.body?.dataset.page?.startsWith('projects:merge_requests')) return new GitLabHost(mr);
+  // A merge request being created: its diffs show on its Changes tab, before it is.
+  const project = newMergeRequestProject(location.pathname);
+  if (project && document.body?.dataset.page?.startsWith('projects:merge_requests:creations')) {
+    const field = (name: string) => document.querySelector<HTMLInputElement>(`input[name="${CSS.escape(name)}"]`)?.value;
+    const created = newMergeRequest(project, location.search, field);
+    if (created) return new GitLabNewMergeRequestHost(created);
+  }
   // A GitLab repository's folder or file (its app does not change `data-page` as it goes from one to the other).
   const repo = repositoryPage(location.pathname);
   if (repo && /^projects:(tree|blob):show$/.test(document.body?.dataset.page ?? '')) return new GitLabRepositoryHost(repo);

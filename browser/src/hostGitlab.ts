@@ -5,12 +5,13 @@
 // needs no token); the commits from the page's data (what it shows, its version and comparison included), else the
 // REST API; on a page of one commit, version or comparison (`commit_id`, `diff_id`, `start_sha`), the files are
 // those of the commits it compares, from the REST API too; the review threads from the discussions the page itself
-// reads, else the REST API, with the session too.
+// reads, else the REST API, with the session too. The Changes tab of a merge request being created (`…/new/diffs`)
+// has the same blocks, and its own commits and files (GitLabNewMergeRequestHost).
 
 import { ReviewThread, ThreadsResult } from './comments';
 import {
-  commitsFromDiffRefs, compareApi, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isPartialView, mergeRequestApi, MergeRequest,
-  noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
+  commitApi, commitsFromDiffRefs, compareApi, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isPartialView, mergeBaseApi,
+  mergeRequestApi, MergeRequest, NewMergeRequest, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from './gitlab';
 import { Host, digest, showTarget } from './host';
 import { Commits, Strategy, Theme } from './params';
@@ -22,9 +23,13 @@ const BLOCK_ID = /^[0-9a-f]{40}$/;
 const XHR = { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
 const log = (...args: unknown[]) => console.debug('[TwinCAT view]', ...args);
 
-export class GitLabHost implements Host {
+/**
+ * What GitLab's pages of diffs share, a merge request's Changes tab and the Changes tab of a new merge request: the
+ * instance's root and the project, the raw files, the blocks of the two diff pages, their lines and the file tree.
+ */
+export abstract class GitLabDiffsHost implements Host {
   readonly kind = 'gitlab';
-  readonly key: string;
+  abstract readonly key: string;
   readonly raw: string;
   /** From the page first: the raw files have the page's origin, and the session goes with them. */
   readonly order: Strategy[] = ['page', 'frame', 'worker'];
@@ -33,29 +38,137 @@ export class GitLabHost implements Host {
   readonly treeOverlay = true;
   /** Read again each time a view is turned on, a few seconds apart: a comment just written shows. */
   readonly threadsFresh = 5000;
-  private readonly project: string | number;
-  private apiFiles: Promise<ChangedFile[] | undefined> | undefined;
-  /** The commits being looked for, for the files of a page that shows part of the merge request. */
-  private compared: Promise<Commits | undefined> | undefined;
-  /** The commits `apiFiles` is the comparison of, on such a page. */
-  private filesOf = '';
-
+  /** The page's project: its id, else its full path. */
+  protected readonly project: string | number;
   /** The instance's root: its origin, and the path it is served under (`https://example.com/gitlab`). */
-  private readonly root: string;
-  private readonly path: string;
+  protected readonly root: string;
+  protected readonly path: string;
 
-  constructor(private readonly mr: MergeRequest) {
+  constructor(project: string) {
     const data = document.body.dataset;
     const id = Number(data.projectId);
     // The page names its project: what comes before it in the URL is the instance's own path.
     const full = data.projectFullPath;
     const at = full ? location.pathname.indexOf(`/${full}/-/`) : -1;
     this.root = location.origin + (at > 0 ? location.pathname.slice(0, at) : '');
-    this.path = full && at >= 0 ? full : mr.project;
+    this.path = full && at >= 0 ? full : project;
     this.project = Number.isInteger(id) && id > 0 ? id : this.path;
+    this.raw = gitlabRawTemplate(this.root, this.path);
+  }
+
+  abstract commits(): Promise<Commits | undefined>;
+  abstract files(): Promise<ChangedFile[] | undefined>;
+  abstract threads(): Promise<ThreadsResult>;
+
+  /** The comparison of two commits by the REST API: a file not on the page is not there to show. */
+  protected async compareFiles(c: Commits): Promise<ChangedFile[] | undefined> {
+    try {
+      const r = await fetch(compareApi(this.root, this.project, c.base, c.head));
+      if (r.ok) return filesFromApi((await r.json() as { diffs?: unknown }).diffs);
+      log('The REST API did not compare the commits:', r.status);
+    } catch (e) {
+      log('The REST API did not compare the commits:', String(e));
+    }
+    return undefined;
+  }
+
+  /** The commits of the Rapid Diffs page, in its first file's data. */
+  protected static rapidCommits(): Commits | undefined {
+    return rapidFileData(document.querySelector<HTMLElement>(RAPID)?.dataset.fileData)?.commits;
+  }
+
+  async listedFiles(): Promise<ChangedFile[]> {
+    // The REST API lists them all; the page's tree has no full paths to add.
+    return [];
+  }
+
+  containers(): HTMLElement[] {
+    return [...document.querySelectorAll<HTMLElement>(`${RAPID}, ${CLASSIC}`)].filter(c => BLOCK_ID.test(c.id));
+  }
+
+  private static rapid(container: HTMLElement): boolean {
+    return container.tagName === 'DIFF-FILE';
+  }
+
+  header(container: HTMLElement): HTMLElement | null {
+    return GitLabDiffsHost.rapid(container)
+      ? container.querySelector<HTMLElement>('.rd-diff-file-header, [data-testid="rd-diff-file-header"]')
+      : container.querySelector<HTMLElement>('.js-file-title, [data-testid="file-title-container"]');
+  }
+
+  async identify(container: HTMLElement): Promise<ChangedFile | undefined> {
+    const own = GitLabDiffsHost.rapid(container) ? rapidFileData(container.dataset.fileData)?.file : container.dataset.path ? { path: container.dataset.path } : undefined;
+    if (!own) return undefined;
+    // The API says whether it was added, deleted or renamed (the classic block has its new path only).
+    const known = (await this.files())?.find(f => f.path === own.path);
+    return { ...own, ...known };
+  }
+
+  toggleSlot(header: HTMLElement): HTMLElement {
+    return header.querySelector<HTMLElement>('.rd-diff-file-header-main, .file-header-content') ?? header;
+  }
+
+  layout(container: HTMLElement, header: HTMLElement): { after: HTMLElement; hide: HTMLElement[] } {
+    if (GitLabDiffsHost.rapid(container)) {
+      const sticky = container.querySelector<HTMLElement>('.rd-diff-file-header-sticky') ?? header;
+      const body = container.querySelector<HTMLElement>('.rd-diff-file-details');
+      return { after: sticky, hide: body ? [body] : [] };
+    }
+    const body = container.querySelector<HTMLElement>(':scope > .diff-content');
+    return { after: header, hide: body ? [body] : [] };
+  }
+
+  async anchorOf(path: string): Promise<string> {
+    return digest('SHA-1', path);
+  }
+
+  goToLine(container: HTMLElement, side: 'L' | 'R', line: number): boolean {
+    let target: HTMLElement | null;
+    if (GitLabDiffsHost.rapid(container)) target = document.getElementById(rapidLineAnchor(container.id, side, line));
+    else target = container.querySelector<HTMLElement>(`[data-interop-${side === 'L' ? 'old' : 'new'}-line="${line}"][id]`);
+    return showTarget(container, target);
+  }
+
+  /** The first note's element (`note_<id>`, both pages), else the discussion's (a collapsed one, resolved). */
+  goToThread(container: HTMLElement, thread: ReviewThread): boolean {
+    const el = document.getElementById(thread.anchor) ?? container.querySelector<HTMLElement>(`[data-discussion-id="${CSS.escape(thread.id)}"]`);
+    return showTarget(container, el);
+  }
+
+  goToFile(anchor: string): void {
+    if (document.getElementById(anchor)) return;
+    // The classic page renders a block when its row in GitLab's tree is clicked.
+    const row = document.querySelector<HTMLElement>(`button[data-file-row="${anchor}"], a[data-file-row="${anchor}"]`);
+    if (row) row.click();
+    else location.hash = anchor;
+  }
+
+  treePanel(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('[data-testid="file-browser-tree"]');
+  }
+
+  theme(): Theme {
+    return gitlabTheme(document.documentElement.className);
+  }
+
+  diffStyle(): DiffStyle | undefined {
+    return gitlabDiffStyle(location.search, document.cookie);
+  }
+}
+
+/** A merge request's Changes tab. */
+export class GitLabHost extends GitLabDiffsHost {
+  readonly key: string;
+  private apiFiles: Promise<ChangedFile[] | undefined> | undefined;
+  /** The commits being looked for, for the files of a page that shows part of the merge request. */
+  private compared: Promise<Commits | undefined> | undefined;
+  /** The commits `apiFiles` is the comparison of, on such a page. */
+  private filesOf = '';
+
+  constructor(private readonly mr: MergeRequest) {
+    super(mr.project);
     // Another version or comparison of the merge request is another page.
     this.key = `gitlab:${this.root}/${this.path}!${mr.iid}${location.search}`;
-    this.raw = gitlabRawTemplate(this.root, this.path);
   }
 
   private api(path = ''): string {
@@ -68,7 +181,7 @@ export class GitLabHost implements Host {
   }
 
   private async findCommits(): Promise<Commits | undefined> {
-    const rapid = rapidFileData(document.querySelector<HTMLElement>(RAPID)?.dataset.fileData)?.commits;
+    const rapid = GitLabDiffsHost.rapidCommits();
     if (rapid) return rapid;
     // The classic page loads its diffs from this endpoint, with the version, commit and comparison of its URL: the
     // diff refs of what it shows. (Its mount point loses the endpoint's attribute once the page has started.)
@@ -130,23 +243,9 @@ export class GitLabHost implements Host {
     const key = `${c.base}..${c.head}`;
     if (this.filesOf !== key || !this.apiFiles) {
       this.filesOf = key;
-      this.apiFiles = (async () => {
-        try {
-          const r = await fetch(compareApi(this.root, this.project, c.base, c.head));
-          if (r.ok) return filesFromApi((await r.json() as { diffs?: unknown }).diffs);
-          log('The REST API did not compare the commits:', r.status);
-        } catch (e) {
-          log('The REST API did not compare the commits:', String(e));
-        }
-        return undefined;
-      })();
+      this.apiFiles = this.compareFiles(c);
     }
     return this.apiFiles;
-  }
-
-  async listedFiles(): Promise<ChangedFile[]> {
-    // The REST API lists them all; the page's tree has no full paths to add.
-    return [];
   }
 
   /**
@@ -187,77 +286,69 @@ export class GitLabHost implements Host {
     const signedOut = failed.some(f => /HTTP 40[13]/.test(f));
     return { threads: [], problem: `The comments could not be read (${failed.join('; ')})${signedOut ? ': sign in to see them' : ''}.` };
   }
+}
 
-  containers(): HTMLElement[] {
-    return [...document.querySelectorAll<HTMLElement>(`${RAPID}, ${CLASSIC}`)].filter(c => BLOCK_ID.test(c.id));
+/**
+ * The Changes tab of a merge request being created (`…/-/merge_requests/new/diffs`, under the source project): what
+ * the branches would change, before *Create merge request*. The commits from the page's data (Rapid Diffs), else the
+ * REST API: the source branch's head, and its merge base with the target branch (GitLab's diff is from there); the
+ * files from the REST API's comparison of them. The base is in the history of the head, so the source project serves
+ * both, a fork's too. No review threads: there is no merge request yet.
+ */
+export class GitLabNewMergeRequestHost extends GitLabDiffsHost {
+  readonly key: string;
+  private compared: Promise<Commits | undefined> | undefined;
+  private apiFiles: Promise<ChangedFile[] | undefined> | undefined;
+  private filesOf = '';
+
+  constructor(private readonly mr: NewMergeRequest) {
+    super(mr.project);
+    this.key = `gitlab:${this.root}/${this.path}!new:${mr.targetProjectId ?? ''}:${mr.target}..${mr.sourceProjectId ?? ''}:${mr.source}`;
   }
 
-  private static rapid(container: HTMLElement): boolean {
-    return container.tagName === 'DIFF-FILE';
+  commits(): Promise<Commits | undefined> {
+    this.compared = this.findCommits();
+    return this.compared;
   }
 
-  header(container: HTMLElement): HTMLElement | null {
-    return GitLabHost.rapid(container)
-      ? container.querySelector<HTMLElement>('.rd-diff-file-header, [data-testid="rd-diff-file-header"]')
-      : container.querySelector<HTMLElement>('.js-file-title, [data-testid="file-title-container"]');
-  }
-
-  async identify(container: HTMLElement): Promise<ChangedFile | undefined> {
-    const own = GitLabHost.rapid(container) ? rapidFileData(container.dataset.fileData)?.file : container.dataset.path ? { path: container.dataset.path } : undefined;
-    if (!own) return undefined;
-    // The API says whether it was added, deleted or renamed (the classic block has its new path only).
-    const known = (await this.files())?.find(f => f.path === own.path);
-    return { ...own, ...known };
-  }
-
-  toggleSlot(header: HTMLElement): HTMLElement {
-    return header.querySelector<HTMLElement>('.rd-diff-file-header-main, .file-header-content') ?? header;
-  }
-
-  layout(container: HTMLElement, header: HTMLElement): { after: HTMLElement; hide: HTMLElement[] } {
-    if (GitLabHost.rapid(container)) {
-      const sticky = container.querySelector<HTMLElement>('.rd-diff-file-header-sticky') ?? header;
-      const body = container.querySelector<HTMLElement>('.rd-diff-file-details');
-      return { after: sticky, hide: body ? [body] : [] };
+  private async findCommits(): Promise<Commits | undefined> {
+    const rapid = GitLabDiffsHost.rapidCommits();
+    if (rapid) return rapid;
+    try {
+      const source = this.mr.sourceProjectId ?? this.project;
+      const target = this.mr.targetProjectId ?? source;
+      const h = await fetch(commitApi(this.root, source, this.mr.source));
+      const head = h.ok ? (await h.json() as { id?: unknown }).id : undefined;
+      if (typeof head !== 'string') {
+        log('The REST API did not give the source branch:', h.status);
+        return undefined;
+      }
+      const b = await fetch(mergeBaseApi(this.root, target, [this.mr.target, head]));
+      const base = b.ok ? (await b.json() as { id?: unknown }).id : undefined;
+      if (typeof base !== 'string') {
+        log('The REST API did not give the merge base:', b.status);
+        return undefined;
+      }
+      return commitsFromDiffRefs({ base_sha: base, head_sha: head }, 'REST API, session');
+    } catch (e) {
+      log('The REST API did not give the commits:', String(e));
+      return undefined;
     }
-    const body = container.querySelector<HTMLElement>(':scope > .diff-content');
-    return { after: header, hide: body ? [body] : [] };
   }
 
-  async anchorOf(path: string): Promise<string> {
-    return digest('SHA-1', path);
+  /** Read once for the commits found; none while they are not (they may be, later: retryCommits). */
+  async files(): Promise<ChangedFile[] | undefined> {
+    const c = await (this.compared ?? this.commits());
+    if (!c) return undefined;
+    const key = `${c.base}..${c.head}`;
+    if (this.filesOf !== key || !this.apiFiles) {
+      this.filesOf = key;
+      this.apiFiles = this.compareFiles(c);
+    }
+    return this.apiFiles;
   }
 
-  goToLine(container: HTMLElement, side: 'L' | 'R', line: number): boolean {
-    let target: HTMLElement | null;
-    if (GitLabHost.rapid(container)) target = document.getElementById(rapidLineAnchor(container.id, side, line));
-    else target = container.querySelector<HTMLElement>(`[data-interop-${side === 'L' ? 'old' : 'new'}-line="${line}"][id]`);
-    return showTarget(container, target);
-  }
-
-  /** The first note's element (`note_<id>`, both pages), else the discussion's (a collapsed one, resolved). */
-  goToThread(container: HTMLElement, thread: ReviewThread): boolean {
-    const el = document.getElementById(thread.anchor) ?? container.querySelector<HTMLElement>(`[data-discussion-id="${CSS.escape(thread.id)}"]`);
-    return showTarget(container, el);
-  }
-
-  goToFile(anchor: string): void {
-    if (document.getElementById(anchor)) return;
-    // The classic page renders a block when its row in GitLab's tree is clicked.
-    const row = document.querySelector<HTMLElement>(`button[data-file-row="${anchor}"], a[data-file-row="${anchor}"]`);
-    if (row) row.click();
-    else location.hash = anchor;
-  }
-
-  treePanel(): HTMLElement | null {
-    return document.querySelector<HTMLElement>('[data-testid="file-browser-tree"]');
-  }
-
-  theme(): Theme {
-    return gitlabTheme(document.documentElement.className);
-  }
-
-  diffStyle(): DiffStyle | undefined {
-    return gitlabDiffStyle(location.search, document.cookie);
+  async threads(): Promise<ThreadsResult> {
+    return { threads: [] };
   }
 }

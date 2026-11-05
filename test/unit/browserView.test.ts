@@ -17,7 +17,7 @@ import {
 import {
   blobUrl, commitApi, filesFromTree, nextPageUrl, refAndPath, repositoryPage, repositoryTreeApi,
   commitsFromDiffRefs, compareApi, compareGitlabPaths, discussionsUrl, filesFromApi, gitlabDiffStyle, gitlabRawTemplate, gitlabTheme, isChangesTab, isPartialView, mergeRequestApi,
-  mergeRequestPage, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
+  mergeBaseApi, mergeRequestPage, newMergeRequest, newMergeRequestProject, noteUrl, rapidFileData, rapidLineAnchor, threadsFromGitlab,
 } from '../../browser/src/gitlab';
 import { Edit, diffLines, lineChange } from '../../browser/src/lineDiff';
 import { Lookup } from '../../browser/src/lookup';
@@ -572,6 +572,28 @@ test('gitlab: the merge request of a page, its raw files and its REST API', () =
     `https://gitlab.example.com/group/sub/machine/-/raw/${A}/PLC/POUs/FB_Valve.TcPOU`);
   assert.equal(mergeRequestApi('https://gitlab.com', 'group/sub/machine', 7), 'https://gitlab.com/api/v4/projects/group%2Fsub%2Fmachine/merge_requests/7');
   assert.equal(mergeRequestApi('https://gitlab.com', 58170678, 7), 'https://gitlab.com/api/v4/projects/58170678/merge_requests/7');
+});
+
+test('gitlab: a merge request being created, the branches it compares and their merge base', () => {
+  assert.equal(newMergeRequestProject('/group/sub/machine/-/merge_requests/new'), 'group/sub/machine');
+  assert.equal(newMergeRequestProject('/plc/machine/-/merge_requests/new/diffs'), 'plc/machine');
+  assert.equal(newMergeRequestProject('/plc/machine/-/merge_requests/7/diffs'), undefined);
+  assert.equal(newMergeRequestProject('/plc/machine/-/merge_requests'), undefined);
+  // The page's form has the target branch GitLab chose; the link after a push names the source branch only.
+  const search = '?merge_request%5Bsource_branch%5D=feature%2Fvalve';
+  const form: Record<string, string> = { 'merge_request[target_branch]': 'develop', 'merge_request[source_project_id]': '12', 'merge_request[target_project_id]': '7' };
+  assert.deepEqual(newMergeRequest('plc/machine', search, n => form[n]),
+    { project: 'plc/machine', source: 'feature/valve', target: 'develop', sourceProjectId: 12, targetProjectId: 7 });
+  assert.deepEqual(newMergeRequest('plc/machine', '?merge_request[source_branch]=a&merge_request[target_branch]=main', () => undefined),
+    { project: 'plc/machine', source: 'a', target: 'main' });
+  // The form wins over the URL; an empty field does not.
+  assert.equal(newMergeRequest('p', '?merge_request[source_branch]=a&merge_request[target_branch]=main', n => (n.includes('target') ? 'develop' : ''))?.target, 'develop');
+  // The first step: no source branch yet.
+  assert.equal(newMergeRequest('p', '', n => (n === 'merge_request[target_branch]' ? 'main' : undefined)), undefined);
+  assert.equal(mergeBaseApi('https://gitlab.com', 7, ['main', A]),
+    `https://gitlab.com/api/v4/projects/7/repository/merge_base?refs[]=main&refs[]=${A}`);
+  assert.equal(mergeBaseApi('https://gitlab.com', 'plc/machine', ['feature/x', 'main']),
+    'https://gitlab.com/api/v4/projects/plc%2Fmachine/repository/merge_base?refs[]=feature%2Fx&refs[]=main');
 });
 
 test('gitlab: a Changes tab of one commit, version or comparison, and the comparison of its commits', () => {

@@ -5,6 +5,13 @@ the VS Code extension: its versions are `browser-v*` tags, each a zip to load un
 addons.mozilla.org (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- **GitLab, New merge request**: the *Changes* tab of a merge request being created (after a push, before *Create
+  merge request*) has the **TwinCAT view** toggles and the **TwinCAT** tab too: what the source branch would change in
+  the target branch, as objects. No comments there, as there is no merge request yet.
+
 ## 0.4.2 - 2026-10-27
 
 ### Fixed

@@ -69,7 +69,7 @@ test('licenseFolders and readLicenses find the files of each runtime, the trial 
     fs.writeFileSync(path.join(folder, 'A_Response.tclrs'), TRIAL.replace('2026-11-08', '2026-11-05'));
     fs.writeFileSync(path.join(folder, 'notes.txt'), 'x');
     const folders = licenseFolders({ ProgramData: root, TWINCAT3DIR: path.join(root, 'none') }, 'win32');
-    assert.deepEqual(folders, [{ runtime: 'UmRT_Default', folder: path.win32.join(folder) }]);
+    assert.deepEqual(folders, [{ runtime: 'UmRT_Default', folder }]);
     const files = readLicenses(folders);
     assert.deepEqual(files.map(f => path.basename(f.file)), ['TrialLicense.tclrs', 'A_Response.tclrs']);
     assert.equal(path.basename(firstToExpire(files)!.file), 'A_Response.tclrs');

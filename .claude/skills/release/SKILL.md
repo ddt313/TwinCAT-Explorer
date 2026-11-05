@@ -40,6 +40,10 @@ Read the changelog **after** the pull, from the top.
   its text. Never write a second section for the same changes.
 - When the changes have no entry yet, write one from the commits' messages, in the changelog's own style: `### Added`,
   `### Changed`, `### Fixed`; each entry says what the user sees now, and for a fix what happened before.
+- Credit the people who reported the issues the release fixes, someone other than the repository's owner: find them
+  from the issues the PRs name (`Fixes #91`, `Refs #91`; `gh issue view <n> --json author`), and write
+  `reported by [<login>](https://github.com/<login>)` next to the entry's issue link, a link, not an `@` mention, in
+  the file. Do it now, before the version commit, so the packaged `.vsix` carries it.
 - Leave no `## Unreleased` behind: the release notes and the extension's Changelog tab are taken from this file.
 
 ## 3. Version and branch
@@ -116,15 +120,22 @@ Release notes: the changelog's section, then how to install (as `release.yml` wr
 whole line as `$(0)`: in a skill, a dollar sign followed by a digit is an argument placeholder, so with arguments
 the usual spelling reaches you as the first argument and the notes come out empty.
 
+When the changelog's section credits reporters (see 2.), a thanks line goes between the section and the install
+line, with an `@` mention, which notifies them: `Thanks to @<login> for reporting #<n>.`, saying what of the report
+helped when something did (as 0.20.0's: "and for the settings, folder tree and screenshots that showed where it
+went wrong"). Leave `thanks` empty when there is none.
+
 ```bash
 version=<version>
+thanks=''   # or 'Thanks to @<login> for reporting #<n>.'
 notes="$(awk -v head="## $version" '
   index($(0), head " ") == 1 || $(0) == head { found = 1; next }
   found && /^## / { exit }
   found { print }
 ' CHANGELOG.md | sed '/./,$!d')"
-printf '%s\n\n%s, or from the Marketplace.\n' "$notes" \
-  "Install the attached file with \`code --install-extension explorer-for-twincat-$version.vsix\`" > <scratchpad>/notes.md
+{ printf '%s\n\n' "$notes"; test -n "$thanks" && printf '%s\n\n' "$thanks"
+  printf '%s, or from the Marketplace.\n' "Install the attached file with \`code --install-extension explorer-for-twincat-$version.vsix\`"
+} > <scratchpad>/notes.md
 gh release create v$version explorer-for-twincat-$version.vsix --verify-tag --title v$version \
   --notes-file <scratchpad>/notes.md --prerelease=false     # true for a version with a -
 git switch develop
@@ -149,8 +160,9 @@ npx --yes web-ext@10.8.0 lint --source-dir browser/dist-firefox
    out/release/explorer-for-twincat-browser`, then Windows' own `/c/Windows/System32/tar.exe -a -c -f
    explorer-for-twincat-browser-<version>.zip -C out/release explorer-for-twincat-browser` (on Linux:
    `cd out/release && zip -qr ../../explorer-for-twincat-browser-<version>.zip explorer-for-twincat-browser`).
-2. **Notes**: the section of `browser/CHANGELOG.md` (the same `awk`, on that file), then the *Install* text of
-   `release-browser.yml`, Firefox's paragraph included.
+2. **Notes**: the section of `browser/CHANGELOG.md` (the same `awk`, on that file), the thanks line to the issues'
+   reporters when there is one (as above), then the *Install* text of `release-browser.yml`, Firefox's paragraph
+   included.
 3. **Release**:
 
    ```bash
@@ -184,6 +196,7 @@ The Marketplace is not published by hand.
 
 ## 8. Report
 
-Tell the user the version, the PRs, the tag and the release's link, that the tests passed, and that the Marketplace
-was not updated (when the workflow did not run). For the browser extension, say whether Firefox's build went to AMO
+Tell the user the version, the PRs, the tag and the release's link, that the tests passed, who was credited for
+reporting the issues it fixes (or that none were), and that the Marketplace was not updated (when the workflow did
+not run). For the browser extension, say whether Firefox's build went to AMO
 (and that it may wait for a review there), and when not, why (no AMO key, an error of AMO's) and what the user does.

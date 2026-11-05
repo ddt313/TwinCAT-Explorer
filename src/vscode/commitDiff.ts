@@ -1,7 +1,7 @@
 // The changes one commit made to one object, in the split editor's layout (Declaration above Implementation),
-// read-only: each pane is an inline diff of the commit's text against its parent's. One panel, reused for the
-// next object picked in the TwinCAT Commits view, like a preview tab. It also shows the staged changes of an
-// object: the index against HEAD.
+// read-only: each pane is a diff of the commit's text against its parent's, side by side or inline as
+// diffEditor.renderSideBySide. One panel, reused for the next object picked in the TwinCAT Commits view, like a
+// preview tab. It also shows the staged changes of an object: the index against HEAD.
 
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -57,7 +57,7 @@ export class CommitDiffPanel implements vscode.Disposable {
       vscode.window.onDidChangeActiveColorTheme(postTheme),
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('editor.tokenColorCustomizations') || e.affectsConfiguration('workbench.colorTheme')) postTheme();
-        if (e.affectsConfiguration('editor')) this.post({ type: 'config', config: editorConfig() });
+        if (e.affectsConfiguration('editor') || e.affectsConfiguration('diffEditor')) this.post({ type: 'config', config: editorConfig() });
       }),
     );
   }

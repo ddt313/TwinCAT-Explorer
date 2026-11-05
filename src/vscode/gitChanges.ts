@@ -1,6 +1,6 @@
 // Changes of the TwinCAT objects against HEAD: the M/A badges of methods, properties and accessors in the
 // TwinCAT tree and on the tabs of object views, and the HEAD text of an object view's sections, which the
-// split editor compares its panes with (change markers, inline diff).
+// split editor compares its panes with (change markers, diff).
 
 import * as path from 'path';
 import * as vscode from 'vscode';

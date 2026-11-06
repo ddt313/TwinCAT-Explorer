@@ -554,10 +554,52 @@ async function reveal(r: Reveal): Promise<void> {
   post({ tcx: 'scroll', top: target.getBoundingClientRect().top + window.scrollY });
 }
 
+// ------------------------------------------------------------------ the header of the object being read
+
+/** How far from the frame's top the page covers it (its file's sticky header), as the page last said. */
+let covered = 0;
+let pinned: HTMLElement[] = [];
+
+/**
+ * Keeps the header of the open object being read, and of its open section, in sight below what covers the frame, as
+ * a sticky header would: moved down within its box, as far as the box's end. The frame does not scroll (the page
+ * does), so CSS `position: sticky` cannot.
+ */
+function pin(): void {
+  const now: HTMLElement[] = [];
+  let top = covered;
+  if (top > 0) {
+    const stick = (box: Element | undefined, selector: string) => {
+      const head = box?.querySelector<HTMLElement>(selector);
+      if (!box || !head) return;
+      const b = box.getBoundingClientRect();
+      const h = head.offsetHeight;
+      // Where the header is without its move (the frame does not scroll: the page's coordinates are the window's).
+      const at = head.offsetTop;
+      if (at >= top || b.bottom <= top + h) return;
+      head.style.transform = `translateY(${Math.ceil(Math.min(top - at, b.bottom - at - h))}px)`;
+      now.push(head);
+      top += h;
+    };
+    const reading = (selector: string, within: ParentNode) =>
+      [...within.querySelectorAll(selector)].find(b => { const r = b.getBoundingClientRect(); return r.top < top && r.bottom > top; });
+    const obj = reading('.obj.open', root);
+    stick(obj, ':scope > .obj-head');
+    if (obj) stick(reading('.sec.open', obj), ':scope > .sec-head');
+  }
+  for (const head of pinned) if (!now.includes(head)) head.style.transform = '';
+  for (const head of now) head.classList.add('pinned');
+  for (const head of pinned) if (!now.includes(head)) head.classList.remove('pinned');
+  pinned = now;
+}
+
 window.addEventListener('message', e => {
   if (!params || e.origin !== params.origin || e.source !== window.parent) return;
   const m = e.data as PageMessage;
-  if (m?.tcx === 'reveal') {
+  if (m?.tcx === 'viewport' && typeof m.top === 'number') {
+    covered = m.top;
+    pin();
+  } else if (m?.tcx === 'reveal') {
     const r: Reveal = { objectId: m.objectId, accessor: m.accessor, xml: m.xml, thread: m.thread };
     if (view) void reveal(r);
     else pendingReveal = r;
@@ -626,7 +668,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // The page sizes the frame to its content: the frame has no scroll bar of its own.
-new ResizeObserver(() => post({ tcx: 'height', height: Math.ceil(document.body.getBoundingClientRect().height) })).observe(document.body);
+new ResizeObserver(() => {
+  post({ tcx: 'height', height: Math.ceil(document.body.getBoundingClientRect().height) });
+  // An object opened or closed, or rendered again: the header being read may be another one.
+  pinned = pinned.filter(h => h.isConnected);
+  pin();
+}).observe(document.body);
 
 void main().catch(e => {
   root.innerHTML = `<p class="notice error">The TwinCAT view failed: ${esc(String((e as Error).stack ?? e))}</p>`;

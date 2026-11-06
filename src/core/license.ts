@@ -67,19 +67,22 @@ export function parseLicenseFile(text: string, file: string, runtime: string): L
   return { file, runtime, trial: /trial/i.test(path.basename(file)), issued, expires, licenses };
 }
 
-/** The license folders of the runtimes installed here, whether or not they hold a file yet. */
+/**
+ * The license folders of the runtimes installed here, whether or not they hold a file yet. Paths by the platform's
+ * own rules (Windows' where it runs), so that a test elsewhere finds the folders it makes.
+ */
 export function licenseFolders(env: Record<string, string | undefined> = process.env, platform: string = process.platform): LicenseFolder[] {
   if (platform !== 'win32') return [];
   const out: LicenseFolder[] = [];
-  const runtimes = path.win32.join(env.ProgramData || 'C:\\ProgramData', 'Beckhoff', 'TwinCAT', '3.1', 'Runtimes');
+  const runtimes = path.join(env.ProgramData || 'C:\\ProgramData', 'Beckhoff', 'TwinCAT', '3.1', 'Runtimes');
   let names: string[] = [];
   try {
     names = fs.readdirSync(runtimes, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name).sort();
   } catch {
     // no 4026 runtime
   }
-  for (const runtime of names) out.push({ runtime, folder: path.win32.join(runtimes, runtime, '3.1', 'Target', 'License') });
-  const legacy = path.win32.join(env.TWINCAT3DIR || 'C:\\TwinCAT\\3.1\\', 'Target', 'License');
+  for (const runtime of names) out.push({ runtime, folder: path.join(runtimes, runtime, '3.1', 'Target', 'License') });
+  const legacy = path.join(env.TWINCAT3DIR || 'C:\\TwinCAT\\3.1\\', 'Target', 'License');
   if (fs.existsSync(legacy)) out.push({ runtime: 'TwinCAT', folder: legacy });
   return out;
 }
@@ -142,14 +145,14 @@ export function routesOfStaticRoutesXml(text: string): AdsRoute[] {
  */
 export function adsRoutes(env: Record<string, string | undefined> = process.env, platform: string = process.platform): AdsRoute[] {
   if (platform !== 'win32') return [];
-  const tc = path.win32.join(env.ProgramData || 'C:\\ProgramData', 'Beckhoff', 'TwinCAT', '3.1');
+  const tc = path.join(env.ProgramData || 'C:\\ProgramData', 'Beckhoff', 'TwinCAT', '3.1');
   const files = [
-    ...licenseFolders(env, platform).map(f => path.win32.join(f.folder, '..', 'StaticRoutes.xml')),
-    path.win32.join(tc, 'Target', 'StaticRoutes.xml'),
+    ...licenseFolders(env, platform).map(f => path.join(f.folder, '..', 'StaticRoutes.xml')),
+    path.join(tc, 'Target', 'StaticRoutes.xml'),
   ];
-  const routes = path.win32.join(env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Beckhoff', 'TwinCAT', '3.1', 'Target', 'Routes');
+  const routes = path.join(env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Beckhoff', 'TwinCAT', '3.1', 'Target', 'Routes');
   try {
-    files.push(...fs.readdirSync(routes).filter(f => /\.xml$/i.test(f)).sort().map(f => path.win32.join(routes, f)));
+    files.push(...fs.readdirSync(routes).filter(f => /\.xml$/i.test(f)).sort().map(f => path.join(routes, f)));
   } catch {
     // no route files
   }

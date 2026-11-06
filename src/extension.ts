@@ -1251,6 +1251,9 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, true)),
     vscode.commands.registerCommand('twincatExplorer.hideChanges', (uri?: unknown) =>
       objectEditors.setChangesMode(uri instanceof vscode.Uri ? uri : undefined, false)),
+    // `.current`: the Diff View menu's item of the current mode, a check after its title (extensions have no menu checks).
+    ...(['inline', 'sideBySide'] as const).flatMap(mode => ['', '.current'].map(variant =>
+      vscode.commands.registerCommand(`twincatExplorer.diffView.${mode}${variant}`, () => setDiffSideBySide(mode === 'sideBySide')))),
     vscode.commands.registerCommand('twincatExplorer.compareWithRef', async (arg?: unknown) => {
       const t = target(arg);
       if (!t || !isSourcePath(t.fsPath)) return;
@@ -1330,4 +1333,17 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
 
 export function deactivate(): void {
   // Disposables are released through the extension context.
+}
+
+/**
+ * The layout of the diffs of the split editor and the commit diff panel, as the Diff View menu of VS Code's diff
+ * editor sets it: VS Code's own setting, in the scope that decides it now (a workspace value would hide a user one).
+ */
+async function setDiffSideBySide(on: boolean): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('diffEditor');
+  const where = cfg.inspect<boolean>('renderSideBySide');
+  const target = where?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+    : where?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace
+    : vscode.ConfigurationTarget.Global;
+  if (cfg.get<boolean>('renderSideBySide') !== on) await cfg.update('renderSideBySide', on, target);
 }

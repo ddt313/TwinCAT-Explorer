@@ -26,6 +26,58 @@ export function isChangesTab(pathname: string): boolean {
 
 const encodeSegments = (path: string) => path.split('/').map(encodeURIComponent).join('/');
 
+/**
+ * A merge request being created, before *Create merge request*: the page `…/-/merge_requests/new` and its Changes tab
+ * (`…/new/diffs`), under the source project, which compares the source branch with the target branch.
+ */
+export interface NewMergeRequest {
+  /** The source project's `group/subgroup/project`, of the URL. */
+  project: string;
+  source: string;
+  target: string;
+  sourceProjectId?: number;
+  targetProjectId?: number;
+}
+
+/** The source project of a new merge request's page (its first step, choosing the branches, included). */
+export function newMergeRequestProject(pathname: string): string | undefined {
+  const m = /^\/(.+?)\/-\/merge_requests\/new(?:\/diffs)?\/?$/.exec(pathname);
+  if (!m) return undefined;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The branches a new merge request compares: the page's form fields (`merge_request[source_branch]`, ...), which
+ * have the target branch GitLab chose when the URL names none (a link after a push names the source branch only),
+ * else the URL's. Undefined while a branch is missing (the first step).
+ */
+export function newMergeRequest(project: string, search: string, field: (name: string) => string | undefined): NewMergeRequest | undefined {
+  const q = new URLSearchParams(search);
+  const value = (k: string) => field(`merge_request[${k}]`) || q.get(`merge_request[${k}]`) || undefined;
+  const id = (k: string) => {
+    const n = Number(value(k));
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  };
+  const source = value('source_branch');
+  const target = value('target_branch');
+  if (!source || !target) return undefined;
+  const out: NewMergeRequest = { project, source, target };
+  const sourceProjectId = id('source_project_id');
+  const targetProjectId = id('target_project_id');
+  if (sourceProjectId) out.sourceProjectId = sourceProjectId;
+  if (targetProjectId) out.targetProjectId = targetProjectId;
+  return out;
+}
+
+/** The REST API's merge base of refs (branches or commits; its `id` is the sha). */
+export function mergeBaseApi(origin: string, project: string | number, refs: readonly string[]): string {
+  return `${origin}/api/v4/projects/${encodeURIComponent(String(project))}/repository/merge_base?${refs.map(r => `refs[]=${encodeURIComponent(r)}`).join('&')}`;
+}
+
 /** A file at a commit as GitLab serves it, as a template (`{sha}`, `{path}`). */
 export function gitlabRawTemplate(origin: string, project: string): string {
   return `${origin}/${encodeSegments(project)}/-/raw/{sha}/{path}`;

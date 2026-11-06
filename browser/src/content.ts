@@ -413,11 +413,16 @@ async function ensureTreePanel(): Promise<void> {
   if (!host) return;
   let box = document.querySelector<HTMLElement>('.tcx-tree');
   const panel = host.treePanel();
-  // The host's tree came after the floating panel (GitLab renders its sidebar later): the tabs go there.
-  if (box?.classList.contains('tcx-float') && panel) {
+  // The host's tree came after the floating panel (GitLab renders its sidebar later): the tabs go there. Without the
+  // host's tree, the panel floats only while the page shows files: not over a page whose diffs are in a tab not shown
+  // (GitLab's new merge request, on its Overview or Commits tab), where it covered the host's sidebar.
+  const float = !panel && (host.snapshot || host.containers().some(c => c.getClientRects().length > 0));
+  if (box?.classList.contains('tcx-float') && (panel || !float)) {
     box.remove();
     box = null;
+    treeFrame = undefined;
   }
+  if (!box && !panel && !float) return;
   if (!box) {
     box = document.createElement('div');
     box.className = panel ? 'tcx-tree' : 'tcx-tree tcx-float';

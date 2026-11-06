@@ -5,7 +5,7 @@ the VS Code extension: its versions are `browser-v*` tags, each a zip to load un
 addons.mozilla.org (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.5.0 - 2026-11-06
 
 ### Added
 - **GitLab, New merge request**: the *Changes* tab of a merge request being created (after a push, before *Create

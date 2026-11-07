@@ -59,6 +59,8 @@ export class TreeNode {
   goToImplementation = false;
   /** The file of a POU, DUT, GVL or interface: it can be renamed, moved and deleted. */
   objectFile = false;
+  /** A folder inside a POU: its path there (`Methods`, `States`). */
+  innerFolderPath?: string[];
 
   constructor(readonly id: string, readonly kind: NodeKind, public label: string, readonly parent: TreeNode | undefined) {}
 
@@ -321,6 +323,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       f.icon = twincatIcon('folder');
       f.sortGroup = 1;
       f.memberTarget = memberTarget(folderPath);
+      f.innerFolderPath = folderPath;
       inner.set(key, f);
       return f;
     };

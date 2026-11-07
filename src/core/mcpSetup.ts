@@ -64,7 +64,7 @@ export async function registerServer(run: RunClaude, folder: string, launch: Ser
 }
 
 /** The server's tools that only read (check with compiler: true runs XAE's Check all objects, which saves nothing). */
-export const MCP_READ_TOOLS = ['status', 'objects', 'read', 'locate', 'find_symbol', 'definition', 'references', 'hierarchy', 'check', 'edit_history'];
+export const MCP_READ_TOOLS = ['status', 'objects', 'read', 'locate', 'search_text', 'find_symbol', 'definition', 'references', 'hierarchy', 'check', 'edit_history'];
 
 /** Extensions of the TwinCAT source files whose code the server reads and writes. */
 export const TWINCAT_SOURCE_EXTENSIONS = ['TcPOU', 'TcDUT', 'TcGVL', 'TcIO'];

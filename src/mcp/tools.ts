@@ -12,11 +12,12 @@ import { MemberSpec, SpliceError, addMember as addMemberText, applySectionEdits,
 import { addMembersToFile, newObjectFile, newObjectFileText, projectFileStyle, removeMemberFromFile, writeNewObject } from '../core/operations';
 import { NewObjectKind } from '../core/newObjects';
 import { objectTreeLabel } from '../core/treeLabels';
-import { PlcProject } from '../core/project';
+import { PlcProject, sameName } from '../core/project';
 import { fileKey } from '../core/workspace';
 import { describeOwner } from '../lang/features';
 import { implementations, typeTree, TypeTree } from '../lang/hierarchy';
 import { newObjectStubs, objectNameProblem } from '../lang/objects';
+import { Matcher, QueryError, SearchCount, SearchScope, compileQuery, matchLines, searchSections } from '../lang/search';
 import { PouSym, Sym } from '../lang/symbols';
 import { Session, ToolError, View, numbered, shortHash } from './session';
 import { FileChange, LiveUndo, UndoEntry, UndoLog } from './undo';
@@ -312,6 +313,55 @@ export function check(t: Tools, a: { object?: string; limit?: number; compiler?:
   const head = 'Syntax and name check of the extension (not the TwinCAT compiler): ';
   if (!problems.length) return head + 'no problems.';
   return [head + `${problems.length} problem(s)`, ...problems.slice(0, limit), ...(problems.length > limit ? [`-- ${limit} of ${problems.length}`] : [])].join('\n');
+}
+
+/** Matches a search counts at most: there it stops, and says so. */
+const SEARCH_CAP = 10_000;
+
+/**
+ * A text, or a regular expression (RE2's syntax, in linear time), in the code of the objects as read shows it, never
+ * in the XML: each line with a match, as `FB_Valve impl:12  nCount := nCount + 1;`.
+ */
+export function searchText(t: Tools, a: {
+  query: string; regex?: boolean; matchCase?: boolean; wholeWord?: boolean; skipComments?: boolean; project?: string; folder?: string; limit?: number;
+}): string {
+  const s = t.session;
+  let matcher: Matcher;
+  try {
+    matcher = compileQuery({ text: a.query, regex: a.regex, matchCase: a.matchCase, wholeWord: a.wholeWord, skipComments: a.skipComments });
+  } catch (e) {
+    throw e instanceof QueryError ? new ToolError(e.message) : e;
+  }
+  let plcprojPath: string | undefined;
+  if (a.project) {
+    const project = s.projects.find(p => sameName(p.name, a.project!));
+    if (!project) throw new ToolError(`No PLC project '${a.project}'. The PLC projects: ${s.projects.map(p => p.name).join(', ')}`);
+    plcprojPath = project.path;
+  }
+  const scope: SearchScope = a.folder ? { kind: 'folder', plcprojPath, folder: a.folder }
+    : plcprojPath ? { kind: 'projects', plcprojPaths: [plcprojPath] } : { kind: 'all' };
+  const count: SearchCount = { matches: 0, capped: false };
+  const lines: string[] = [];
+  const files = new Set<string>();
+  for (const hit of searchSections({ entries: s.ws.sourceEntries, file: e => s.ws.getFile(e.path) }, scope, matcher, SEARCH_CAP, count)) {
+    if (!hit) continue;
+    const { entry, file, section } = hit;
+    files.add(entry.key);
+    const label = s.qualified({ entry, file, obj: section.owner, accessor: section.accessor, label: viewLabel(section.owner, section.accessor) });
+    let last = -1;
+    for (const l of matchLines(hit.text, hit.matches)) {
+      // A line with several matches once.
+      if (l.line !== last) lines.push(`${label} ${section.role}:${l.line + 1}  ${l.preview}`);
+      last = l.line;
+    }
+  }
+  if (!count.matches) return `Nothing matches '${a.query}'${a.folder || a.project ? ' there' : ''}.`;
+  const limit = a.limit ?? 200;
+  return [
+    `${count.matches} match(es) in ${files.size} file(s)${count.capped ? `: the search stopped at ${SEARCH_CAP}, narrow it` : ''}`,
+    ...lines.slice(0, limit),
+    ...(lines.length > limit ? [`-- ${limit} of ${lines.length} lines`] : []),
+  ].join('\n');
 }
 
 // ------------------------------------------------------------------ writing

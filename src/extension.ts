@@ -39,6 +39,7 @@ import { BlameService } from './vscode/blame';
 import { AutoDeclare } from './vscode/autoDeclare';
 import { CompareBase, ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
+import { SEARCH_VIEW, ScopeChoice, SearchNode, SearchOption, SearchView } from './vscode/searchView';
 import { checkMcpSetup, setUpMcpServer } from './vscode/mcpSetup';
 import { LicenseStatus } from './vscode/license';
 import { TrialLicenseRenewal } from './vscode/trialLicense';
@@ -66,6 +67,8 @@ export interface TwinCatExplorerApi {
   commitDiff: CommitDiffPanel;
   history: HistoryView;
   historyView: vscode.TreeView<HistoryNode>;
+  search: SearchView;
+  searchView: vscode.TreeView<SearchNode>;
   ready: Promise<void>;
   /** Opens an object view as a notebook. */
   openObject(fsPath: string, objectId: string, options?: OpenOptions): Promise<vscode.NotebookEditor | undefined>;
@@ -200,6 +203,8 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   history.log = message => log.warn(message);
   history.openObject = item => commitDiff.show(item);
   const historyTree = vscode.window.createTreeView('twincatExplorer.history', { treeDataProvider: history, showCollapseAll: true });
+  const search = new SearchView(ws, index, context.workspaceState);
+  const searchTree = vscode.window.createTreeView(SEARCH_VIEW, { treeDataProvider: search, showCollapseAll: true });
   objectEditors.blame = new BlameService(gitChanges);
   // Open Changes in the hover of a line's blame: what that commit changed in the object, in the commit diff panel.
   objectEditors.openBlame = async (session, root, commit) => {
@@ -256,6 +261,8 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     commitsView, commitsTree, commitsView.attach(commitsTree), commitDiff,
     // The TwinCAT History view (the commits that changed one object).
     history, historyTree, history.attach(historyTree),
+    // The TwinCAT Search view.
+    search, searchTree, search.attach(searchTree),
     historyTree.onDidChangeVisibility(e => {
       if (e.visible && !history.target) history.follow(activeObject());
     }),
@@ -322,6 +329,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     if (overlays.refresh(files)) {
       scheduleAllDiagnostics(300);
       scheduleCheck();
+      search.changed();
     }
   };
 
@@ -377,6 +385,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       index.invalidateAll();
       refreshOverlays();
       tree.rebuild();
+      search.changed();
       if (hasProjects && !web) void gitChanges.refreshAll();
       changesView.schedule(0);
       commitsView.schedule(0);
@@ -421,6 +430,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     refreshOverlays([fsPath]);
     scheduleAllDiagnostics();
     scheduleCheck();
+    search.changed();
   };
   // A change event for the URI being saved, during its save, can leave its working copy ignoring later changes.
   objectFs.onDidWriteRealFile = (fsPath, savedUri) => onSourceChanged(fsPath, savedUri);
@@ -667,6 +677,14 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
 
   objectEditors.openView = async ({ ref, reveal: target, viewColumn }) => {
     await openSplit(ref.fsPath, ref.objectId, { accessor: ref.accessor, reveal: target, viewColumn, preview: false });
+  };
+
+  // A match of the TwinCAT Search view: a preview that leaves the focus in the view, kept by a double click.
+  search.openMatch = async (m, pinned) => {
+    await openSplit(m.fsPath, m.objectId, {
+      accessor: m.accessor, preview: !pinned, preserveFocus: !pinned,
+      reveal: { key: m.sectionKey, start: m.start, end: m.end, focus: pinned, text: m.text },
+    });
   };
 
   // An object of the TwinCAT Changes or History view: its split editor (whatever twincatExplorer.editor says, the
@@ -1103,6 +1121,39 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     if (t) await run(t);
   };
 
+  /** Where Find in Folder... searches from a node of the TwinCAT tree: its TwinCAT or PLC project, its folder, a folder inside a POU. */
+  const searchScopeOf = (node: TreeNode | undefined): ScopeChoice | undefined => {
+    if (node?.kind === 'tsproj' && node.fsPath) {
+      const ts = ws.tsProjects.find(t => fileKey(t.path) === fileKey(node.fsPath!));
+      return ts && { scope: { kind: 'projects', plcprojPaths: ts.plcProjects.map(r => r.plcprojPath).filter(p => p) }, label: ts.name };
+    }
+    if (node?.kind === 'plcproj' && node.objectTarget) {
+      return { scope: { kind: 'projects', plcprojPaths: [node.objectTarget.plcprojPath] }, label: node.label };
+    }
+    if (node?.kind === 'folder' && node.objectTarget) {
+      const { plcprojPath, folder } = node.objectTarget;
+      const project = ws.plcProject(plcprojPath)?.name ?? path.basename(plcprojPath, path.extname(plcprojPath));
+      return { scope: { kind: 'folder', plcprojPath, folder }, label: [project, ...folder.split('\\')].join(' › ') };
+    }
+    if (node?.kind === 'innerFolder' && node.innerFolderPath) {
+      let file = node.parent;
+      while (file && file.kind !== 'file') file = file.parent;
+      if (!file?.fsPath) return undefined;
+      return {
+        scope: { kind: 'objectFolder', fsPath: file.fsPath, folderPath: node.innerFolderPath },
+        label: [file.name ?? file.label, ...node.innerFolderPath].join(' › '),
+      };
+    }
+    return undefined;
+  };
+  /** The text selected on one line of a text editor or notebook cell: what Search... starts with. */
+  const selectedText = (): string | undefined => {
+    const editor = vscode.window.activeTextEditor;
+    const text = editor && !editor.selection.isEmpty ? editor.document.getText(editor.selection) : '';
+    return text && !text.includes('\n') && text.length <= 200 ? text : undefined;
+  };
+  const searchOptions: SearchOption[] = ['matchCase', 'wholeWord', 'regex', 'skipComments'];
+
   context.subscriptions.push(
     vscode.commands.registerCommand('twincatExplorer.addPou', addObject(t => objects.addPou(t))),
     vscode.commands.registerCommand('twincatExplorer.addDut', addObject(t => objects.addDut(t))),
@@ -1150,6 +1201,18 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       else if (node?.kind === 'folder' && node.objectTarget) await objects.moveFolder(node.objectTarget);
     }),
     vscode.commands.registerCommand('twincatExplorer.refresh', () => loadProjects()),
+    // The TwinCAT Search view: Search... where the last search looked, Find in Folder... in a node of the tree.
+    vscode.commands.registerCommand('twincatExplorer.search', () => search.ask(undefined, selectedText())),
+    ...['twincatExplorer.findInFolder', 'twincatExplorer.findInProject'].map(id => vscode.commands.registerCommand(id, (arg?: unknown) =>
+      search.ask(searchScopeOf(arg instanceof TreeNode ? arg : treeView.selection[0])))),
+    vscode.commands.registerCommand('twincatExplorer.search.refresh', () => search.refresh()),
+    vscode.commands.registerCommand('twincatExplorer.search.clear', () => search.clear()),
+    vscode.commands.registerCommand('twincatExplorer.search.open', (node?: SearchNode) => search.open(node)),
+    // `.on`: the item of the view's menu while the option is on, a check after its title (extensions have no menu checks).
+    ...searchOptions.flatMap(o => ['', '.on'].map(variant => {
+      const id = `twincatExplorer.search.toggle${o[0].toUpperCase()}${o.slice(1)}${variant}`;
+      return vscode.commands.registerCommand(id, () => search.toggle(o));
+    })),
     vscode.commands.registerCommand('twincatExplorer.open', (node?: TreeNode) => openNode(node)),
     vscode.commands.registerCommand('twincatExplorer.openToSide', (node?: TreeNode) => openNode(node, true)),
     vscode.commands.registerCommand('twincatExplorer.openXml', openXml),
@@ -1327,7 +1390,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   return {
     workspace: ws, index, tree, treeView, treeDragAndDrop: dragAndDropController, features, objectEditors, git: gitChanges,
     changes: changesView, changesView: changesTree, commits: commitsView, commitsView: commitsTree, commitDiff,
-    history, historyView: historyTree, ready, openObject, openSplit,
+    history, historyView: historyTree, search, searchView: searchTree, ready, openObject, openSplit,
   };
 }
 

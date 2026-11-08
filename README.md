@@ -79,6 +79,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 - Right-click a TwinCAT project, a PLC project, a folder or a folder inside a POU: `Find in Folder...`
   (`Find in Project...`) searches its code (see [TwinCAT Search](#twincat-search)).
+- Right-click a node with children: `Expand All` expands it and every branch below it, `Collapse All` folds
+  it and every branch below it again.
 
 </details>
 

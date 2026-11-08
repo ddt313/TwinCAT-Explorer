@@ -78,6 +78,7 @@ export class TreeNode {
     if (this.goToImplementation) parts.push('goToImplementation');
     if (this.objectFile) parts.push('objectFile');
     if (this.kind === 'folder' && this.children.length === 0) parts.push('emptyFolder');
+    if (this.children.length > 0) parts.push('expandable');
     return parts.join(' ');
   }
 }
@@ -423,6 +424,16 @@ ${error ?? 'The .plcproj file does not exist.'}`;
   /** The nodes of a library under References: by the Include of its reference (`Tc2_Utilities`). */
   nodesForLibrary(plcprojPath: string, include: string): TreeNode[] {
     return this.byLibrary.get(`${fileKey(plcprojPath)}|${libraryName(include).toUpperCase()}`) ?? [];
+  }
+
+  /**
+   * The deepest nodes with children under a node (itself included): revealing each of them expanded expands every
+   * node with children of the subtree, the ancestors of a revealed node being expanded by the reveal.
+   */
+  static expansionFrontier(node: TreeNode): TreeNode[] {
+    if (node.children.length === 0) return [];
+    const below = node.children.flatMap(c => TwinCatTree.expansionFrontier(c));
+    return below.length > 0 ? below : [node];
   }
 
   get rootNodes(): TreeNode[] {

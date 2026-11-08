@@ -79,6 +79,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 - Right-click a TwinCAT project, a PLC project, a folder or a folder inside a POU: `Find in Folder...`
   (`Find in Project...`) searches its code (see [TwinCAT Search](#twincat-search)).
+- Right-click a node with children: `Expand All` expands it and every branch below it, `Collapse All` folds
+  it and every branch below it again.
 
 </details>
 
@@ -768,7 +770,9 @@ request's *Files changed* tab or a GitLab merge request's *Changes* tab, a chang
 - **Unified or Split**, following the host's own diff setting, with Structured Text highlighting and
   word-level changes.
 - **TwinCAT tab:** above the host's file tree, the change as XAE's Solution Explorer shows a project,
-  with the number of threads on each object. A click opens that object's view.
+  with the number of threads on each object. A click opens that object's view. Right-click a node (or
+  Alt+click its arrow) to expand or collapse it with every branch below it; the buttons of its head do the
+  whole tree.
 
 </details>
 

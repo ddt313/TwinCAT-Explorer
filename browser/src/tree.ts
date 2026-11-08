@@ -15,7 +15,7 @@ import { decodeTreeParams, fileUrl } from './params';
 import { ChangedFile, FrameMessage, PageMessage } from './protocol';
 import { Reader } from './reader';
 import { frameKnowsSite } from './sites';
-import { NodeChange, TreeFile, TreeNode, buildTree, treeSummary } from './treeModel';
+import { NodeChange, TreeFile, TreeNode, branches, buildTree, treeSummary } from './treeModel';
 
 const READING_AT_ONCE = 4;
 
@@ -50,6 +50,20 @@ const collapsed = new Set<string>();
 /** Of the files at a commit, the files are folded: these are not. */
 const expanded = new Set<string>();
 const isOpen = (n: TreeNode) => (snapshot && n.kind === 'file' ? expanded.has(n.id) : !collapsed.has(n.id));
+function setOpen(n: TreeNode, open: boolean): void {
+  if (snapshot && n.kind === 'file') {
+    if (open) expanded.add(n.id);
+    else expanded.delete(n.id);
+  } else if (open) collapsed.delete(n.id);
+  else collapsed.add(n.id);
+}
+/** Expand All / Collapse All: these nodes and every branch below them. */
+function setOpenAll(list: TreeNode[], open: boolean): void {
+  for (const n of branches(list)) setOpen(n, open);
+  render();
+}
+/** The tree as last rendered: what the buttons of the head expand and collapse. */
+let shown: TreeNode[] = [];
 let selected: string | undefined;
 let nodes = new Map<string, TreeNode>();
 
@@ -167,6 +181,9 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 const LETTER: Record<string, string> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
 /** A speech bubble, before a count of threads (as in the viewer). */
 const BUBBLE = '<svg class="bubble" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v8h-6l-3 3v-3h-2z"/></svg>';
+/** Codicons' expand-all and collapse-all, the buttons of VS Code's views. */
+const EXPAND_ALL = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 9H4v1h5V9z"/><path d="M7 12V7H6v5h1z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M5 3l1-1h7l1 1v7l-1 1h-2v2l-1 1H3l-1-1V6l1-1h2V3zm1 2h4l1 1v4h2V3H6v2zm4 1H3v7h7V6z"/></svg>';
+const COLLAPSE_ALL = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 9H4v1h5V9z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M5 3l1-1h7l1 1v7l-1 1h-2v2l-1 1H3l-1-1V6l1-1h2V3zm1 2h4l1 1v4h2V3H6v2zm4 1H3v7h7V6z"/></svg>';
 const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
 darkScheme.addEventListener('change', () => render());
 
@@ -209,10 +226,14 @@ function render(): void {
   const counts = source ? `${s.files} file${s.files === 1 ? '' : 's'} · ${s.objects} object${s.objects === 1 ? '' : 's'}${
     threads ? ` · ${threads} thread${threads === 1 ? '' : 's'}` : ''}${s.reading ? ` · reading ${s.reading}…` : ''}` : 'reading the list of files…';
   const rows: string[] = [];
-  rowsHtml(buildTree(entries, pathOrder, snapshot), 0, rows);
+  shown = buildTree(entries, pathOrder, snapshot);
+  rowsHtml(shown, 0, rows);
   const empty = source && !entries.some(e => !e.other) ? `<p class="note">No TwinCAT file ${snapshot ? 'at this commit' : 'in this change'}.</p>` : '';
   const notes = [problem, threadInfo?.problem && `Comments: ${threadInfo.problem}`].filter(Boolean).map(n => `<p class="note">${esc(n!)}</p>`).join('');
-  root.innerHTML = `<div class="head"><span class="title">TwinCAT</span><span class="counts">${counts}</span></div>
+  const buttons = shown.some(n => n.children.length) ? `<span class="actions">
+    <button type="button" class="act" data-act="expand" title="Expand All" aria-label="Expand All">${EXPAND_ALL}</button>
+    <button type="button" class="act" data-act="collapse" title="Collapse All" aria-label="Collapse All">${COLLAPSE_ALL}</button></span>` : '';
+  root.innerHTML = `<div class="head"><span class="title">TwinCAT</span><span class="counts">${counts}</span>${buttons}</div>
     ${notes}${empty}<div class="tree" role="tree">${rows.join('')}</div>`;
   if (document.scrollingElement) document.scrollingElement.scrollTop = scroll;
 }
@@ -220,15 +241,22 @@ function render(): void {
 // ------------------------------------------------------------------ interaction
 
 root.addEventListener('click', e => {
+  const act = (e.target as Element).closest<HTMLElement>('.act');
+  if (act) {
+    setOpenAll(shown, act.dataset.act === 'expand');
+    return;
+  }
   const row = (e.target as Element).closest<HTMLElement>('.row');
   const node = row && nodes.get(row.dataset.id!);
   if (!row || !node) return;
   const onTwisty = (e.target as Element).classList.contains('twisty');
   if (node.children.length && (onTwisty || !node.file)) {
-    const set = snapshot && node.kind === 'file' ? expanded : collapsed;
-    if (set.has(node.id)) set.delete(node.id);
-    else set.add(node.id);
-    render();
+    // Alt+click, as in VS Code's trees: the node and every branch below it.
+    if (e.altKey) setOpenAll([node], !isOpen(node));
+    else {
+      setOpen(node, !isOpen(node));
+      render();
+    }
     return;
   }
   if (!node.file) return;
@@ -245,6 +273,71 @@ root.addEventListener('keydown', e => {
     row.click();
   }
 });
+
+// ------------------------------------------------------------------ the context menu of a node with children
+
+let menu: HTMLElement | undefined;
+function closeMenu(): void {
+  menu?.remove();
+  menu = undefined;
+}
+
+function openMenu(node: TreeNode, x: number, y: number): void {
+  closeMenu();
+  const m = document.createElement('div');
+  m.className = 'menu';
+  m.setAttribute('role', 'menu');
+  for (const [label, open] of [['Expand All', true], ['Collapse All', false]] as const) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'menu-item';
+    item.setAttribute('role', 'menuitem');
+    item.textContent = label;
+    item.addEventListener('click', () => {
+      closeMenu();
+      setOpenAll([node], open);
+      root.querySelector<HTMLElement>(`.row[data-id="${CSS.escape(node.id)}"]`)?.focus();
+    });
+    m.append(item);
+  }
+  document.body.append(m);
+  // In the frame, beside the pointer: moved in when it would go past the right or the bottom.
+  const r = m.getBoundingClientRect();
+  m.style.left = `${Math.max(0, Math.min(x, document.documentElement.clientWidth - r.width))}px`;
+  m.style.top = `${Math.max(0, Math.min(y, document.documentElement.clientHeight - r.height))}px`;
+  menu = m;
+  m.querySelector<HTMLElement>('.menu-item')?.focus();
+}
+
+root.addEventListener('contextmenu', e => {
+  const row = (e.target as Element).closest<HTMLElement>('.row');
+  const node = row && nodes.get(row.dataset.id!);
+  if (!row || !node?.children.length) {
+    closeMenu();
+    return;
+  }
+  e.preventDefault();
+  // From the keyboard (the menu key, Shift+F10): below the row.
+  const at = e.button < 0 || (e.clientX === 0 && e.clientY === 0) ? row.getBoundingClientRect() : undefined;
+  openMenu(node, at ? at.left + 16 : e.clientX, at ? at.bottom : e.clientY);
+});
+
+document.addEventListener('mousedown', e => {
+  if (menu && !menu.contains(e.target as Node)) closeMenu();
+});
+document.addEventListener('keydown', e => {
+  if (!menu) return;
+  const items = [...menu.querySelectorAll<HTMLElement>('.menu-item')];
+  const i = items.indexOf(document.activeElement as HTMLElement);
+  if (e.key === 'Escape') closeMenu();
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+  }
+});
+window.addEventListener('blur', closeMenu);
+window.addEventListener('scroll', closeMenu);
+window.addEventListener('resize', closeMenu);
 
 void main().catch(e => {
   root.innerHTML = `<p class="note">The tree failed: ${esc(String((e as Error).stack ?? e))}</p>`;

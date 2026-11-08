@@ -1201,6 +1201,29 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       else if (node?.kind === 'folder' && node.objectTarget) await objects.moveFolder(node.objectTarget);
     }),
     vscode.commands.registerCommand('twincatExplorer.refresh', () => loadProjects()),
+    // Expand All / Collapse All on a node: its whole subtree, every branch below it.
+    vscode.commands.registerCommand('twincatExplorer.expandAll', async (arg?: unknown) => {
+      const node = arg instanceof TreeNode ? arg : treeView.selection[0];
+      if (!node || node.children.length === 0) return;
+      try {
+        for (const n of TwinCatTree.expansionFrontier(node)) await treeView.reveal(n, { select: false, focus: false, expand: true });
+        // Back to the node: the reveals scrolled to the last branch.
+        await treeView.reveal(node, { select: true, focus: true, expand: true });
+      } catch {
+        // A node disappeared during a rebuild.
+      }
+    }),
+    vscode.commands.registerCommand('twincatExplorer.collapseAll', async (arg?: unknown) => {
+      const node = arg instanceof TreeNode ? arg : treeView.selection[0];
+      if (!node || node.children.length === 0) return;
+      try {
+        // VS Code has no API to collapse a node: its list command collapses the focused node and all below it.
+        await treeView.reveal(node, { select: true, focus: true, expand: false });
+        await vscode.commands.executeCommand('list.collapseAllToFocus');
+      } catch {
+        // The node disappeared during a rebuild.
+      }
+    }),
     // The TwinCAT Search view: Search... where the last search looked, Find in Folder... in a node of the tree.
     vscode.commands.registerCommand('twincatExplorer.search', () => search.ask(undefined, selectedText())),
     ...['twincatExplorer.findInFolder', 'twincatExplorer.findInProject'].map(id => vscode.commands.registerCommand(id, (arg?: unknown) =>

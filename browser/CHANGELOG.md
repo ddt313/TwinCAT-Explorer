@@ -5,6 +5,13 @@ the VS Code extension: its versions are `browser-v*` tags, each a zip to load un
 addons.mozilla.org (see `SPIKE.md`, *Releases*).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- **Expand All / Collapse All in the TwinCAT tab**: right-click a folder, a file or a member with something under it
+  to expand or collapse it and every branch below it, all the way down; Alt+click its arrow does the same, as in
+  VS Code. The two buttons at the right of the tab's head expand or collapse the whole tree.
+
 ## 0.5.1 - 2026-11-06
 
 ### Fixed

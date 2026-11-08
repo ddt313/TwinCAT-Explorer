@@ -25,7 +25,7 @@ import { DiffLine, FileInput, FileView, ObjectView, buildFileView, hasObjectView
 import { ViewState, anchorId, leaveFor, lineOfAnchor, noteOfAnchor } from '../../browser/src/navigation';
 import { TreeParams, ViewerParams, decodeTreeParams, decodeViewerParams, encodeTreeParams, encodeViewerParams, fileUrl, namesCommit } from '../../browser/src/params';
 import { fetchAllowed } from '../../browser/src/protocol';
-import { TreeNode, buildTree, treeSummary } from '../../browser/src/treeModel';
+import { TreeNode, branches, buildTree, treeSummary } from '../../browser/src/treeModel';
 import { parseTcText } from '../../src/core/tcfile';
 
 const POU = '{a1000000-0000-0000-0000-000000000001}';
@@ -801,6 +801,20 @@ test('tree: folders, each file as its object with the members that changed, in t
   // While a file is read it shows by its name.
   assert.deepEqual(treeText(buildTree([{ path: 'PLC/POUs/FB_Valve.TcPOU' }])), ['PLC/POUs', '  FB_Valve · reading…']);
   assert.deepEqual(treeSummary([...files, { path: 'a.TcPOU' }]), { files: 6, objects: 5, reading: 1 });
+});
+
+test('tree: Expand All / Collapse All set every node with children below a node, at any depth', () => {
+  const valveAfter = valve({ close: false, reset: true, openImpl: 'bOpened := TRUE;', getImpl: 'State := 1;' })
+    .replace(`<Method Name="Reset" Id="${RESET}">`, `<Method Name="Reset" Id="${RESET}" FolderPath="Internal\\">`);
+  const tree = buildTree([
+    { path: 'PLC/POUs/Valves/FB_Valve.TcPOU', view: buildFileView({ path: 'PLC/POUs/Valves/FB_Valve.TcPOU', before: valve(), after: valveAfter }) },
+    { path: 'PLC/DUTs/E_Mode.TcDUT', view: buildFileView({ path: 'PLC/DUTs/E_Mode.TcDUT', after: ENUM }) },
+  ]);
+  // PLC > DUTs, POUs/Valves > FB_Valve > Internal, State: the leaves (E_Mode, Reset, Close, Open, Get) are not.
+  assert.deepEqual(branches(tree).map(n => n.label), ['PLC', 'DUTs', 'POUs/Valves', 'FB_Valve (FB)', 'Internal', 'State']);
+  const valveNode = tree[0].children[1].children[0];
+  assert.deepEqual(branches([valveNode]).map(n => n.label), ['FB_Valve (FB)', 'Internal', 'State']);
+  assert.deepEqual(branches(valveNode.children.filter(n => n.label === 'Open')), []);
 });
 
 test('the TwinCAT view lists its objects in the order of the tree: folders inside the POU first, then by name', () => {

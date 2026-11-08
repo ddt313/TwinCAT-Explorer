@@ -580,6 +580,18 @@
         "icon": "$(search)"
       },
       {
+        "command": "twincatExplorer.expandAll",
+        "title": "Expand All",
+        "category": "TwinCAT",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "twincatExplorer.collapseAll",
+        "title": "Collapse All",
+        "category": "TwinCAT",
+        "icon": "$(collapse-all)"
+      },
+      {
         "command": "twincatExplorer.findInFolder",
         "title": "Find in Folder...",
         "category": "TwinCAT"
@@ -930,6 +942,14 @@
           "when": "twincatExplorer.hasProjects"
         },
         {
+          "command": "twincatExplorer.expandAll",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.collapseAll",
+          "when": "false"
+        },
+        {
           "command": "twincatExplorer.findInFolder",
           "when": "false"
         },
@@ -1209,6 +1229,16 @@
           "command": "twincatExplorer.copyName",
           "when": "view == twincatExplorer.tree && viewItem =~ /named/",
           "group": "9_copy@1"
+        },
+        {
+          "command": "twincatExplorer.expandAll",
+          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/",
+          "group": "3_expand@1"
+        },
+        {
+          "command": "twincatExplorer.collapseAll",
+          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/",
+          "group": "3_expand@2"
         },
         {
           "command": "twincatExplorer.findInFolder",

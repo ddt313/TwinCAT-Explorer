@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { ViewChange, metadataChange, viewChanges } from '../core/objectChanges';
-import { Status, statusUri, viewChangeItem } from './changesView';
+import { Status, gitNodeAccessibility, statusUri, viewChangeItem } from './changesView';
 import { CommitObject } from './commitDiff';
 import { CommitInfo, commitChanges, commitLog, headCommit, localOnlyCommits, openNotebookDiff, readBlobs, revision, userEmail } from './git';
 import { GitChanges } from './gitChanges';
@@ -153,6 +153,7 @@ export class CommitsView implements vscode.TreeDataProvider<CommitNode>, vscode.
     // path: the file icon theme picks the icon of a plain file by it.
     const name = n.type !== 'view' && n.path ? `/${path.posix.basename(n.path)}` : '';
     if (n.status) item.resourceUri = statusUri(n.id, n.status, name);
+    item.accessibilityInformation = gitNodeAccessibility(n.label, n.description, n.status);
     const context: string[] = [n.type];
     // A whole-file notebook diff needs both sides: not for a file deleted, nor for the first commit.
     if (n.type === 'file' && n.status !== 'D' && n.commit?.parents.length) context.push('notebookDiff');

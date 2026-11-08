@@ -35,6 +35,8 @@ All notable changes to Explorer for TwinCAT. The format follows
 ### Fixed
 - Screen readers read the TwinCAT projects, PLC projects, POUs, DUTs, GVLs and tasks of the tree by their label
   (`FB_Valve (FB)`), not by the path of their file, and folders without a trailing space.
+- Screen readers read the files and objects of TwinCAT Changes, TwinCAT Commits and History by their label,
+  description and status (`FB_Valve (FB), FillerPlc · POUs/Devices, Modified`), not by the path of the file.
 
 ## 0.22.0 - 2026-11-08
 

@@ -12,7 +12,7 @@ import { Accessor, viewLabel } from '../core/objectText';
 import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { escapeMarkdown } from '../shared/markdown';
-import { Status, changeLetter, statusUri, viewChangeItem } from './changesView';
+import { Status, changeLetter, gitNodeAccessibility, statusUri, viewChangeItem } from './changesView';
 import { CommitObject } from './commitDiff';
 import { describeCommit } from './commitsView';
 import { CommitInfo, fileLog, localOnlyCommits, pathAt, readBlobs, userEmail } from './git';
@@ -332,6 +332,7 @@ export class HistoryView implements vscode.TreeDataProvider<HistoryNode>, vscode
     item.iconPath = n.icon;
     // The status letter and color come from the TwinCAT Changes view's decorations.
     if (n.status) item.resourceUri = statusUri(n.id, n.status);
+    item.accessibilityInformation = gitNodeAccessibility(n.label, n.description, n.status);
     const context: string[] = [n.type];
     if (n.commit && n.live) context.push('compare');
     item.contextValue = context.join(' ');

@@ -17,6 +17,7 @@ const INSTRUCTIONS = `TwinCAT 3 PLC code under this folder. .TcPOU, .TcDUT, .TcG
 - Code is per section: part "decl" (declaration) or "impl" (implementation); lines count from 1 within the section.
 - Read before editing; pass the hash from the read to write_section (edit_section takes it optionally). A changed section is refused: read it again.
 - Lines of these files in git diff or git blame: locate tells the object, part and line of code they are.
+- To find a text in the code, use search_text rather than searching the XML files.
 - When TwinCAT XAE has the project open, code is read and written in XAE itself: XAE shows the change and saves that object at once. A file with unsaved edits in XAE is refused unless the user agrees (saveUserEdits: true), as the change would save them too.
 - Every write is saved at once and can be taken back with undo_last_edit; TwinCAT XAE's own Ctrl+Z does not undo it.
 - check is the extension's syntax and name check; check with compiler: true runs TwinCAT XAE's Check all objects when XAE has the project open.`;
@@ -92,6 +93,21 @@ register('locate', {
   },
   annotations: readOnly,
 }, run(T.locate));
+
+register('search_text', {
+  description: 'Finds a text, or a regular expression, in the code of the objects (declarations and implementations, as read shows them; never their XML): each line with a match, as object, part and line. Case aside unless matchCase.',
+  inputSchema: {
+    query: z.string(),
+    regex: z.boolean().optional().describe('query is a regular expression, RE2 syntax (no lookahead, no backreferences); ^ and $ match at each line'),
+    matchCase: z.boolean().optional(),
+    wholeWord: z.boolean().optional().describe('Not part of a longer name'),
+    skipComments: z.boolean().optional().describe('Leave out the matches in comments'),
+    project: z.string().optional().describe('Only this PLC project'),
+    folder: z.string().optional().describe('Only this folder of the PLC projects, with its subfolders: POUs/Valves'),
+    limit: z.number().int().positive().optional().describe('Lines shown, 200 by default'),
+  },
+  annotations: readOnly,
+}, run(T.searchText));
 
 register('find_symbol', {
   description: 'POUs, DUTs, GVLs, methods, properties and global variables by name (fuzzy, as Ctrl+T).',

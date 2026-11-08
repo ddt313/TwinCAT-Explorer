@@ -2,7 +2,7 @@
   "name": "explorer-for-twincat",
   "displayName": "Explorer for TwinCAT",
   "description": "XAE-like TwinCAT PLC project tree, an XAE-like declaration/implementation split editor and Structured Text language features",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "publisher": "thanhdang",
   "private": true,
   "license": "MIT",
@@ -151,6 +151,14 @@
           "icon": "media/twincat.svg",
           "contextualTitle": "Explorer for TwinCAT",
           "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "id": "twincatExplorer.search",
+          "name": "TwinCAT Search",
+          "icon": "media/twincat.svg",
+          "contextualTitle": "Explorer for TwinCAT",
+          "when": "twincatExplorer.hasProjects",
+          "visibility": "collapsed"
         }
       ],
       "scm": [
@@ -181,6 +189,11 @@
       {
         "view": "twincatExplorer.tree",
         "contents": "Loading TwinCAT projects..."
+      },
+      {
+        "view": "twincatExplorer.search",
+        "contents": "Search the Structured Text of the TwinCAT objects as the split editor shows it, unsaved edits included.\n[Search...](command:twincatExplorer.search)\nRight-click a PLC project or a folder in the TwinCAT tree to search only there (Find in Folder...).",
+        "when": "!twincatExplorer.searchActive"
       }
     ],
     "commands": [
@@ -559,6 +572,87 @@
         "command": "twincatExplorer.renewTrialLicense",
         "title": "Renew Trial License in TwinCAT XAE",
         "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.search",
+        "title": "Search...",
+        "category": "TwinCAT",
+        "icon": "$(search)"
+      },
+      {
+        "command": "twincatExplorer.expandAll",
+        "title": "Expand All",
+        "category": "TwinCAT",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "twincatExplorer.collapseAll",
+        "title": "Collapse All",
+        "category": "TwinCAT",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "twincatExplorer.findInFolder",
+        "title": "Find in Folder...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.findInProject",
+        "title": "Find in Project...",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.search.refresh",
+        "title": "Refresh",
+        "category": "TwinCAT Search",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "twincatExplorer.search.clear",
+        "title": "Clear Search Results",
+        "category": "TwinCAT Search",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "twincatExplorer.search.open",
+        "title": "Open",
+        "category": "TwinCAT Search"
+      },
+      {
+        "command": "twincatExplorer.search.toggleMatchCase",
+        "title": "Match Case",
+        "category": "TwinCAT Search"
+      },
+      {
+        "command": "twincatExplorer.search.toggleMatchCase.on",
+        "title": "Match Case ✓"
+      },
+      {
+        "command": "twincatExplorer.search.toggleWholeWord",
+        "title": "Match Whole Word",
+        "category": "TwinCAT Search"
+      },
+      {
+        "command": "twincatExplorer.search.toggleWholeWord.on",
+        "title": "Match Whole Word ✓"
+      },
+      {
+        "command": "twincatExplorer.search.toggleRegex",
+        "title": "Use Regular Expression",
+        "category": "TwinCAT Search"
+      },
+      {
+        "command": "twincatExplorer.search.toggleRegex.on",
+        "title": "Use Regular Expression ✓"
+      },
+      {
+        "command": "twincatExplorer.search.toggleSkipComments",
+        "title": "Skip Comments",
+        "category": "TwinCAT Search"
+      },
+      {
+        "command": "twincatExplorer.search.toggleSkipComments.on",
+        "title": "Skip Comments ✓"
       }
     ],
     "submenus": [
@@ -842,6 +936,70 @@
         {
           "command": "twincatExplorer.renewTrialLicense",
           "when": "!isWeb"
+        },
+        {
+          "command": "twincatExplorer.search",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.expandAll",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.collapseAll",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.findInFolder",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.findInProject",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.refresh",
+          "when": "twincatExplorer.searchActive"
+        },
+        {
+          "command": "twincatExplorer.search.clear",
+          "when": "twincatExplorer.searchActive"
+        },
+        {
+          "command": "twincatExplorer.search.open",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.toggleMatchCase",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.toggleMatchCase.on",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.toggleWholeWord",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.toggleWholeWord.on",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.toggleRegex",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.toggleRegex.on",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.toggleSkipComments",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.search.toggleSkipComments.on",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -894,6 +1052,61 @@
           "command": "twincatExplorer.history.refresh",
           "when": "view == twincatExplorer.history",
           "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.search",
+          "when": "view == twincatExplorer.search",
+          "group": "navigation@1"
+        },
+        {
+          "command": "twincatExplorer.search.refresh",
+          "when": "view == twincatExplorer.search && twincatExplorer.searchActive",
+          "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.search.clear",
+          "when": "view == twincatExplorer.search && twincatExplorer.searchActive",
+          "group": "navigation@3"
+        },
+        {
+          "command": "twincatExplorer.search.toggleMatchCase",
+          "when": "view == twincatExplorer.search && !twincatExplorer.search.matchCase",
+          "group": "2_options@1"
+        },
+        {
+          "command": "twincatExplorer.search.toggleMatchCase.on",
+          "when": "view == twincatExplorer.search && twincatExplorer.search.matchCase",
+          "group": "2_options@1"
+        },
+        {
+          "command": "twincatExplorer.search.toggleWholeWord",
+          "when": "view == twincatExplorer.search && !twincatExplorer.search.wholeWord",
+          "group": "2_options@2"
+        },
+        {
+          "command": "twincatExplorer.search.toggleWholeWord.on",
+          "when": "view == twincatExplorer.search && twincatExplorer.search.wholeWord",
+          "group": "2_options@2"
+        },
+        {
+          "command": "twincatExplorer.search.toggleRegex",
+          "when": "view == twincatExplorer.search && !twincatExplorer.search.regex",
+          "group": "2_options@3"
+        },
+        {
+          "command": "twincatExplorer.search.toggleRegex.on",
+          "when": "view == twincatExplorer.search && twincatExplorer.search.regex",
+          "group": "2_options@3"
+        },
+        {
+          "command": "twincatExplorer.search.toggleSkipComments",
+          "when": "view == twincatExplorer.search && !twincatExplorer.search.skipComments",
+          "group": "2_options@4"
+        },
+        {
+          "command": "twincatExplorer.search.toggleSkipComments.on",
+          "when": "view == twincatExplorer.search && twincatExplorer.search.skipComments",
+          "group": "2_options@4"
         }
       ],
       "view/item/context": [
@@ -1016,6 +1229,26 @@
           "command": "twincatExplorer.copyName",
           "when": "view == twincatExplorer.tree && viewItem =~ /named/",
           "group": "9_copy@1"
+        },
+        {
+          "command": "twincatExplorer.expandAll",
+          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/",
+          "group": "3_expand@1"
+        },
+        {
+          "command": "twincatExplorer.collapseAll",
+          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/",
+          "group": "3_expand@2"
+        },
+        {
+          "command": "twincatExplorer.findInFolder",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^(folder|innerFolder)( |$)/",
+          "group": "4_search@1"
+        },
+        {
+          "command": "twincatExplorer.findInProject",
+          "when": "view == twincatExplorer.tree && viewItem =~ /^tsproj( |$)|^plcproj .*addObject/",
+          "group": "4_search@1"
         },
         {
           "command": "twincatExplorer.changes.openNotebook",
@@ -1253,6 +1486,30 @@
         "when": "twincatExplorer.hasProjects"
       },
       {
+        "command": "twincatExplorer.search",
+        "key": "ctrl+shift+alt+f",
+        "mac": "cmd+shift+alt+f",
+        "when": "twincatExplorer.hasProjects"
+      },
+      {
+        "command": "twincatExplorer.search.toggleMatchCase",
+        "key": "alt+c",
+        "mac": "cmd+alt+c",
+        "when": "twincatExplorer.searchInput && inQuickOpen"
+      },
+      {
+        "command": "twincatExplorer.search.toggleWholeWord",
+        "key": "alt+w",
+        "mac": "cmd+alt+w",
+        "when": "twincatExplorer.searchInput && inQuickOpen"
+      },
+      {
+        "command": "twincatExplorer.search.toggleRegex",
+        "key": "alt+r",
+        "mac": "cmd+alt+r",
+        "when": "twincatExplorer.searchInput && inQuickOpen"
+      },
+      {
         "command": "twincatExplorer.autoDeclare",
         "key": "shift+f2",
         "when": "editorTextFocus && editorLangId == twincat-st"
@@ -1384,7 +1641,7 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p . && tsc -p src/webview && node scripts/build-webview.js && node scripts/build-mcp.js && node scripts/build-web.js",
+    "compile": "tsc -p . && node scripts/build-vendor.js && tsc -p src/webview && node scripts/build-webview.js && node scripts/build-mcp.js && node scripts/build-web.js",
     "watch": "tsc -w -p .",
     "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
     "test": "npm run compile && npm run test:unit",
@@ -1407,6 +1664,7 @@
     "esbuild": "0.28.2",
     "monaco-editor": "0.55.1",
     "path-unified": "^0.2.0",
+    "re2js": "2.9.1",
     "typescript": "^5.6.3",
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2",

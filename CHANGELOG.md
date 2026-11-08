@@ -3,6 +3,20 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.22.0 - 2026-11-08
+
+### Added
+- TwinCAT Search: `TwinCAT: Search...` (Ctrl+Shift+Alt+F) finds a text in the Structured Text of the objects as
+  the split editor shows it, never in their XML, unsaved edits included, and lists the matches in the **TwinCAT
+  Search** view of the Explorer as you type, per object and section; a click opens the split editor at the match.
+  `Find in Folder...` and `Find in Project...` on the TwinCAT tree search one folder (a folder inside a POU too) or
+  project. Match Case, Match Whole Word, regular expressions (RE2's syntax, in linear time, so that no pattern can
+  hang VS Code) and Skip Comments are buttons of the input box (Alt+C, Alt+W, Alt+R) and in the view's `...` menu.
+- The MCP server's `search_text`: a text or regular expression in the code, in all PLC projects or in one project
+  or folder.
+- `Expand All` and `Collapse All` in the context menu of a TwinCAT tree node that has children: they expand or
+  collapse the node and every branch below it, all the way down (a project, a folder, a POU with its methods).
+
 ## 0.21.0 - 2026-11-06
 
 ### Added

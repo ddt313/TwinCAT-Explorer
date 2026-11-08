@@ -62,6 +62,45 @@ html, body {
 .counts { font-size: 12px; color: var(--muted); }
 .note { margin: 8px; font-size: 12px; color: var(--muted); }
 .tree { padding: 4px 0 12px; }
+/* Expand All and Collapse All of the whole tree, at the right of the head. */
+.actions { display: flex; gap: 2px; margin-left: auto; align-self: center; }
+.act {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.act:hover { background: var(--hover); color: var(--fg); }
+.act:focus-visible { outline: 1px solid var(--renamed); }
+.act svg { width: 16px; height: 16px; fill: currentColor; }
+
+/* The context menu of a node with children. */
+.menu {
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.menu-item {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus { background: var(--selected); outline: none; }
 
 .row {
   display: flex;

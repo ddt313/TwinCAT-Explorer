@@ -226,6 +226,11 @@ export function buildTree(files: TreeFile[], paths?: (a: string, b: string) => n
  * Counts for the panel's title: changed files (all of them) and object views, TwinCAT files still being read; of the
  * files at one commit (`snapshot`), all their object views.
  */
+/** The nodes with children of the subtrees of these nodes (themselves included): what Expand All / Collapse All set. */
+export function branches(nodes: TreeNode[]): TreeNode[] {
+  return nodes.flatMap(n => (n.children.length ? [n, ...branches(n.children)] : []));
+}
+
 export function treeSummary(files: TreeFile[], snapshot = false): { files: number; objects: number; reading: number } {
   let objects = 0;
   let reading = 0;

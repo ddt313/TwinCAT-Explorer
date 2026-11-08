@@ -43,8 +43,9 @@ state of each object.
 
 The **Solution** view of the **TwinCAT** view container (the TwinCAT icon in the Activity Bar), with the
 **History** view below it. Its title bar has `Add` (POU, DUT, GVL, interface, folder, existing items, library),
-`Go to Object...` and `Search...`; `Reveal Active Editor` (when `twincatExplorer.autoReveal` is off) and `Refresh`
-are in its `...` menu. Like any view, it can be dragged to the Explorer or elsewhere.
+`Go to Object...` and `Search...`; `Reveal Active Editor` (when `twincatExplorer.autoReveal` is off) and `Reload Projects`
+are in its `...` menu. The container opens by itself the first time a workspace shows TwinCAT projects. Like any
+view, the tree can be dragged to the Explorer or elsewhere.
 
 - One root per `.tsproj`, then its PLC projects, `References`, and the folders and objects of each
   `.plcproj`. A PLC project saved as an Independent Project File (`_Config\PLC\Plc.xti`, which the
@@ -704,7 +705,7 @@ against git.
     `origin/develop` when you review a merge request.
 - **Toolbars:** the extension hides the cell toolbar of TwinCAT notebooks. VS Code has no switch per
   notebook type for the rest (`Run All`, `Select Kernel`, `+ Code`, `+ Markdown`), so
-  `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` hides the top toolbar and the insert buttons
+  `TwinCAT: Hide or Show Notebook Toolbars (XAE-like Layout)...` hides the top toolbar and the insert buttons
   for every notebook. It changes `notebook.globalToolbar` and `notebook.insertToolbarLocation` in the
   user settings, and the same command shows them again.
 
@@ -954,10 +955,10 @@ Commit SHA and Copy Name.
 
 | Command | What it does |
 |---|---|
-| `TwinCAT: Refresh` | Load the TwinCAT projects of the workspace again. |
+| `TwinCAT: Reload Projects` | Load the TwinCAT projects of the workspace again. |
 | `TwinCAT: Go to Object...` | Pick any object of the workspace and open it (Ctrl+Alt+T). |
 | `TwinCAT: Search...` | Search the Structured Text of the objects, in the TwinCAT Search view (Ctrl+Shift+Alt+F; see [TwinCAT Search](#twincat-search)). `Find in Folder...` / `Find in Project...` in the TwinCAT tree search one folder or project. |
-| `TwinCAT: Reveal in TwinCAT Explorer` / `TwinCAT: Reveal Active Editor` | Select the object or file in the TwinCAT tree. |
+| `TwinCAT: Reveal in TwinCAT Solution` / `TwinCAT: Reveal Active Editor` | Select the object or file in the TwinCAT tree. |
 | `TwinCAT: Open XML` | Open the object's file as XML text, at the object. |
 | `TwinCAT: Open Solution in TwinCAT XAE` | Bring the TwinCAT XAE that has the project open to the front, or start XAE on the solution that has the project, on Windows (see [Opening the solution in TwinCAT XAE](#opening-the-solution-in-twincat-xae)). |
 | `TwinCAT: Add POU...` / `TwinCAT: Add DUT...` / `TwinCAT: Add Global Variable List...` / `TwinCAT: Add Interface...` | Add an object to a PLC project or one of its folders (see [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)). |
@@ -979,7 +980,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Open Current Version` | From the commit diff panel, open the object as it is now. |
 | `TwinCAT: Toggle Line Blame` | Turn the current line blame of the split editor on or off. |
 | `TwinCAT: Check All Structured Text` | Analyse every section of every project and report the problems. |
-| `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` | Hide (or show again) the notebook toolbars in the user settings. |
+| `TwinCAT: Hide or Show Notebook Toolbars (XAE-like Layout)...` | Hide (or show again) the notebook toolbars in the user settings. |
 | `TwinCAT: Show Licenses` | List each TwinCAT license of each runtime on this machine and until when it is valid (see [TwinCAT licenses](#twincat-licenses)). |
 | `TwinCAT: Renew Trial License in TwinCAT XAE` | Open the 7-day trial license dialog of TwinCAT XAE for this machine or a remote system, where you type the security code (see [TwinCAT licenses](#twincat-licenses)). |
 | `TwinCAT: Set Up MCP Server for Claude Code` | Register the extension's MCP server with Claude Code for a workspace folder, in your `~/.claude.json`, and give the folder's `.claude/settings.local.json` its permission rules (see [MCP server for AI agents](#mcp-server-for-ai-agents)). |

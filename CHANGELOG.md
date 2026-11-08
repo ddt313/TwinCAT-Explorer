@@ -19,8 +19,17 @@ All notable changes to Explorer for TwinCAT. The format follows
   comparisons, search, expand, rename/move/delete, copy name and Open XML last. `Expand All` and `Collapse All` are
   on projects, `References` and folders.
 - `Open XML` moved to the `...` menu of the split editor's title bar.
+- The TwinCAT view container opens by itself the first time a workspace shows TwinCAT projects.
+- `Go to Object...` shows the tree's icons and kinds (`FB`, `PRG`, `ENUM`, `STRUCT`, `Method`, `GVL`...).
+- `TwinCAT: Refresh` is now `TwinCAT: Reload Projects`, `Reveal in TwinCAT Explorer` is `Reveal in TwinCAT
+  Solution`, and `Hide Notebook Toolbars (XAE-like Layout)` is `Hide or Show Notebook Toolbars (XAE-like
+  Layout)...`, as it asks which.
 - `Open Changes as TwinCAT Notebook` is now `Compare with HEAD (Notebook)`, and `Compare with Git Ref as TwinCAT
   Notebook...` is `Compare with Branch or Commit (Notebook)...`.
+
+### Fixed
+- Screen readers read the TwinCAT projects, PLC projects, POUs, DUTs, GVLs and tasks of the tree by their label
+  (`FB_Valve (FB)`), not by the path of their file, and folders without a trailing space.
 
 ## 0.22.0 - 2026-11-08
 

@@ -18,7 +18,8 @@ import { parseObjectText, positionIn, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
-import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree';
+import { MemberTarget, TreeNode, TwinCatTree, memberKinds, objectIcon } from './vscode/tree';
+import { objectKindWord } from './core/treeLabels';
 import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { SymbolRename } from './vscode/rename';
@@ -49,6 +50,9 @@ import {
   ST_LANGUAGE, fileUri, isFileUri, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf,
   viewKey,
 } from './vscode/uris';
+
+/** workspaceState: the TwinCAT view container was opened once for this workspace. */
+const REVEALED_CONTAINER_KEY = 'twincatExplorer.revealedViewContainer';
 
 export interface TwinCatExplorerApi {
   workspace: TcWorkspace;
@@ -393,6 +397,12 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       checkHasResults = false;
       license?.setShown(hasProjects);
       await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', hasProjects);
+      // The first time a workspace shows TwinCAT projects, the TwinCAT view container opens once, so that the tree is
+      // where one starts rather than an icon to find.
+      if (hasProjects && !context.workspaceState.get<boolean>(REVEALED_CONTAINER_KEY)) {
+        await context.workspaceState.update(REVEALED_CONTAINER_KEY, true);
+        void vscode.commands.executeCommand('workbench.view.extension.twincat');
+      }
       if (hasProjects || ws.loadErrors.length) {
         log.info(`Loaded ${ws.tsProjects.length} TwinCAT project(s), ${ws.plcProjects.length} PLC project(s), `
           + `${ws.sourceEntries.length} source file(s); ignored ${uris.length - visible.length} .tsproj file(s) in hidden folders.`);
@@ -1355,17 +1365,15 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.goToObject', async () => {
       const items: (vscode.QuickPickItem & { fsPath: string; objectId: string })[] = [];
-      const iconOf: Record<string, string> = {
-        pou: 'symbol-class', method: 'symbol-method', property: 'symbol-property', action: 'symbol-event',
-        transition: 'symbol-event', dut: 'symbol-structure', gvl: 'symbol-variable', itf: 'symbol-interface',
-      };
       for (const e of ws.sourceEntries) {
         const file = ws.getFile(e.path);
         if (!file) continue;
         for (const obj of file.ordered) {
           items.push({
-            label: `$(${iconOf[obj.kind] ?? 'symbol-misc'}) ${obj.qualifiedName}`,
-            description: obj.kind === 'pou' ? obj.pouKind : obj.kind,
+            // The tree's icons and kind words: FB, PRG, FUN, ENUM, STRUCT, Method, Property, GVL, Interface.
+            label: obj.qualifiedName,
+            iconPath: objectIcon(obj),
+            description: objectKindWord(obj),
             detail: `${e.project.name} · ${e.include}`,
             fsPath: file.path,
             objectId: obj.id,

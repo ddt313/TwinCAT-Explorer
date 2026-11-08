@@ -218,7 +218,7 @@
     "commands": [
       {
         "command": "twincatExplorer.refresh",
-        "title": "Refresh",
+        "title": "Reload Projects",
         "category": "TwinCAT",
         "icon": "$(refresh)"
       },
@@ -245,7 +245,7 @@
       },
       {
         "command": "twincatExplorer.revealInTree",
-        "title": "Reveal in TwinCAT Explorer",
+        "title": "Reveal in TwinCAT Solution",
         "category": "TwinCAT"
       },
       {
@@ -575,7 +575,7 @@
       },
       {
         "command": "twincatExplorer.hideNotebookToolbars",
-        "title": "Hide Notebook Toolbars (XAE-like Layout)",
+        "title": "Hide or Show Notebook Toolbars (XAE-like Layout)...",
         "category": "TwinCAT"
       },
       {

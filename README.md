@@ -6,7 +6,7 @@ Implementation**, and brings Structured Text language features and git views tha
 The code stays in the `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` XML files, and saving writes back only
 the sections you edited.
 
-![The TwinCAT tree beside the split editor of a function block: the Declaration above the Implementation](docs/images/vscode-overview.png)
+![The Solution tree of the TwinCAT view container beside the split editor of a function block: the Declaration above the Implementation](docs/images/vscode-overview.png)
 
 <!-- browser-only:start -->
 A companion [browser extension](#browser-extension) shows the TwinCAT files of a GitHub pull request or a
@@ -473,7 +473,7 @@ Rename (F2) changes the uses too, in every PLC project of the workspace.
 These work in both panes and in notebook cells. They come from a parser of the TwinCAT dialect
 (`EXTENDS`, `IMPLEMENTS`, `THIS^`, `SUPER^`, properties, `REFERENCE TO`, ...).
 
-![Completion after fbConveyor. lists the methods of FB_Conveyor, and the call with its arguments](docs/images/vscode-language.png)
+![Completion after fbConveyor.St lists the methods of FB_Conveyor, and their calls](docs/images/vscode-language.png)
 
 <details>
 <summary>Details</summary>

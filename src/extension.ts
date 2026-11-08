@@ -48,7 +48,7 @@ import { SolutionOpener } from './vscode/openInXae';
 import {
   DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME,
   ST_LANGUAGE, fileUri, isFileUri, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf,
-  viewKey,
+  useXaeFolders, viewKey,
 } from './vscode/uris';
 
 /** workspaceState: the TwinCAT view container was opened once for this workspace. */
@@ -123,6 +123,17 @@ function userStubs(): StubSource[] {
 
 export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinCatExplorerApi {
   const ws = new TcWorkspace();
+  // The breadcrumbs of an object show its place in the TwinCAT tree: TwinCAT project, PLC project, folders.
+  useXaeFolders(fsPath => {
+    const entry = ws.entry(fsPath);
+    if (!entry) return undefined;
+    const plcKey = fileKey(entry.project.path);
+    for (const ts of ws.tsProjects) {
+      const ref = ts.plcProjects.find(r => r.plcprojPath && fileKey(r.plcprojPath) === plcKey);
+      if (ref) return [ts.name, ref.name, ...entry.include.split(/[\\/]/).slice(0, -1)];
+    }
+    return [entry.project.name, ...entry.include.split(/[\\/]/).slice(0, -1)];
+  });
   const index = new LanguageIndex(ws);
   // User stubs are read once projects are found, so windows without TwinCAT never warn about them.
   index.setStubs(BUNDLED_STUBS);

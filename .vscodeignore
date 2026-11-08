@@ -10,6 +10,7 @@
 !media/icon.png
 !media/twincat.svg
 !media/icons/**
+!media/walkthrough/**
 !out/src/extension.js
 !out/src/{core,lang,shared,vscode}/**/*.js
 !out/webview/**

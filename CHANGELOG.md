@@ -20,6 +20,11 @@ All notable changes to Explorer for TwinCAT. The format follows
   on projects, `References` and folders.
 - `Open XML` moved to the `...` menu of the split editor's title bar.
 - The TwinCAT view container opens by itself the first time a workspace shows TwinCAT projects.
+- The breadcrumbs of the split editor and of object notebooks show the object's place in the TwinCAT tree
+  (`Machine › Plc › POUs › FB_Valve › Close`) instead of the folders of its file from the root of the disk.
+- A walkthrough, *Get Started with Explorer for TwinCAT* (`Help: Welcome`), shows where the tree, Go to Object,
+  Search and the per-object git views are.
+- The TwinCAT Search view's message names what was searched: `5 results for "fbValve" (Match Case) in 1 file`.
 - `Go to Object...` shows the tree's icons and kinds (`FB`, `PRG`, `ENUM`, `STRUCT`, `Method`, `GVL`...).
 - `TwinCAT: Refresh` is now `TwinCAT: Reload Projects`, `Reveal in TwinCAT Explorer` is `Reveal in TwinCAT
   Solution`, and `Hide Notebook Toolbars (XAE-like Layout)` is `Hide or Show Notebook Toolbars (XAE-like

@@ -215,6 +215,60 @@
         "when": "!twincatExplorer.searchActive"
       }
     ],
+    "walkthroughs": [
+      {
+        "id": "twincat",
+        "title": "Get Started with Explorer for TwinCAT",
+        "description": "Where the TwinCAT tree, Go to Object, Search and the per-object git views are.",
+        "when": "twincatExplorer.hasProjects",
+        "steps": [
+          {
+            "id": "tree",
+            "title": "Open the Solution tree",
+            "description": "The TwinCAT icon in the Activity Bar holds the projects as XAE shows them, and the History of the open object.\n[Open the TwinCAT View](command:workbench.view.extension.twincat)",
+            "media": {
+              "markdown": "media/walkthrough/tree.md"
+            },
+            "completionEvents": [
+              "onView:twincatExplorer.tree"
+            ]
+          },
+          {
+            "id": "goto",
+            "title": "Go to any object",
+            "description": "Ctrl+Alt+T lists every POU, method, property, DUT and GVL.\n[Go to Object...](command:twincatExplorer.goToObject)",
+            "media": {
+              "markdown": "media/walkthrough/goto.md"
+            },
+            "completionEvents": [
+              "onCommand:twincatExplorer.goToObject"
+            ]
+          },
+          {
+            "id": "search",
+            "title": "Search the Structured Text",
+            "description": "Ctrl+Shift+Alt+F searches the code of the objects, never their XML; the results are in the Panel.\n[Search...](command:twincatExplorer.search)",
+            "media": {
+              "markdown": "media/walkthrough/search.md"
+            },
+            "completionEvents": [
+              "onCommand:twincatExplorer.search"
+            ]
+          },
+          {
+            "id": "changes",
+            "title": "Review and commit per object",
+            "description": "TwinCAT Changes in Source Control lists the changed objects; stage, discard and commit them one by one.\n[Show TwinCAT Changes](command:twincatExplorer.changes.focus)",
+            "media": {
+              "markdown": "media/walkthrough/changes.md"
+            },
+            "completionEvents": [
+              "onView:twincatExplorer.changes"
+            ]
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "twincatExplorer.refresh",

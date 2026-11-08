@@ -108,7 +108,7 @@ XAE, with its changes against `HEAD` and the blame of the current line.
   open in their own tabs. DUTs, GVLs and interfaces have a single pane.
 - **Opening:** a single click in the tree opens a preview tab; a double click, or an edit, keeps it.
 - **Look:**
-  - Breadcrumbs follow the XAE path.
+  - Breadcrumbs follow the place in the TwinCAT tree: `Machine › Plc › POUs › FB_Valve › Close`.
   - The panes are Monaco editors (the editor VS Code is built on). They use your VS Code font, tab
     and theme settings and the same colours.
 - **Changes vs HEAD:**
@@ -944,7 +944,9 @@ code --uninstall-extension thanhdang.explorer-for-twincat --profile <profile>
 2. Click a POU, method or property in the tree. It opens in the split editor, with the Declaration
    above the Implementation.
 3. Edit and save with Ctrl+S. Only the sections you changed are written back to the XML file.
-4. Use **Ctrl+Alt+T** to jump to any object, **F12** and **Shift+F12** to follow the code, and the
+4. `Help: Welcome` > *Get Started with Explorer for TwinCAT* walks through the tree, Go to Object, Search and
+   the per-object git views.
+5. Use **Ctrl+Alt+T** to jump to any object, **F12** and **Shift+F12** to follow the code, and the
    Source Control views to review what changed.
 
 ## Commands

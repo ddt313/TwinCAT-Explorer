@@ -169,6 +169,11 @@ export class LanguageIndex {
     this.dirty.add(key);
   }
 
+  /** The unsaved text of a section that an editor shows (see setOverlay), without building the index. */
+  overlayText(key: string, sectionKey: string): string | undefined {
+    return this.overlays.get(key)?.get(sectionKey);
+  }
+
   invalidateFile(path: string): void {
     this.dirty.add(fileKey(path));
   }

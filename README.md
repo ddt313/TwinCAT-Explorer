@@ -77,6 +77,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - Right-click a TwinCAT project to open its solution in TwinCAT XAE, or bring the XAE that has it open to
   the front, on Windows (see [Opening the solution in TwinCAT XAE](#opening-the-solution-in-twincat-xae)).
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
+- Right-click a TwinCAT project, a PLC project, a folder or a folder inside a POU: `Find in Folder...`
+  (`Find in Project...`) searches its code (see [TwinCAT Search](#twincat-search)).
 
 </details>
 
@@ -550,6 +552,39 @@ These work in both panes and in notebook cells. They come from a parser of the T
 
 </details>
 
+### TwinCAT Search
+
+Search the Structured Text of the TwinCAT objects as the split editor shows it, never their XML, in all
+PLC projects or in one project or folder of the tree (`Find in Folder...`), unsaved edits included.
+
+<details>
+<summary>Details</summary>
+
+- **`TwinCAT: Search...`** (Ctrl+Shift+Alt+F, or the search icon of the **TwinCAT Search** view in the
+  Explorer) asks for the text and lists the matches as you type: per POU, DUT, GVL or interface, then per
+  section (`FB_Valve` Declaration, `M_Open` Implementation, `P_Speed.Get` Implementation), then the line
+  with the match highlighted. A click opens the split editor at the match as a preview, keeping the focus
+  in the list; a double click keeps the tab open.
+- **Where:** right-click a TwinCAT project or PLC project in the TwinCAT tree (`Find in Project...`), a
+  folder (`Find in Folder...`, its subfolders included), or a folder inside a POU (its methods,
+  properties, actions and transitions). The next searches stay there until the input box's
+  *Search all PLC projects* button; `Clear Search Results` forgets the search and where it looked.
+- **Options**, as buttons of the input box and in the view's `...` menu, kept for the next searches:
+  - *Match Case* (Alt+C): off by default, as Structured Text ignores case.
+  - *Match Whole Word* (Alt+W): not part of a longer name (`nCount`, not `nCountMax`).
+  - *Use Regular Expression* (Alt+R): RE2's syntax, as VS Code's own search (ripgrep) has it, with
+    lookbehind but no lookahead and no backreferences; `^` and `$` match at each line. It runs in linear
+    time whatever the pattern, so that one such as `(\w+\s*)*END_VAR` never hangs VS Code, as
+    JavaScript's regular expressions would.
+  - *Skip Comments*: leaves out the matches in comments (`//`, `(* *)`, nested ones too); those in pragmas
+    and strings stay.
+- The text searched is what the split editors and notebooks show, unsaved edits included, and the results
+  follow changes of the code and of those edits. Only the Structured Text of the PLC projects' source
+  files is searched: not libraries, nor implementations in other languages.
+- At most 10,000 matches are listed; the view says when there are more.
+
+</details>
+
 ### Source Control views
 
 Three views in the Source Control sidebar that work per object instead of per file: **TwinCAT Changes**
@@ -817,8 +852,8 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
   declaration (`decl`) and implementation (`impl`), with line numbers within the section.
 - **Tools:**
   - Reading: `status`, `objects` (the tree), `read`, `locate` (the object and line of code at lines of
-    a file as `git diff` and `git blame` number them), `find_symbol`, `definition`, `references`,
-    `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler).
+    a file as `git diff` and `git blame` number them), `search_text` (a text or regular expression in the code,
+    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler).
   - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
     `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
     the edited section, or the elements XAE writes for a new member or object (in the `.plcproj`, its
@@ -913,6 +948,7 @@ Commit SHA and Copy Name.
 |---|---|
 | `TwinCAT: Refresh` | Load the TwinCAT projects of the workspace again. |
 | `TwinCAT: Go to Object...` | Pick any object of the workspace and open it (Ctrl+Alt+T). |
+| `TwinCAT: Search...` | Search the Structured Text of the objects, in the TwinCAT Search view (Ctrl+Shift+Alt+F; see [TwinCAT Search](#twincat-search)). `Find in Folder...` / `Find in Project...` in the TwinCAT tree search one folder or project. |
 | `TwinCAT: Reveal in TwinCAT Explorer` / `TwinCAT: Reveal Active Editor` | Select the object or file in the TwinCAT tree. |
 | `TwinCAT: Open XML` | Open the object's file as XML text, at the object. |
 | `TwinCAT: Open Solution in TwinCAT XAE` | Bring the TwinCAT XAE that has the project open to the front, or start XAE on the solution that has the project, on Windows (see [Opening the solution in TwinCAT XAE](#opening-the-solution-in-twincat-xae)). |
@@ -950,6 +986,8 @@ Commit SHA and Copy Name.
 | Key | Where | Action |
 |---|---|---|
 | Ctrl+Alt+T | anywhere, with TwinCAT projects open | Go to Object |
+| Ctrl+Shift+Alt+F (macOS: Cmd+Shift+Alt+F) | anywhere, with TwinCAT projects open | TwinCAT: Search... |
+| Alt+C / Alt+W / Alt+R (macOS: Cmd+Alt+C / W / R) | TwinCAT Search input box | Match Case / Match Whole Word / Use Regular Expression |
 | Ctrl+T | anywhere | Find a POU, method, property, DUT, GVL or global variable |
 | F2 | TwinCAT tree | Rename the selected POU, DUT, GVL, interface, method, property, action, transition or folder |
 | Delete | TwinCAT tree | Delete the selected POU, DUT, GVL, interface, method, property, action, transition, `Get`, `Set` or empty folder |
@@ -1188,6 +1226,8 @@ npm run package
   `package.json`) into `out/web/extension.js`: `src/web/extension.ts` with the rest of the extension, Node's `fs`,
   `crypto` and `child_process` replaced by the modules of `src/web` (the TwinCAT files are read into memory before
   the projects load). `npx vscode-test-web --extensionDevelopmentPath=. <folder>` runs it in VS Code in the browser.
+- `npm run compile` also bundles re2js (the search's regular expressions) into `out/src/lang/re2.js`
+  (`scripts/build-vendor.js`): the `.vsix` has no `node_modules`.
 - `npm run compile` also bundles the MCP server (`src/mcp`, with the MCP SDK and zod) into
   `out/mcp/server.js`; `node out/mcp/server.js --root <repoDir>` runs it on a TwinCAT repository.
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser

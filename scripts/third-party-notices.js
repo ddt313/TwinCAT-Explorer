@@ -1,5 +1,5 @@
-// Writes ThirdPartyNotices.txt: the licenses of the code bundled into out/webview, out/mcp and out/web, whose license
-// comments scripts/build-webview.js and scripts/build-mcp.js leave out. Run it again after updating these packages.
+// Writes ThirdPartyNotices.txt: the licenses of the code bundled into out/webview, out/mcp, out/web and out/src, whose
+// license comments the build scripts leave out. Run it again after updating these packages.
 // Usage: node scripts/third-party-notices.js
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +19,12 @@ const components = [
     files: ['vscode-textmate/LICENSE.md'] },
   { pkg: 'vscode-oniguruma', url: 'https://github.com/microsoft/vscode-oniguruma', license: 'MIT', note: 'with Oniguruma, BSD-2-Clause',
     files: ['vscode-oniguruma/LICENSE.txt', 'vscode-oniguruma/NOTICES.txt'] },
+];
+
+// The regular expressions of the search: in out/src/lang/re2.js (scripts/build-vendor.js), the MCP server and the
+// browser build.
+const searchComponents = [
+  { pkg: 're2js', url: 'https://github.com/le0pard/re2js', license: 'MIT', files: ['re2js/LICENSE'] },
 ];
 
 // The MCP server (out/mcp/server.js): the MCP SDK and what it bundles of its dependencies.
@@ -64,6 +70,10 @@ const lines = [
   '',
   ...components.map(c => `- ${c.pkg} ${version(c.pkg)} (${c.license}${c.note ? `; ${c.note}` : ''}): ${c.url}`),
   '',
+  'The search (out/src/lang/re2.js), the MCP server and the browser build include this:',
+  '',
+  ...searchComponents.map(c => `- ${c.pkg} ${version(c.pkg)} (${c.license}): ${c.url}`),
+  '',
   'The MCP server (out/mcp/server.js) includes these:',
   '',
   ...mcpComponents.map(c => `- ${c.pkg} ${version(c.pkg)} (${c.license}): ${c.url}`),
@@ -72,10 +82,10 @@ const lines = [
   '',
   ...webComponents.map(c => `- ${c.pkg} ${version(c.pkg)} (${c.license}${c.note ? `; ${c.note}` : ''}): ${c.url}`),
 ];
-for (const c of [...components, ...mcpComponents, ...webComponents]) {
+for (const c of [...components, ...searchComponents, ...mcpComponents, ...webComponents]) {
   lines.push('', '', rule, `${c.pkg} ${version(c.pkg)}`, rule);
   for (const file of c.files ?? []) lines.push('', read(file));
   if (c.text) lines.push('', c.text);
 }
 fs.writeFileSync(path.join(root, 'ThirdPartyNotices.txt'), lines.join('\n') + '\n');
-console.log(`ThirdPartyNotices.txt: ${[...components, ...mcpComponents, ...webComponents].map(c => c.pkg).join(', ')}`);
+console.log(`ThirdPartyNotices.txt: ${[...components, ...searchComponents, ...mcpComponents, ...webComponents].map(c => c.pkg).join(', ')}`);

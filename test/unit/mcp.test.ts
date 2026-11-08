@@ -106,6 +106,24 @@ test('finds definitions and references by name and by a word of a line', () => w
   assert.match(T.findSymbol(t, { query: 'fbv' }), /^FB_Valve  — Function block in Plc/m);
 }));
 
+test('search_text finds a text or a regular expression in the code, never in the XML, everywhere or in a project or folder', () => withTools(t => {
+  // A line with two matches once.
+  assert.equal(T.searchText(t, { query: 'ncount' }), [
+    '4 match(es) in 1 file(s)',
+    'FB_Valve decl:6  nCount : INT;',
+    'FB_Valve impl:2  nCount := nCount + 1;',
+    'FB_Valve.M_Close impl:1  nCount := 0;',
+  ].join('\n'));
+  assert.equal(T.searchText(t, { query: 'ncount', matchCase: true }), "Nothing matches 'ncount'.");
+  assert.equal(T.searchText(t, { query: 'Name=' }), "Nothing matches 'Name='.", 'not in the XML');
+  assert.match(T.searchText(t, { query: '^\\s*IF\\b', regex: true }), /^1 match\(es\) in 1 file\(s\)\nFB_Valve impl:1  IF bOpen THEN$/);
+  assert.match(T.searchText(t, { query: 'fbValve', wholeWord: true, folder: 'POUs' }), /^3 match\(es\)[^]*MAIN impl:2  fbValve\.M_Close\(\);$/);
+  assert.equal(T.searchText(t, { query: 'fbValve', folder: 'GVLs', project: 'plc' }), "Nothing matches 'fbValve' there.");
+  assert.equal(T.searchText(t, { query: 'ncount', limit: 1 }).split('\n').slice(1).join('\n'), 'FB_Valve decl:6  nCount : INT;\n-- 1 of 3 lines');
+  assert.throws(() => T.searchText(t, { query: 'x', project: 'Cell' }), /No PLC project 'Cell'\. The PLC projects: Plc/);
+  assert.throws(() => T.searchText(t, { query: '(?=a)', regex: true }), /Invalid regular expression.*lookahead is not supported/);
+}));
+
 test('locate: the object, part and line of code at lines of the XML file, as git numbers them', () => withTools(t => {
   const file = 'A/Plc/POUs/FB_Valve.TcPOU';
   assert.equal(T.locate(t, { file, line: 14 }), 'POUs\\FB_Valve.TcPOU (Plc)\n14: FB_Valve impl:2  nCount := nCount + 1;');

@@ -1338,6 +1338,8 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     vscode.commands.registerCommand('twincatExplorer.changes.unstageAll', (node?: ChangeNode) => changesView.unstageAll(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.openNotebook', (node?: ChangeNode) => node && changesView.openNotebook(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.refresh', () => changesView.refresh()),
+    // Commits what is staged, as Source Control's Commit button does (the message box, or COMMIT_EDITMSG when it is empty).
+    vscode.commands.registerCommand('twincatExplorer.changes.commit', () => vscode.commands.executeCommand('git.commit')),
     vscode.commands.registerCommand('twincatExplorer.changes.showUncommitted', () => changesView.setScope({ kind: 'head' })),
     vscode.commands.registerCommand('twincatExplorer.changes.showBranch', () =>
       changesView.setScope({ kind: 'branch', ref: context.workspaceState.get<string>(lastRefKey, 'origin/develop') })),

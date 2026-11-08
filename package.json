@@ -356,6 +356,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "twincatExplorer.changes.commit",
+        "title": "Commit",
+        "category": "TwinCAT Changes",
+        "icon": "$(check)"
+      },
+      {
         "command": "twincatExplorer.changes.showUncommitted",
         "title": "Show Uncommitted Changes (vs HEAD)",
         "category": "TwinCAT Changes",
@@ -959,6 +965,10 @@
           "when": "twincatExplorer.hasProjects"
         },
         {
+          "command": "twincatExplorer.changes.commit",
+          "when": "twincatExplorer.hasProjects && !isWeb"
+        },
+        {
           "command": "twincatExplorer.changes.showUncommitted",
           "when": "twincatExplorer.hasProjects && twincatExplorer.changesScope == branch && !isWeb"
         },
@@ -1147,7 +1157,7 @@
           "group": "9_more@2"
         },
         {
-          "command": "git.commit",
+          "command": "twincatExplorer.changes.commit",
           "when": "view == twincatExplorer.changes && twincatExplorer.changesScope != branch && !isWeb",
           "group": "navigation@0"
         },

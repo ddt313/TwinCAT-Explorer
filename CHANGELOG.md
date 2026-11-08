@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.22.0 - 2026-11-08
 
 ### Added
 - TwinCAT Search: `TwinCAT: Search...` (Ctrl+Shift+Alt+F) finds a text in the Structured Text of the objects as

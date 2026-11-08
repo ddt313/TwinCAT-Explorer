@@ -770,7 +770,9 @@ request's *Files changed* tab or a GitLab merge request's *Changes* tab, a chang
 - **Unified or Split**, following the host's own diff setting, with Structured Text highlighting and
   word-level changes.
 - **TwinCAT tab:** above the host's file tree, the change as XAE's Solution Explorer shows a project,
-  with the number of threads on each object. A click opens that object's view.
+  with the number of threads on each object. A click opens that object's view. Right-click a node (or
+  Alt+click its arrow) to expand or collapse it with every branch below it; the buttons of its head do the
+  whole tree.
 
 </details>
 

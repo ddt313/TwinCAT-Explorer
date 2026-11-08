@@ -143,22 +143,47 @@
         }
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "twincat",
+          "title": "TwinCAT",
+          "icon": "media/twincat.svg"
+        }
+      ],
+      "panel": [
+        {
+          "id": "twincatSearch",
+          "title": "TwinCAT Search",
+          "icon": "media/twincat.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "twincat": [
         {
           "id": "twincatExplorer.tree",
-          "name": "TwinCAT",
+          "name": "Solution",
           "icon": "media/twincat.svg",
-          "contextualTitle": "Explorer for TwinCAT",
+          "contextualTitle": "TwinCAT",
           "when": "twincatExplorer.hasProjects"
         },
+        {
+          "id": "twincatExplorer.history",
+          "name": "History",
+          "icon": "media/twincat.svg",
+          "contextualTitle": "TwinCAT",
+          "when": "twincatExplorer.hasProjects",
+          "visibility": "collapsed"
+        }
+      ],
+      "twincatSearch": [
         {
           "id": "twincatExplorer.search",
           "name": "TwinCAT Search",
           "icon": "media/twincat.svg",
-          "contextualTitle": "Explorer for TwinCAT",
-          "when": "twincatExplorer.hasProjects",
-          "visibility": "collapsed"
+          "contextualTitle": "TwinCAT",
+          "when": "twincatExplorer.hasProjects"
         }
       ],
       "scm": [
@@ -174,14 +199,8 @@
           "name": "TwinCAT Commits",
           "icon": "media/twincat.svg",
           "contextualTitle": "TwinCAT",
-          "when": "twincatExplorer.hasProjects"
-        },
-        {
-          "id": "twincatExplorer.history",
-          "name": "TwinCAT History",
-          "icon": "media/twincat.svg",
-          "contextualTitle": "TwinCAT",
-          "when": "twincatExplorer.hasProjects"
+          "when": "twincatExplorer.hasProjects",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -237,13 +256,13 @@
       },
       {
         "command": "twincatExplorer.openChanges",
-        "title": "Open Changes as TwinCAT Notebook",
+        "title": "Compare with HEAD (Notebook)",
         "category": "TwinCAT",
         "icon": "$(git-compare)"
       },
       {
         "command": "twincatExplorer.compareWithRef",
-        "title": "Compare with Git Ref as TwinCAT Notebook...",
+        "title": "Compare with Branch or Commit (Notebook)...",
         "category": "TwinCAT"
       },
       {
@@ -451,7 +470,8 @@
       {
         "command": "twincatExplorer.goToObject",
         "title": "Go to Object...",
-        "category": "TwinCAT"
+        "category": "TwinCAT",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "twincatExplorer.goToImplementation",
@@ -659,6 +679,11 @@
       {
         "id": "twincatExplorer.diffView",
         "label": "Diff View"
+      },
+      {
+        "id": "twincatExplorer.add",
+        "label": "Add",
+        "icon": "$(add)"
       }
     ],
     "menus": {
@@ -682,6 +707,40 @@
           "command": "twincatExplorer.diffView.sideBySide",
           "when": "!config.diffEditor.renderSideBySide",
           "group": "1_view@2"
+        }
+      ],
+      "twincatExplorer.add": [
+        {
+          "command": "twincatExplorer.addPou",
+          "group": "1_objects@1"
+        },
+        {
+          "command": "twincatExplorer.addDut",
+          "group": "1_objects@2"
+        },
+        {
+          "command": "twincatExplorer.addGvl",
+          "group": "1_objects@3"
+        },
+        {
+          "command": "twincatExplorer.addInterface",
+          "group": "1_objects@4"
+        },
+        {
+          "command": "twincatExplorer.newFolder",
+          "group": "2_folder@1"
+        },
+        {
+          "command": "twincatExplorer.addExistingItem",
+          "group": "3_existing@1"
+        },
+        {
+          "command": "twincatExplorer.addExistingFolderContent",
+          "group": "3_existing@2"
+        },
+        {
+          "command": "twincatExplorer.addLibrary",
+          "group": "4_library@1"
         }
       ],
       "commandPalette": [
@@ -1004,14 +1063,39 @@
       ],
       "view/title": [
         {
-          "command": "twincatExplorer.revealActive",
+          "submenu": "twincatExplorer.add",
           "when": "view == twincatExplorer.tree",
           "group": "navigation@1"
         },
         {
-          "command": "twincatExplorer.refresh",
+          "command": "twincatExplorer.goToObject",
           "when": "view == twincatExplorer.tree",
           "group": "navigation@2"
+        },
+        {
+          "command": "twincatExplorer.search",
+          "when": "view == twincatExplorer.tree",
+          "group": "navigation@3"
+        },
+        {
+          "command": "twincatExplorer.revealActive",
+          "when": "view == twincatExplorer.tree && !config.twincatExplorer.autoReveal",
+          "group": "navigation@4"
+        },
+        {
+          "command": "twincatExplorer.revealActive",
+          "when": "view == twincatExplorer.tree && config.twincatExplorer.autoReveal",
+          "group": "9_more@1"
+        },
+        {
+          "command": "twincatExplorer.refresh",
+          "when": "view == twincatExplorer.tree",
+          "group": "9_more@2"
+        },
+        {
+          "command": "git.commit",
+          "when": "view == twincatExplorer.changes && twincatExplorer.changesScope != branch && !isWeb",
+          "group": "navigation@0"
         },
         {
           "command": "twincatExplorer.changes.showBranch",
@@ -1123,92 +1207,92 @@
         {
           "command": "twincatExplorer.openXml",
           "when": "view == twincatExplorer.tree && viewItem =~ /hasFile/",
-          "group": "navigation@2"
+          "group": "9_copy@2"
         },
         {
           "command": "twincatExplorer.openChanges",
           "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
-          "group": "navigation@3"
+          "group": "3_compare@2"
         },
         {
           "command": "twincatExplorer.compareWithRef",
           "when": "view == twincatExplorer.tree && viewItem =~ /stFile/",
-          "group": "navigation@4"
+          "group": "3_compare@3"
         },
         {
           "command": "twincatExplorer.history.show",
           "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
-          "group": "navigation@5"
+          "group": "3_compare@1"
         },
         {
           "command": "twincatExplorer.goToImplementation",
           "when": "view == twincatExplorer.tree && viewItem =~ /goToImplementation/",
-          "group": "1_hierarchy@1"
+          "group": "2_navigate@1"
         },
         {
           "command": "twincatExplorer.showTypeHierarchy",
           "when": "view == twincatExplorer.tree && viewItem =~ /typeHierarchy/",
-          "group": "1_hierarchy@2"
+          "group": "2_navigate@2"
         },
         {
           "command": "twincatExplorer.addPou",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
-          "group": "2_add@1"
+          "group": "1_add@1"
         },
         {
           "command": "twincatExplorer.addDut",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
-          "group": "2_add@2"
+          "group": "1_add@2"
         },
         {
           "command": "twincatExplorer.addGvl",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
-          "group": "2_add@3"
+          "group": "1_add@3"
         },
         {
           "command": "twincatExplorer.addInterface",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
-          "group": "2_add@4"
+          "group": "1_add@4"
         },
         {
           "command": "twincatExplorer.newFolder",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
-          "group": "2_add@5"
+          "group": "1_add@5"
         },
         {
           "command": "twincatExplorer.addExistingItem",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
-          "group": "2_add@6"
+          "group": "1_add@6"
         },
         {
           "command": "twincatExplorer.addExistingFolderContent",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
-          "group": "2_add@7"
+          "group": "1_add@7"
         },
         {
           "command": "twincatExplorer.addLibrary",
           "when": "view == twincatExplorer.tree && viewItem =~ /addLibrary/",
-          "group": "2_add@1"
+          "group": "1_add@1"
         },
         {
           "command": "twincatExplorer.addMethod",
           "when": "view == twincatExplorer.tree && viewItem =~ /addMember/",
-          "group": "2_add@1"
+          "group": "1_add@1"
         },
         {
           "command": "twincatExplorer.addProperty",
           "when": "view == twincatExplorer.tree && viewItem =~ /addMember/",
-          "group": "2_add@2"
+          "group": "1_add@2"
         },
         {
           "command": "twincatExplorer.addAction",
           "when": "view == twincatExplorer.tree && viewItem =~ /addAction/",
-          "group": "2_add@3"
+          "group": "1_add@3"
         },
         {
           "command": "twincatExplorer.implementInterfaces",
           "when": "view == twincatExplorer.tree && viewItem =~ /implements/",
-          "group": "2_add@4"
+          "group": "1_add@4"
         },
         {
           "command": "twincatExplorer.rename",
@@ -1232,13 +1316,13 @@
         },
         {
           "command": "twincatExplorer.expandAll",
-          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/",
-          "group": "3_expand@1"
+          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/ && viewItem =~ /^(tsproj|plcproj|references|folder|innerFolder)( |$)/",
+          "group": "5_expand@1"
         },
         {
           "command": "twincatExplorer.collapseAll",
-          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/",
-          "group": "3_expand@2"
+          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/ && viewItem =~ /^(tsproj|plcproj|references|folder|innerFolder)( |$)/",
+          "group": "5_expand@2"
         },
         {
           "command": "twincatExplorer.findInFolder",
@@ -1380,7 +1464,7 @@
         {
           "command": "twincatExplorer.openXml",
           "when": "resourceScheme == twincat",
-          "group": "navigation@90"
+          "group": "1_twincat@0"
         },
         {
           "command": "twincatExplorer.showChanges",

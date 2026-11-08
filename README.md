@@ -34,14 +34,17 @@ GitLab merge request the same way, as objects instead of XML.
 
 ### TwinCAT tree
 
-The XAE project tree in the Explorer: the PLC projects of each `.tsproj`, their folders and objects, and
+The XAE project tree, in its own TwinCAT view container: the PLC projects of each `.tsproj`, their folders and objects, and
 inside a POU its methods, properties, actions and transitions, with XAE's labels and icons and the git
 state of each object.
 
 <details>
 <summary>Details</summary>
 
-The **TwinCAT** view in the Explorer, below Outline and Timeline:
+The **Solution** view of the **TwinCAT** view container (the TwinCAT icon in the Activity Bar), with the
+**History** view below it. Its title bar has `Add` (POU, DUT, GVL, interface, folder, existing items, library),
+`Go to Object...` and `Search...`; `Reveal Active Editor` (when `twincatExplorer.autoReveal` is off) and `Refresh`
+are in its `...` menu. Like any view, it can be dragged to the Explorer or elsewhere.
 
 - One root per `.tsproj`, then its PLC projects, `References`, and the folders and objects of each
   `.plcproj`. A PLC project saved as an Independent Project File (`_Config\PLC\Plc.xti`, which the
@@ -79,8 +82,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 - Right-click a TwinCAT project, a PLC project, a folder or a folder inside a POU: `Find in Folder...`
   (`Find in Project...`) searches its code (see [TwinCAT Search](#twincat-search)).
-- Right-click a node with children: `Expand All` expands it and every branch below it, `Collapse All` folds
-  it and every branch below it again.
+- Right-click a TwinCAT project, a PLC project, `References` or a folder: `Expand All` expands it and every
+  branch below it, `Collapse All` folds it and every branch below it again.
 
 </details>
 
@@ -562,8 +565,8 @@ PLC projects or in one project or folder of the tree (`Find in Folder...`), unsa
 <details>
 <summary>Details</summary>
 
-- **`TwinCAT: Search...`** (Ctrl+Shift+Alt+F, or the search icon of the **TwinCAT Search** view in the
-  Explorer) asks for the text and lists the matches as you type: per POU, DUT, GVL or interface, then per
+- **`TwinCAT: Search...`** (Ctrl+Shift+Alt+F, or the search icon of the Solution view or of the **TwinCAT
+  Search** view in the Panel, beside Problems and Output) asks for the text and lists the matches as you type: per POU, DUT, GVL or interface, then per
   section (`FB_Valve` Declaration, `M_Open` Implementation, `P_Speed.Get` Implementation), then the line
   with the match highlighted. A click opens the split editor at the match as a preview, keeping the focus
   in the list; a double click keeps the tab open.
@@ -589,9 +592,10 @@ PLC projects or in one project or folder of the tree (`Find in Folder...`), unsa
 
 ### Source Control views
 
-Three views in the Source Control sidebar that work per object instead of per file: **TwinCAT Changes**
-(uncommitted and branch changes, staged object by object), **TwinCAT Commits** (like GitLens' commits view)
-and **TwinCAT History** (the commits that changed one object).
+Views that work per object instead of per file: in the Source Control sidebar, **TwinCAT Changes**
+(uncommitted and branch changes, staged object by object, with a `Commit` button) and **TwinCAT Commits** (like
+GitLens' commits view); in the TwinCAT view container, below the tree, **History** (the commits that changed one
+object).
 
 ![TwinCAT Changes lists the changed methods and accessors; a click shows the change of FB_Valve.Close against HEAD](docs/images/vscode-changes.png)
 
@@ -656,7 +660,7 @@ and marked `M`, `A` or `D`.
   metadata change) opens in VS Code's diff editor, as in GitLens. An added or deleted file is
   compared with an empty one. A POU's whole file opens as a notebook diff from its inline button.
 
-**TwinCAT History** is like GitLens' file history, but per object.
+**History** (the TwinCAT History view) is like GitLens' file history, but per object.
 
 - **Which commits:**
   - The commits of `HEAD` that changed one method, property, accessor, action, DUT or GVL, newest
@@ -690,13 +694,13 @@ against git.
   `Reopen Editor With... > TwinCAT Object (Notebook)` on a tab. Each section is one cell.
 - **Whole-file notebook:** `Reopen Editor With... > TwinCAT File (Notebook)` shows a whole `.TcPOU` as
   one notebook.
-- **Notebook diff for git:** `Open Changes as TwinCAT Notebook` compares a whole file with `HEAD`
+- **Notebook diff for git:** `Compare with HEAD (Notebook)` compares a whole file with `HEAD`
   section by section, folding the unchanged sections. In Staged Changes it compares `HEAD` with the
   index.
   - The command is in the tree, Explorer and Source Control menus, and in the `...` menu of a split
     editor tab.
   - Staged renames are followed, and an open comparison refreshes after a commit, checkout or stage.
-  - `Compare with Git Ref as TwinCAT Notebook...` compares with any branch or commit, for example
+  - `Compare with Branch or Commit (Notebook)...` compares with any branch or commit, for example
     `origin/develop` when you review a merge request.
 - **Toolbars:** the extension hides the cell toolbar of TwinCAT notebooks. VS Code has no switch per
   notebook type for the rest (`Run All`, `Select Kernel`, `+ Code`, `+ Markdown`), so
@@ -801,13 +805,13 @@ features and editing work as on the desktop; saving writes the repository's file
   search it; a large repository takes a moment.
 - Deleting a POU, DUT, GVL or folder deletes it without the Recycle Bin: until it is committed, Source Control can
   discard the deletion.
-- **Changes vs HEAD:** *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* compare
+- **Changes vs HEAD:** *Compare with HEAD (Notebook)* and the split editor's *Show Changes vs HEAD* compare
   with HEAD as GitHub has it (the commit of the branch, tag or pull request open), read through GitHub's API. A
   public repository needs no sign-in; a private one asks to sign in with GitHub (the Accounts menu) once.
 - **TwinCAT Changes:** in the Source Control sidebar, what the branch changed since the base branch of the pull
   request open (press `.` on a pull request's page to open it in github.dev), else since the default branch, object
   by object, changes not committed included. *Compare Branch With* picks another branch, tag or commit.
-- **TwinCAT Commits:** the commits of HEAD, each with the objects it changed, and *Compare with Git Ref* against a
+- **TwinCAT Commits:** the commits of HEAD, each with the objects it changed, and *Compare with Branch or Commit* against a
   branch, tag or commit, from GitHub.
 - **TwinCAT History and blame:** the commits that changed an object (a rename of its file ends the list there) and the
   line blame of the split editor come from GitHub; blame needs a sign-in with GitHub, even for a public repository.
@@ -933,9 +937,9 @@ code --uninstall-extension thanhdang.explorer-for-twincat --profile <profile>
 
 ## Getting started
 
-1. Open a folder that contains a `.tsproj`. The **TwinCAT** view appears in the Explorer, and
-   **TwinCAT Changes**, **TwinCAT Commits** and **TwinCAT History** appear in the Source Control
-   sidebar.
+1. Open a folder that contains a `.tsproj`. The TwinCAT icon appears in the Activity Bar: its view container
+   holds the **Solution** tree and the **History** view. **TwinCAT Changes** and **TwinCAT Commits** appear in
+   the Source Control sidebar, and **TwinCAT Search** in the Panel.
 2. Click a POU, method or property in the tree. It opens in the split editor, with the Declaration
    above the Implementation.
 3. Edit and save with Ctrl+S. Only the sections you changed are written back to the XML file.
@@ -968,8 +972,8 @@ Commit SHA and Copy Name.
 | `TwinCAT: Auto Declare...` | Declare a variable at the cursor of a split editor or notebook cell, as XAE's Auto Declare (Shift+F2). |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as diffs against `HEAD`, or back as normal panes. |
 | `TwinCAT Diff View: Inline` / `Side by Side` | Show the diffs of the split editor and of the commit diff panel inline or side by side (VS Code's `diffEditor.renderSideBySide`). |
-| `TwinCAT: Open Changes as TwinCAT Notebook` | Compare a whole file with `HEAD` (or the index), section by section. |
-| `TwinCAT: Compare with Git Ref as TwinCAT Notebook...` | Compare a whole file with any branch, tag or commit. |
+| `TwinCAT: Compare with HEAD (Notebook)` | Compare a whole file with `HEAD` (or the index), section by section. |
+| `TwinCAT: Compare with Branch or Commit (Notebook)...` | Compare a whole file with any branch, tag or commit. |
 | `TwinCAT: Show History` | Show the commits that changed the object, in the TwinCAT History view. |
 | `TwinCAT: Go Back` / `TwinCAT: Go Forward` | The TwinCAT object shown before or after in the editors (also the arrows in the title bar of the split editor and of object notebooks). VS Code's own Go Back loses an object once its preview tab is replaced by the next one. |
 | `TwinCAT: Open Current Version` | From the commit diff panel, open the object as it is now. |

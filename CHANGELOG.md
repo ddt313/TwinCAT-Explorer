@@ -3,6 +3,25 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+- The TwinCAT views have a place of their own: the TwinCAT icon in the Activity Bar opens the **Solution** tree
+  (until now the TwinCAT view of the Explorer, below Outline and Timeline) with the **History** view below it
+  (until now in the Source Control sidebar). The **TwinCAT Search** results are in the Panel, beside Problems and
+  Output, as XAE's Find Results. TwinCAT Changes and TwinCAT Commits stay in the Source Control sidebar.
+  Any of them can be dragged back where it was (or right-click its title, `Reset Location`).
+- The Solution view's title bar has `Add` (POU, DUT, GVL, interface, folder, existing items, library),
+  `Go to Object...` and `Search...`; `Refresh`, and `Reveal Active Editor` while `twincatExplorer.autoReveal` is on,
+  are in its `...` menu.
+- TwinCAT Changes has a `Commit` button in its title bar, for the objects staged there.
+- The context menu of the tree is ordered by use: open, add, go to implementation and type hierarchy, history and
+  comparisons, search, expand, rename/move/delete, copy name and Open XML last. `Expand All` and `Collapse All` are
+  on projects, `References` and folders.
+- `Open XML` moved to the `...` menu of the split editor's title bar.
+- `Open Changes as TwinCAT Notebook` is now `Compare with HEAD (Notebook)`, and `Compare with Git Ref as TwinCAT
+  Notebook...` is `Compare with Branch or Commit (Notebook)...`.
+
 ## 0.22.0 - 2026-11-08
 
 ### Added

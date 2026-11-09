@@ -1380,12 +1380,12 @@
         },
         {
           "command": "twincatExplorer.expandAll",
-          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/ && viewItem =~ /^(tsproj|plcproj|references|folder|innerFolder)( |$)/",
+          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/ && viewItem =~ /^(tsproj|plcproj|references|folder|innerFolder|file)( |$)/",
           "group": "5_expand@1"
         },
         {
           "command": "twincatExplorer.collapseAll",
-          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/ && viewItem =~ /^(tsproj|plcproj|references|folder|innerFolder)( |$)/",
+          "when": "view == twincatExplorer.tree && viewItem =~ /expandable/ && viewItem =~ /^(tsproj|plcproj|references|folder|innerFolder|file)( |$)/",
           "group": "5_expand@2"
         },
         {

@@ -17,7 +17,8 @@ All notable changes to Explorer for TwinCAT. The format follows
 - TwinCAT Changes has a `Commit` button in its title bar, for the objects staged there.
 - The context menu of the tree is ordered by use: open, add, go to implementation and type hierarchy, history and
   comparisons, search, expand, rename/move/delete, copy name and Open XML last. `Expand All` and `Collapse All` are
-  on projects, `References` and folders.
+  on projects, `References`, folders, and POUs and interfaces with members (a function block with its methods,
+  properties and their folders).
 - `Open XML` moved to the `...` menu of the split editor's title bar.
 - The TwinCAT view container opens by itself the first time a workspace shows TwinCAT projects.
 - The breadcrumbs of the split editor and of object notebooks show the object's place in the TwinCAT tree

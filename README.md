@@ -83,8 +83,8 @@ view, the tree can be dragged to the Explorer or elsewhere.
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 - Right-click a TwinCAT project, a PLC project, a folder or a folder inside a POU: `Find in Folder...`
   (`Find in Project...`) searches its code (see [TwinCAT Search](#twincat-search)).
-- Right-click a TwinCAT project, a PLC project, `References` or a folder: `Expand All` expands it and every
-  branch below it, `Collapse All` folds it and every branch below it again.
+- Right-click a TwinCAT project, a PLC project, `References`, a folder, or a POU or interface with members:
+  `Expand All` expands it and every branch below it, `Collapse All` folds it and every branch below it again.
 
 </details>
 

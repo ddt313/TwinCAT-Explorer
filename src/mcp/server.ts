@@ -20,7 +20,7 @@ const INSTRUCTIONS = `TwinCAT 3 PLC code under this folder. .TcPOU, .TcDUT, .TcG
 - To find a text in the code, use search_text rather than searching the XML files.
 - When TwinCAT XAE has the project open, code is read and written in XAE itself: XAE shows the change and saves that object at once. A file with unsaved edits in XAE is refused unless the user agrees (saveUserEdits: true), as the change would save them too.
 - Every write is saved at once and can be taken back with undo_last_edit; TwinCAT XAE's own Ctrl+Z does not undo it.
-- check is the extension's syntax and name check; check with compiler: true runs TwinCAT XAE's Check all objects when XAE has the project open.`;
+- check is the extension's syntax and name check; check with compiler: true runs TwinCAT XAE's Check all objects when XAE has the project open, which also compiles objects the PLC project does not use. build runs XAE's Build PLC project, the build status the user sees in XAE.`;
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -131,9 +131,19 @@ register('hierarchy', {
 }, run(T.hierarchy));
 
 register('check', {
-  description: "Syntax errors and unknown names of one object, or of all code when no object is given; with compiler: true, TwinCAT XAE's Check all objects (needs XAE open on the project).",
+  description: "Syntax errors and unknown names of one object, or of all code when no object is given; with compiler: true, TwinCAT XAE's Check all objects of the object's PLC project, or of all (needs XAE open on the project). Check all objects compiles every object, also unused ones: for the build status, use build.",
   inputSchema: { object: object.optional(), limit: z.number().int().positive().optional(), compiler: z.boolean().optional() }, annotations: readOnly,
 }, run(T.check));
+
+register('build', {
+  description: "TwinCAT XAE's Build PLC project of a PLC project, or of all (needs XAE open on the project): whether it succeeded, and the compiler's errors and warnings. Compiles what the PLC project uses, as XAE's Build menu does. XAE saves its unsaved files before a build, so one with unsaved edits in XAE is refused unless the user agrees (saveUserEdits: true).",
+  inputSchema: {
+    project: z.string().optional().describe('The PLC project; all by default'),
+    limit: z.number().int().positive().optional().describe('Messages shown per project, 200 by default'),
+    saveUserEdits: z.boolean().optional().describe("Also save the user's unsaved edits in XAE, as the build does, when they agreed"),
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+}, run(T.build));
 
 register('edit_section', {
   description: 'Replaces oldText (exactly once in the section) with newText in an object\'s declaration or implementation, and saves the file. Renaming the object through its header is refused.',

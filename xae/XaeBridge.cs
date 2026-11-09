@@ -574,16 +574,66 @@ namespace TwinCatXaeBridge {
             }
         }
 
-        static string BuildPane(DTE2 dte) {
+        static OutputWindowPane BuildPaneOf(DTE2 dte) {
             foreach (OutputWindowPane p in dte.ToolWindows.OutputWindow.OutputWindowPanes) {
-                if (!string.Equals(p.Guid, "{1BD8A850-02D1-11D1-BEE7-00A0C913D1F8}", StringComparison.OrdinalIgnoreCase)) continue;
-                try {
-                    TextSelection sel = p.TextDocument.Selection;
-                    sel.StartOfDocument(false); sel.EndOfDocument(true);
-                    return sel.Text;
-                } catch { return ""; } // empty until something was written to it
+                if (string.Equals(p.Guid, "{1BD8A850-02D1-11D1-BEE7-00A0C913D1F8}", StringComparison.OrdinalIgnoreCase)) return p;
             }
-            return "";
+            return null;
+        }
+
+        static string BuildPane(DTE2 dte) {
+            OutputWindowPane p = BuildPaneOf(dte);
+            if (p == null) return "";
+            try {
+                TextSelection sel = p.TextDocument.Selection;
+                sel.StartOfDocument(false); sel.EndOfDocument(true);
+                return sel.Text;
+            } catch { return ""; } // empty until something was written to it
+        }
+
+        // The files a build would save: XAE saves every unsaved document first, as its Build command does (seen on
+        // 4026: CompileProject wrote a PLC editor's unsaved edit to its file). The editors' documents, and the TwinCAT
+        // and PLC project files, which DTE's documents do not list.
+        static List<string> Unsaved(DTE2 dte, string[] projectFiles) {
+            List<string> files = new List<string>();
+            foreach (Document d in dte.Documents) {
+                try { if (!d.Saved) files.Add(d.FullName); } catch { }
+            }
+            foreach (string f in projectFiles) {
+                if (f != null && (bool)ProjectFile(dte, f, false)["dirty"]) files.Add(Path.GetFullPath(f));
+            }
+            return files;
+        }
+
+        // XAE's Build PLC project (ITcPlcProject.CompileProject), which compiles what the PLC project uses, unlike
+        // Check all objects; it throws when the build fails. The Build pane is cleared first, as a build in XAE
+        // clears it anyway, and then holds this build's messages alone.
+        static Dictionary<string, object> Build(Dictionary<string, object> r) {
+            DTE2 dte = Dte(Int(r, "pid"));
+            string tsproj = Str(r, "tsproj");
+            ITcSysManager sm = SysManager(dte, tsproj);
+            Dictionary<string, object> a = new Dictionary<string, object>();
+            if (!(r.ContainsKey("saveUserEdits") && Convert.ToBoolean(r["saveUserEdits"]))) {
+                List<string> unsaved = Unsaved(dte, new string[] { tsproj, Str(r, "plcproj") });
+                if (unsaved.Count > 0) {
+                    a["unsaved"] = unsaved;
+                    return a;
+                }
+            }
+            ITcPlcProject plc = sm.LookupTreeItem("TIPC^" + Str(r, "plc")) as ITcPlcProject;
+            if (plc == null) throw new BridgeError("TwinCAT XAE has no PLC project " + Str(r, "plc") + " in " + tsproj);
+            OutputWindowPane pane = BuildPaneOf(dte);
+            if (pane != null) pane.Clear();
+            bool failed = false;
+            try { plc.CompileProject(); } catch (COMException) { failed = true; }
+            string text = BuildPane(dte);
+            for (int i = 0; i < 50 && text.IndexOf("========== Build:", StringComparison.Ordinal) < 0; i++) {
+                System.Threading.Thread.Sleep(100);
+                text = BuildPane(dte);
+            }
+            a["output"] = text;
+            a["failed"] = failed;
+            return a;
         }
 
         // ------------------------------------------------------------------ trial license
@@ -841,6 +891,8 @@ namespace TwinCatXaeBridge {
                     a["output"] = text.Substring(Math.Min(before, text.Length));
                     return a;
                 }
+                case "build":
+                    return Build(r);
                 case "adsRoutes":
                     return Ads.Routes();
                 case "adsLicenses":

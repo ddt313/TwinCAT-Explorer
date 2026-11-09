@@ -3,6 +3,19 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- The MCP server's `build`: TwinCAT XAE's Build PLC project, as XAE's Build menu runs it, with whether it
+  succeeded and the compiler's errors and warnings. It compiles what the PLC project uses, unlike `check` with
+  `compiler: true` (XAE's Check all objects), which also compiles unused objects and so can report errors that a
+  build never shows. XAE saves its unsaved files before a build, so a build is refused while XAE has any, unless
+  the user agrees (`saveUserEdits: true`).
+
+### Changed
+- `check` with `compiler: true` says that it ran XAE's Check all objects, and with an object checks only that
+  object's PLC project.
+
 ## 0.22.0 - 2026-11-08
 
 ### Added

@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="F_Clamp" Id="{c2e525fb-4573-4955-b110-db334657dc60}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_Clamp : LREAL
+VAR_INPUT
+	fValue	: LREAL;
+	fMin	: LREAL;
+	fMax	: LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_Clamp := MIN(MAX(fValue, fMin), fMax);
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

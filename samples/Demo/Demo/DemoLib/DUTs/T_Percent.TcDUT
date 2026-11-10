@@ -1,0 +1,8 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="T_Percent" Id="{4334a5a3-f69e-4772-9496-50776fa5127b}">
+    <Declaration><![CDATA[TYPE T_Percent : LREAL;
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

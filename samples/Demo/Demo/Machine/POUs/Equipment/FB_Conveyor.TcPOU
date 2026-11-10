@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_Conveyor" Id="{c67dcc1c-41b3-4dfe-9469-81846a2ee30b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Conveyor
+VAR_INPUT
+	bEnable	: BOOL;
+END_VAR
+VAR_OUTPUT
+	bRunning	: BOOL;
+END_VAR
+VAR
+	fSpeed		: LREAL;
+	bStartReq	: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[bRunning := bEnable AND bStartReq AND fSpeed > 0;
+]]></ST>
+    </Implementation>
+    <Property Name="Speed" Id="{7f5b5d05-382f-434b-9a3f-d61a6b8f8231}">
+      <Declaration><![CDATA[PROPERTY Speed : LREAL
+]]></Declaration>
+      <Get Name="Get" Id="{4b3dfed5-05d7-46e6-b145-445085d51ba8}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Speed := fSpeed;
+]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{a864b4f8-ba8f-4f6f-ad8c-12e35bac562a}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[fSpeed := F_Clamp(Speed, 0, GVL_Parameters.fMaxSpeed);
+]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="Start" Id="{1b3e6602-7884-4fb4-b326-99630cc286c9}">
+      <Declaration><![CDATA[METHOD Start : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bStartReq := bEnable;
+Start := bStartReq;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop" Id="{713dbbbc-37e5-4f78-9aad-2cff70743fac}">
+      <Declaration><![CDATA[METHOD Stop
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bStartReq := FALSE;
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

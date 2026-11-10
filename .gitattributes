@@ -1,3 +1,7 @@
 * text=auto eol=lf
 *.png binary
 *.svg text eol=lf
+# Samples are saved by TwinCAT XAE: keep its bytes (CRLF, BOM) as XAE wrote them.
+samples/** -text
+# Test fixtures of reported issues: the bytes of real files (line breaks, BOM) as they are.
+test/fixtures/** -text

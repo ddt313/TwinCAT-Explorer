@@ -1,0 +1,7 @@
+# Written by TwinCAT XAE on build or open; not part of the sample.
+.vs/
+_Boot/
+_CompileInfo/
+_Libraries/
+*.tsproj.bak
+*.~u

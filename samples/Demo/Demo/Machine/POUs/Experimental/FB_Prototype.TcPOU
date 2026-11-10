@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_Prototype" Id="{6bc0fb70-9147-4b8d-9dc2-36f739b84163}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Prototype
+VAR
+	nCount	: INT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[nCount := nCount + UnknownSymbol; // not built: the folder is excluded from the build
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

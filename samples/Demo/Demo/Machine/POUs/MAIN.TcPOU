@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="MAIN" Id="{2d2fd979-0dfb-4ecf-92fa-47c31443a76f}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+	fbInlet		: FB_Valve;
+	fbConveyor	: FB_Conveyor;
+	fbFill		: FB_FillSequence;
+	uRaw		: U_Word;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[uRaw.nValue := INT_TO_WORD(GVL_IO.nLevelRaw);
+fbFill(bStart := GVL_IO.bStartButton, fLevel := F_Clamp(WORD_TO_LREAL(uRaw.nValue) / 327.67, 0, 100), stRecipe := GVL_Parameters.stRecipe, iInlet := fbInlet);
+fbInlet();
+GVL_IO.bInletOpen := fbInlet.bOutput;
+
+fbConveyor(bEnable := fbFill.bDone);
+IF fbFill.bDone AND NOT fbConveyor.bRunning THEN
+	fbConveyor.Speed := GVL_Parameters.fMaxSpeed;
+	fbConveyor.Start();
+END_IF
+GVL_IO.bConveyorRun := fbConveyor.bRunning;
+PRG_Lamp();
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,62 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_ValveBase" Id="{2b64eee0-7d8e-435f-aa86-c1d9c7f852a5}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ABSTRACT FB_ValveBase IMPLEMENTS I_Valve
+VAR_INPUT
+	bInterlock	: BOOL;
+END_VAR
+VAR_OUTPUT
+	stStatus	: ST_ValveStatus;
+END_VAR
+VAR
+	tonTimeout	: TON;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[tonTimeout(IN := stStatus.eState = E_ValveState.Opening OR stStatus.eState = E_ValveState.Closing, PT := GVL_DemoLib.DEFAULT_TIMEOUT);
+IF tonTimeout.Q THEN
+	stStatus.eState := E_ValveState.Error;
+END_IF
+stStatus.bInterlocked := bInterlock;
+]]></ST>
+    </Implementation>
+    <Method Name="Close" Id="{ccbefdc2-5dbc-4259-887b-609f4900f829}">
+      <Declaration><![CDATA[METHOD Close : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[stStatus.eState := E_ValveState.Closing;
+Close := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Open" Id="{719769d9-c694-4ebd-b06f-3098c0cb6a6c}">
+      <Declaration><![CDATA[METHOD Open : BOOL
+VAR_INPUT
+	bForce	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF bInterlock AND NOT bForce THEN
+	RETURN;
+END_IF
+stStatus.eState := E_ValveState.Opening;
+stStatus.nCycles := stStatus.nCycles + 1;
+Open := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="State" Id="{9cb7c457-082c-4432-b761-33c329191615}">
+      <Declaration><![CDATA[PROPERTY State : E_ValveState
+]]></Declaration>
+      <Get Name="Get" Id="{e08b6b0f-9291-4094-b129-83796a36454c}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[State := stStatus.eState;
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

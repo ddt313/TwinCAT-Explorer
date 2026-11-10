@@ -1243,6 +1243,11 @@ npm run package
   `out/mcp/server.js`; `node out/mcp/server.js --root <repoDir>` runs it on a TwinCAT repository.
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser
   and the resolver on a whole TwinCAT repository.
+- `samples/Demo` is a TwinCAT solution saved by TwinCAT XAE ([its README](samples/Demo/README.md)), to try the
+  extension, the scripts and the MCP server on. `test/unit/sample.test.ts` checks that the extension reads it as
+  XAE builds it and writes its files back as XAE wrote them. Change it in XAE, never by hand.
+- `node scripts/mcp-call.js <folder> <tool> '<json arguments>'` calls the MCP server's tools as an MCP client does,
+  without XAE (`--copy`: on a copy of the folder in the temp folder).
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
   bundled packages.
 - `node scripts/icons.js` writes the icons of the views (`media/icons`) again after a change of an

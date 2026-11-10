@@ -42,3 +42,14 @@ A small TwinCAT 3 solution to try the extension on, to run the scripts and the M
 Machine needs the library `DemoLib` installed. If XAE reports it missing: Library Repository → Install → `samples/Demo/Libraries/DemoLib.library`. `Libraries/DemoLib.library` was saved from the DemoLib project. Save it again after changing DemoLib.
 
 XAE writes `_Boot`, `_CompileInfo`, `_Libraries` and `.vs` on build: `.gitignore` keeps them out. A build also rewrites the `.tmc` files. Commit them only with a change that needs them.
+
+## Checked by the tests
+
+`test/unit/sample.test.ts` (`npm run test:unit`) checks that the extension reads the sample as XAE builds it: both PLC projects with every file of them, no syntax error, and no problem but the unknown name in `FB_Prototype` (the extension does not read *Exclude from build* yet). It also checks that the files have the bytes XAE wrote, also after a section is edited and edited back. After changing the sample in XAE, run the tests: a problem found outside excluded code is the extension's own.
+
+To look at it from the command line (after `npm run compile`):
+
+```bash
+node scripts/analyze-all.js samples/Demo --list 20
+node scripts/mcp-call.js samples/Demo check read '{"object":"FB_Valve.Open"}'
+```

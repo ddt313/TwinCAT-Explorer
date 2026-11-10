@@ -4,3 +4,4 @@ out/
 .vscode-test/
 browser/dist/
 browser/dist-firefox/
+.vscode-test-web/

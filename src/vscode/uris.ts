@@ -20,6 +20,17 @@ export const ST_LANGUAGE = 'twincat-st';
 let fileSchemes: ReadonlySet<string> = new Set(['file']);
 let uriOfPath: (fsPath: string) => vscode.Uri | undefined = () => undefined;
 
+/**
+ * The place of a source file in the TwinCAT tree, for the breadcrumbs of its objects: `['Machine', 'Plc', 'POUs',
+ * 'Valves']` (TwinCAT project, PLC project, folders), or undefined for a file no project holds.
+ */
+let xaeFolderOf: (fsPath: string) => string[] | undefined = () => undefined;
+
+/** Sets how object URIs find the place of their file in the TwinCAT tree (see objectUri). */
+export function useXaeFolders(of: (fsPath: string) => string[] | undefined): void {
+  xaeFolderOf = of;
+}
+
 /** Makes the URIs of other schemes count as the workspace's files (see web/extension.ts). */
 export function useFileUris(schemes: Iterable<string>, toUri: (fsPath: string) => vscode.Uri | undefined): void {
   fileSchemes = new Set(['file', ...schemes]);
@@ -59,19 +70,29 @@ export interface ObjectInfo {
 }
 
 /**
- * `twincat:/c:/.../FB_X.TcPOU/Methods/States/OnEntry.tcobj?{"label":"FB_X.OnEntry","id":"<guid>"}`:
- * the path mirrors the XAE tree (shown in breadcrumbs), the query carries the tab title, the object id
- * and, for the Get or Set accessor of a property, `acc`.
+ * `twincat:/Machine/Plc/POUs/FB_X/Methods/States/OnEntry.tcobj?{"label":"FB_X.OnEntry","id":"<guid>","file":"/c:/.../FB_X.TcPOU"}`:
+ * the path is the object's place in the TwinCAT tree, which the breadcrumbs show (TwinCAT project, PLC project,
+ * folders, the POU, its folders, the object); the object at the top of its file ends the path itself
+ * (`.../POUs/FB_X.tcobj`). The query carries the tab title, the object id, the path of the file (`file`) and, for
+ * the Get or Set accessor of a property, `acc`. A file no project holds keeps its file path in the URI's path.
  */
 export function objectUri(fsPath: string, obj: ObjectInfo, rev?: string, accessor?: Accessor): vscode.Uri {
   const file = vscode.Uri.file(fsPath);
-  const segments = [...obj.folderPath, obj.name, ...(accessor ? [accessor] : [])].map(safeName).join('/');
+  const top = obj.folderPath.length === 0 && obj.qualifiedName === obj.name;
+  const xae = xaeFolderOf(fsPath);
+  const fileStem = file.path.slice(file.path.lastIndexOf('/') + 1).replace(/\.[^.]*$/, '');
+  const segments = xae
+    ? [...xae, ...(top ? [] : [fileStem, ...obj.folderPath]), obj.name, ...(accessor ? [accessor] : [])]
+    : [...obj.folderPath, obj.name, ...(accessor ? [accessor] : [])];
   // `rev` makes a fresh notebook document when the object is opened again (see openDocs.ts); it is not part of the identity.
-  const query: Record<string, string> = { label: viewLabel(obj, accessor), id: obj.id };
+  const query: Record<string, string> = { label: viewLabel(obj, accessor), id: obj.id, file: file.path };
   if (accessor) query.acc = accessor;
   if (rev) query.rev = rev;
+  const base = xae ? '' : file.path;
   // The authority is the server of a UNC path (\\server\share\...).
-  return vscode.Uri.from({ scheme: OBJECT_SCHEME, authority: file.authority, path: `${file.path}/${segments}.tcobj`, query: JSON.stringify(query) });
+  return vscode.Uri.from({
+    scheme: OBJECT_SCHEME, authority: file.authority, path: `${base}/${segments.map(safeName).join('/')}.tcobj`, query: JSON.stringify(query),
+  });
 }
 
 /** The file behind one of our URIs: the path up to `filePath`, on the server of a UNC path. */
@@ -96,6 +117,7 @@ export function locUriOf(objectDocUri: vscode.Uri, sectionKey: string, sectionLa
     // keep empty
   }
   const query: Record<string, string> = { label: `${q.label ?? ''} · ${sectionLabel}`, id: q.id ?? '' };
+  if (q.file) query.file = q.file;
   if (q.acc) query.acc = q.acc;
   query.sec = sectionKey;
   return objectDocUri.with({ scheme: LOC_SCHEME, query: JSON.stringify(query) });
@@ -114,18 +136,25 @@ export function parseObjectUri(uri: vscode.Uri, scheme = OBJECT_SCHEME): ObjectR
   let objectId: string | undefined;
   let accessor: Accessor | undefined;
   let section: string | undefined;
+  let file: string | undefined;
   try {
     const q = JSON.parse(uri.query);
     objectId = q.id;
+    if (typeof q.file === 'string') file = q.file;
     if (q.acc === 'Get' || q.acc === 'Set') accessor = q.acc;
     if (typeof q.sec === 'string') section = q.sec;
   } catch {
     return undefined;
   }
-  const segments = uri.path.split('/');
-  const fileIndex = segments.findIndex(isSourcePath);
-  if (!objectId || fileIndex < 0) return undefined;
-  const filePath = segments.slice(0, fileIndex + 1).join('/');
+  if (!objectId) return undefined;
+  // URIs made before the file went into the query (tabs restored from then) have it at the start of their path.
+  let filePath = file;
+  if (filePath === undefined) {
+    const segments = uri.path.split('/');
+    const fileIndex = segments.findIndex(isSourcePath);
+    if (fileIndex < 0) return undefined;
+    filePath = segments.slice(0, fileIndex + 1).join('/');
+  }
   const ref: ObjectRef = { fsPath: fileUnder(uri, filePath), objectId, accessor };
   if (section !== undefined) ref.section = section;
   return ref;

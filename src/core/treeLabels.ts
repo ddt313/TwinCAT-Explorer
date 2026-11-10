@@ -20,6 +20,13 @@ export function objectTreeLabel(obj: { kind: ObjectKind; name: string; pouKind?:
   return obj.name;
 }
 
+/** The kind of an object as the tree's labels name it: `FB`, `PRG`, `FUN`, `ENUM`, `STRUCT`, `Method`, `GVL`. */
+export function objectKindWord(obj: { kind: ObjectKind; pouKind?: PouKind; dutKind?: DutKind }): string {
+  if (obj.kind === 'pou' && obj.pouKind) return obj.pouKind;
+  if (obj.kind === 'dut' && obj.dutKind) return obj.dutKind.toUpperCase();
+  return KIND_WORD[obj.kind];
+}
+
 /** The icon of an object, one of `media/icons/{light,dark}/<name>.svg`. */
 export function objectIconName(obj: { kind: ObjectKind; pouKind?: PouKind; dutKind?: DutKind }): string {
   switch (obj.kind) {

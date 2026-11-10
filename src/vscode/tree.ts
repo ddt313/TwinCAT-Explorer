@@ -9,7 +9,7 @@ import { Accessor } from '../core/objectText';
 import { InnerFolder, ObjectKind, TcObject, TcSourceFile, stripTrivia } from '../core/tcfile';
 import { PlcProject, TsProject, libraryName, resolutionLibraryName } from '../core/project';
 import { KIND_WORD, accessorIconName, compareLabels, objectIconName, objectTreeLabel } from '../core/treeLabels';
-import { fileUri, isSourcePath, objectUri } from './uris';
+import { OBJECT_SCHEME, fileUri, isSourcePath, objectUri } from './uris';
 
 export { KIND_WORD, compareLabels, objectTreeLabel };
 
@@ -390,6 +390,10 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     item.description = node.description;
     item.tooltip = node.tooltip;
     item.contextValue = node.contextValue;
+    // What a screen reader reads: the label as shown. Without it, a node with a file URI is read as the file's path.
+    if (node.resourceUri?.scheme !== OBJECT_SCHEME) {
+      item.accessibilityInformation = { label: [node.label, node.description].filter(Boolean).join(', ') };
+    }
     // A file keeps its file URI (the git extension colors it); members get their object URI (GitChanges marks them).
     if (node.kind === 'file' && node.fsPath) item.resourceUri = fileUri(node.fsPath);
     else if (node.resourceUri) item.resourceUri = node.resourceUri;

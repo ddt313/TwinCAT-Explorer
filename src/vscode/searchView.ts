@@ -348,12 +348,14 @@ export class SearchView implements vscode.TreeDataProvider<SearchNode>, vscode.D
     const on = OPTIONS.filter(o => this.options[o.key]).map(o => o.title);
     view.description = this.text ? `"${this.text}"${on.length ? ` · ${on.join(', ')}` : ''}` : undefined;
     const where = this.scope.label;
+    // What was searched, in the message too: the view's description is cut short in a narrow view.
+    const what = `"${this.text}"${on.length ? ` (${on.join(', ')})` : ''}`;
     if (!this.text) view.message = undefined;
     else if (this.error) view.message = this.error;
-    else if (this.running && !this.roots.length) view.message = `Searching ${where}...`;
-    else if (!this.count.matches) view.message = `No results in ${where}.`;
+    else if (this.running && !this.roots.length) view.message = `Searching ${where} for ${what}...`;
+    else if (!this.count.matches) view.message = `No results for ${what} in ${where}.`;
     else {
-      view.message = `${plural(this.count.matches, 'result')} in ${plural(this.files, 'file')}, ${where}.`
+      view.message = `${plural(this.count.matches, 'result')} for ${what} in ${plural(this.files, 'file')}, ${where}.`
         + (this.count.capped ? ` Only the first ${LIMIT} are listed: narrow the search.` : '');
     }
   }

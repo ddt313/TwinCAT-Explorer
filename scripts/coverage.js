@@ -22,6 +22,7 @@ let resolved = 0;
 const missing = new Map();
 const examples = new Map();
 for (const ctx of index.allContexts()) {
+  if (ctx.excluded) continue; // excluded from the build: not checked, so its unknown names are not silent ones
   const text = index.sectionText(ctx.fileKey, ctx.sectionKey);
   const a = analyze(index, ctx, text);
   const covered = new Set(a.occurrences.map(o => o.start));

@@ -41,6 +41,11 @@ All notable changes to Explorer for TwinCAT. The format follows
 - MCP server: with TwinCAT XAE open, `add_object` makes an alias, and `add_member` (and `add_object`) a property
   of an interface. XAE refused both ("Base class not specified" for the alias), then failed on the interface
   property's accessor.
+- Code excluded from the build (*Exclude from build* in XAE, on a folder or an object) shows no problems, as XAE
+  does not compile it. Before, an unknown name there was an error, in the editors and in the MCP tool `check`. Built
+  code that uses a name declared there gets an error now (`'FB_Old' is excluded from the build`), where it had none.
+  The TwinCAT tree marks such folders and objects `excluded from build`, and `check` names the objects it leaves
+  unchecked.
 
 ## 0.22.0 - 2026-11-08
 

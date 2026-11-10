@@ -296,11 +296,21 @@ export function check(t: Tools, a: { object?: string; limit?: number; compiler?:
   const s = t.session;
   if (a.compiler) return compilerCheck(t, a.limit ?? 200);
   let problems: string[];
+  // Objects excluded from the build (XAE's Exclude from build): not checked, as XAE does not compile them.
+  const excluded = new Set<string>();
   if (a.object) {
-    problems = problemsOfView(t, s.resolve(a.object));
+    const v = s.resolve(a.object);
+    if (viewSections(v.obj, v.accessor).some(sec => s.context(v, sec)?.excluded)) {
+      return `${v.label} is excluded from the build (Exclude from build in XAE): not checked.`;
+    }
+    problems = problemsOfView(t, v);
   } else {
     problems = [];
     for (const ctx of s.index.allContexts()) {
+      if (ctx.excluded) {
+        excluded.add(ctx.object.qualifiedName.split('.')[0]);
+        continue;
+      }
       const text = s.index.sectionText(ctx.fileKey, ctx.sectionKey);
       if (text === undefined) continue;
       for (const p of s.features.analysisOf(ctx, text).problems) {
@@ -311,8 +321,10 @@ export function check(t: Tools, a: { object?: string; limit?: number; compiler?:
   }
   const limit = a.limit ?? 200;
   const head = 'Syntax and name check of the extension (not the TwinCAT compiler): ';
-  if (!problems.length) return head + 'no problems.';
-  return [head + `${problems.length} problem(s)`, ...problems.slice(0, limit), ...(problems.length > limit ? [`-- ${limit} of ${problems.length}`] : [])].join('\n');
+  const notChecked = excluded.size ? [`Excluded from the build, not checked: ${[...excluded].sort().join(', ')}`] : [];
+  if (!problems.length) return [head + 'no problems.', ...notChecked].join('\n');
+  return [head + `${problems.length} problem(s)`, ...problems.slice(0, limit), ...(problems.length > limit ? [`-- ${limit} of ${problems.length}`] : []),
+    ...notChecked].join('\n');
 }
 
 /** Matches a search counts at most: there it stops, and says so. */

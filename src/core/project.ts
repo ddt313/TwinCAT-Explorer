@@ -45,6 +45,11 @@ export interface PlcProject {
   compile: string[];
   /** Relative folder paths declared by <Folder Include>. */
   folders: string[];
+  /**
+   * The source files and folders (their Include, as `folders` and `compile` have them) set to Exclude from build in
+   * XAE (`<ExcludeFromBuild>true</ExcludeFromBuild>`): XAE does not compile them, nor what such a folder holds.
+   */
+  excluded: string[];
   libraries: LibraryRef[];
 }
 
@@ -122,6 +127,7 @@ export function parsePlcProject(filePath: string, text: string): PlcProject {
     name: path.basename(filePath, path.extname(filePath)),
     compile: [],
     folders: [],
+    excluded: [],
     libraries: [],
   };
   for (const pg of findAll(doc, 'PropertyGroup')) {
@@ -130,13 +136,18 @@ export function parsePlcProject(filePath: string, text: string): PlcProject {
     const title = elementText(text, child(pg, 'Title'));
     if (title) project.title = title;
   }
+  const excluded = (item: XmlElement) => (elementText(text, child(item, 'ExcludeFromBuild')) ?? '').trim().toLowerCase() === 'true';
   for (const c of findAll(doc, 'Compile')) {
     const inc = c.attrs.get('Include');
-    if (inc) project.compile.push(inc);
+    if (!inc) continue;
+    project.compile.push(inc);
+    if (excluded(c)) project.excluded.push(inc);
   }
   for (const f of findAll(doc, 'Folder')) {
-    const inc = f.attrs.get('Include');
-    if (inc) project.folders.push(inc.replace(/[\\/]+$/, ''));
+    const inc = f.attrs.get('Include')?.replace(/[\\/]+$/, '');
+    if (!inc) continue;
+    project.folders.push(inc);
+    if (excluded(f)) project.excluded.push(inc);
   }
   for (const tag of REFERENCE_KINDS) {
     for (const r of findAll(doc, tag)) {
@@ -169,6 +180,18 @@ export function itemOrder(a: string, b: string): number {
 /** Whether two names are the same, as XAE compares them: case aside (see itemOrder). */
 export function sameName(a: string, b: string): boolean {
   return itemOrder(a, b) === 0;
+}
+
+/**
+ * Whether a source file of the PLC project (its Include, `POUs\FB_X.TcPOU`) is excluded from the build: its own item,
+ * or a folder it is in, is set to Exclude from build.
+ */
+export function excludedFromBuild(project: PlcProject, include: string): boolean {
+  const inc = include.replace(/\//g, '\\');
+  return project.excluded.some(item => {
+    const ex = item.replace(/\//g, '\\');
+    return sameName(inc, ex) || (inc.length > ex.length && inc[ex.length] === '\\' && sameName(inc.slice(0, ex.length), ex));
+  });
 }
 
 /**

@@ -350,8 +350,8 @@ export class Xae {
     return this.request<{ name: string }[]>({ cmd: 'children', ...item });
   }
 
-  /** A child of an item. `info`: CreateChild's vInfo (an array; methods and accessors take none). */
-  create(parent: XaeItem, name: string, subType: number, info: (string | number)[] | undefined, decl?: string): void {
+  /** A child of an item. `info`: CreateChild's vInfo (an array, or a type for an alias or an interface property; methods and accessors take none). */
+  create(parent: XaeItem, name: string, subType: number, info: string | (string | number)[] | undefined, decl?: string): void {
     this.request({ cmd: 'create', ...parent, name, subType, info, decl });
   }
 

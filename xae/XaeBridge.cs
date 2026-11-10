@@ -781,8 +781,10 @@ namespace TwinCatXaeBridge {
                 case "create": {
                     // A child of an item (a member of a POU, an object in a folder), then its declaration as given.
                     ITcSmTreeItem parent = Item(r);
-                    ArrayList info = r.ContainsKey("info") ? (ArrayList)r["info"] : null;
-                    object vInfo = null;
+                    // vInfo: an array, or a string (the type of an alias or of an interface property).
+                    object raw = r.ContainsKey("info") ? r["info"] : null;
+                    ArrayList info = raw as ArrayList;
+                    object vInfo = raw as string;
                     if (info != null) {
                         object[] arr = new object[info.Count];
                         for (int i = 0; i < info.Count; i++) arr[i] = info[i];

@@ -38,6 +38,9 @@ All notable changes to Explorer for TwinCAT. The format follows
   (`FB_Valve (FB)`), not by the path of their file, and folders without a trailing space.
 - Screen readers read the files and objects of TwinCAT Changes, TwinCAT Commits and History by their label,
   description and status (`FB_Valve (FB), FillerPlc · POUs/Devices, Modified`), not by the path of the file.
+- MCP server: with TwinCAT XAE open, `add_object` makes an alias, and `add_member` (and `add_object`) a property
+  of an interface. XAE refused both ("Base class not specified" for the alias), then failed on the interface
+  property's accessor.
 
 ## 0.22.0 - 2026-11-08
 

@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_Valve" Id="{fba7432e-93b5-4bb7-94cd-f1abce3d73ae}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Valve EXTENDS FB_ValveBase
+VAR_OUTPUT
+	bOutput	: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();
+bOutput := stStatus.eState = E_ValveState.Open OR stStatus.eState = E_ValveState.Opening;
+IF stStatus.eState = E_ValveState.Opening THEN
+	stStatus.eState := E_ValveState.Open;
+ELSIF stStatus.eState = E_ValveState.Closing THEN
+	stStatus.eState := E_ValveState.Closed;
+END_IF
+]]></ST>
+    </Implementation>
+    <Action Name="A_Reset" Id="{13aabb9b-bde7-4350-aeb5-d561d77ea03b}">
+      <Implementation>
+        <ST><![CDATA[stStatus.eState := E_ValveState.Closed;
+stStatus.nCycles := 0;
+bOutput := FALSE;
+]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="Open" Id="{02720f70-93be-404c-9c9d-6e37f6846c5f}">
+      <Declaration><![CDATA[METHOD Open : BOOL
+VAR_INPUT
+	bForce	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Open := SUPER^.Open(bForce := bForce);
+IF Open THEN
+	bOutput := TRUE;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

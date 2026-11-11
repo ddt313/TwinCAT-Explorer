@@ -307,6 +307,8 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
     for (let i = 1; i <= p.length; i++) items.add(p.slice(0, i).join('^'));
   }
   const calls: string[] = [];
+  /** CreateChild's vInfo for each item made. */
+  const infos = new Map<string, string | (string | number)[] | undefined>();
   const at = new Set<string>();
   const projects: { dirty: Set<string>; save?: (file: string) => void } = { dirty: new Set() };
   type Item = { tsproj: string; plc: string; path: string[]; file?: string };
@@ -358,10 +360,13 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
       const base = item.path.join('^');
       return [...items].filter(p => p.split('^').slice(0, -1).join('^') === base).map(p => ({ name: p.split('^').pop()! }));
     },
-    create: (parent: Item, name: string, subType: number) => {
+    create: (parent: Item, name: string, subType: number, info?: string | (string | number)[], decl?: string) => {
       seen(parent);
       const p = [...parent.path, name].join('^');
+      // As XAE: an interface's accessors (654, 655) have no declaration to set.
+      if (decl !== undefined && (subType === 654 || subType === 655)) throw new Error(`InvalidCastException: ${p} is no ITcPlcDeclaration`);
       items.add(p);
+      infos.set(p, info);
       calls.push(`create ${p} ${subType}`);
     },
     delete: (parent: Item, name: string) => {
@@ -372,7 +377,7 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
     },
   };
   t.xae = xae as unknown as T.Tools['xae'];
-  return { texts, calls, at, projects };
+  return { texts, calls, at, projects, infos };
 }
 
 test('build and check with compiler: true run XAE\'s Build PLC project and Check all objects, and say which ran', () => withTools((t, root) => {
@@ -500,6 +505,20 @@ test('with XAE open, members and objects made or deleted save no TwinCAT project
   // add_object and its undo; never the .tsproj.
   assert.deepEqual(calls.filter(c => c.startsWith('save')), ['save FB_Valve.TcPOU', 'save FB_Valve.TcPOU', 'save FB_Pump.TcPOU', 'save FB_Valve.TcPOU']);
   assert.deepEqual(calls.filter(c => c.startsWith('project')), ['project Plc.plcproj', 'project Plc.plcproj save', 'project Plc.plcproj', 'project Plc.plcproj save']);
+}));
+
+test('with XAE open, CreateChild gets the vInfo XAE takes: a type alone for an alias and an interface property, no declaration for its accessor', () => withTools(t => {
+  T.addObject(t, { folder: 'POUs', kind: 'ITF', name: 'I_Pump' }); // in the files, before XAE is open
+  const { infos } = fakeXae(t);
+  T.addObject(t, { folder: 'DUTs', kind: 'ALIAS', name: 'T_Percent', type: 'LREAL' });
+  assert.equal(infos.get('DUTs^T_Percent'), 'LREAL');
+  T.addMember(t, { owner: 'I_Pump', kind: 'property', name: 'Speed', type: 'LREAL', accessors: ['Get'] });
+  assert.equal(infos.get('POUs^I_Pump^Speed'), 'LREAL');
+  assert.ok(infos.has('POUs^I_Pump^Speed^Get'), 'its accessor is made, with no declaration');
+  T.addMember(t, { owner: 'FB_Valve', kind: 'property', name: 'P_Speed', type: 'LREAL', accessors: ['Get'] });
+  assert.deepEqual(infos.get('POUs^FB_Valve^P_Speed'), [1, 'LREAL'], 'a function block property: language and type');
+  T.addObject(t, { folder: 'POUs', kind: 'FUN', name: 'F_Twice', type: 'INT' });
+  assert.deepEqual(infos.get('POUs^F_Twice'), [1, 'INT']);
 }));
 
 test('with XAE open, add_object and its undo save the .plcproj alone; one with unsaved changes in XAE is refused', () => withTools((t, root) => {

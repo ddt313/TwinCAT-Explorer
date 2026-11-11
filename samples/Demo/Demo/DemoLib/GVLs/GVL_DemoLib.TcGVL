@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="GVL_DemoLib" Id="{d61f31a9-324a-4c9c-add8-0db271036033}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+	MAX_VALVES		: INT := 8;
+	DEFAULT_TIMEOUT	: TIME := T#5S;
+END_VAR
+]]></Declaration>
+  </GVL>
+</TcPlcObject>

@@ -7,13 +7,16 @@ import * as vscode from 'vscode';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { Accessor } from '../core/objectText';
 import { InnerFolder, ObjectKind, TcObject, TcSourceFile, stripTrivia } from '../core/tcfile';
-import { PlcProject, TsProject, libraryName, resolutionLibraryName } from '../core/project';
+import { PlcProject, TsProject, libraryName, resolutionLibraryName, sameName } from '../core/project';
 import { KIND_WORD, accessorIconName, compareLabels, objectIconName, objectTreeLabel } from '../core/treeLabels';
-import { fileUri, isSourcePath, objectUri } from './uris';
+import { OBJECT_SCHEME, fileUri, isSourcePath, objectUri } from './uris';
 
 export { KIND_WORD, compareLabels, objectTreeLabel };
 
 export type NodeKind = 'tsproj' | 'plcproj' | 'references' | 'library' | 'folder' | 'file' | 'innerFolder' | 'object' | 'accessor';
+
+/** The description of a folder or file set to Exclude from build in XAE. */
+const EXCLUDED = 'excluded from build';
 
 /** Where the Add Method/Property/Action commands of a node put the new member: a POU or interface, one of its folders. */
 export interface MemberTarget {
@@ -254,6 +257,8 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     }
 
     const folders = new Map<string, TreeNode>();
+    // A folder or a file set to Exclude from build in XAE says so; what such a folder holds does not repeat it.
+    const excludedItself = (include: string) => plc.excluded.some(e => sameName(e, include));
     const ensureFolder = (rel: string): TreeNode => {
       if (!rel) return node;
       const key = rel.toLowerCase();
@@ -266,6 +271,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       f.sortGroup = 1;
       f.name = f.label;
       f.objectTarget = { plcprojPath: plc.path, folder: rel };
+      if (excludedItself(rel)) f.description = EXCLUDED;
       folders.set(key, f);
       return f;
     };
@@ -276,12 +282,12 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       if (files.has(fileKey(fsPath))) continue;
       files.add(fileKey(fsPath));
       const dir = include.includes('\\') ? include.slice(0, include.lastIndexOf('\\')) : '';
-      this.buildFile(ensureFolder(dir), fsPath, prefix);
+      this.buildFile(ensureFolder(dir), fsPath, prefix, excludedItself(include));
     }
     this.sortTree(node, vscode.workspace.getConfiguration('twincatExplorer').get<boolean>('foldersFirst', true));
   }
 
-  private buildFile(parent: TreeNode, fsPath: string, prefix: string): void {
+  private buildFile(parent: TreeNode, fsPath: string, prefix: string, excluded = false): void {
     const fk = fileKey(fsPath);
     const file = this.ws.getFile(fsPath);
     const root = file?.root;
@@ -289,6 +295,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     node.fsPath = fsPath;
     node.sortGroup = 2;
     node.tooltip = fsPath;
+    if (excluded) node.description = EXCLUDED;
     this.byFile.set(fk, [...(this.byFile.get(fk) ?? []), node]);
     if (!file || !root) {
       node.icon = twincatIcon(file?.fileKind === 'task' ? 'task' : 'file');
@@ -390,6 +397,10 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     item.description = node.description;
     item.tooltip = node.tooltip;
     item.contextValue = node.contextValue;
+    // What a screen reader reads: the label as shown. Without it, a node with a file URI is read as the file's path.
+    if (node.resourceUri?.scheme !== OBJECT_SCHEME) {
+      item.accessibilityInformation = { label: [node.label, node.description].filter(Boolean).join(', ') };
+    }
     // A file keeps its file URI (the git extension colors it); members get their object URI (GitChanges marks them).
     if (node.kind === 'file' && node.fsPath) item.resourceUri = fileUri(node.fsPath);
     else if (node.resourceUri) item.resourceUri = node.resourceUri;

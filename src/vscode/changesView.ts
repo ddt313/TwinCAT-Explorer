@@ -42,6 +42,17 @@ export function statusUri(id: string, status: Status, name = ''): vscode.Uri {
   return vscode.Uri.from({ scheme: CHANGE_SCHEME, path: `/${encodeURIComponent(id)}${name}`, query: status });
 }
 
+/** What the status letters stand for, as the decorations' tooltips and screen readers say them. */
+const STATUS_WORD: Record<Status, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', U: 'Conflict' };
+
+/**
+ * What a screen reader reads for a node of the Changes, Commits and History views: its label, description and
+ * status. Without it, a file is read as the path of its tooltip.
+ */
+export function gitNodeAccessibility(label: string, description: string | undefined, status: Status | undefined): vscode.AccessibilityInformation {
+  return { label: [label, description, status && STATUS_WORD[status]].filter(Boolean).join(', ') };
+}
+
 /** The status letter of a changed object view. */
 export function changeLetter(change: ViewChange['change']): Status {
   return change === 'added' ? 'A' : change === 'deleted' ? 'D' : 'M';
@@ -535,6 +546,7 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
     item.iconPath = n.icon;
     // The status letter and color come from provideFileDecoration.
     if (n.status) item.resourceUri = statusUri(n.id, n.status);
+    item.accessibilityInformation = gitNodeAccessibility(n.label, n.description, n.status);
     const context: string[] = [n.type];
     if (n.stage) context.push(`stage-${n.stage}`);
     if (n.unstage) context.push(`unstage-${n.unstage}`);
@@ -554,11 +566,11 @@ export class ChangesView implements vscode.TreeDataProvider<ChangeNode>, vscode.
   provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
     if (uri.scheme !== CHANGE_SCHEME) return undefined;
     switch (uri.query) {
-      case 'M': return new vscode.FileDecoration('M', 'Modified', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
-      case 'A': return new vscode.FileDecoration('A', 'Added', new vscode.ThemeColor('gitDecoration.addedResourceForeground'));
-      case 'D': return new vscode.FileDecoration('D', 'Deleted', new vscode.ThemeColor('gitDecoration.deletedResourceForeground'));
-      case 'R': return new vscode.FileDecoration('R', 'Renamed', new vscode.ThemeColor('gitDecoration.renamedResourceForeground'));
-      case 'U': return new vscode.FileDecoration('!', 'Conflict', new vscode.ThemeColor('gitDecoration.conflictingResourceForeground'));
+      case 'M': return new vscode.FileDecoration('M', STATUS_WORD.M, new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
+      case 'A': return new vscode.FileDecoration('A', STATUS_WORD.A, new vscode.ThemeColor('gitDecoration.addedResourceForeground'));
+      case 'D': return new vscode.FileDecoration('D', STATUS_WORD.D, new vscode.ThemeColor('gitDecoration.deletedResourceForeground'));
+      case 'R': return new vscode.FileDecoration('R', STATUS_WORD.R, new vscode.ThemeColor('gitDecoration.renamedResourceForeground'));
+      case 'U': return new vscode.FileDecoration('!', STATUS_WORD.U, new vscode.ThemeColor('gitDecoration.conflictingResourceForeground'));
       default: return undefined;
     }
   }

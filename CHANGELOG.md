@@ -13,8 +13,48 @@ All notable changes to Explorer for TwinCAT. The format follows
   the user agrees (`saveUserEdits: true`).
 
 ### Changed
+- The TwinCAT views have a place of their own: the TwinCAT icon in the Activity Bar opens the **Solution** tree
+  (until now the TwinCAT view of the Explorer, below Outline and Timeline) with the **History** view below it
+  (until now in the Source Control sidebar). The **TwinCAT Search** results are in the Panel, beside Problems and
+  Output, as XAE's Find Results. TwinCAT Changes and TwinCAT Commits stay in the Source Control sidebar.
+  Any of them can be dragged back where it was (or right-click its title, `Reset Location`).
+- The Solution view's title bar has `Add` (POU, DUT, GVL, interface, folder, existing items, library),
+  `Go to Object...` and `Search...`; `Refresh`, and `Reveal Active Editor` while `twincatExplorer.autoReveal` is on,
+  are in its `...` menu.
+- TwinCAT Changes has a `Commit` button in its title bar, for the objects staged there.
+- The context menu of the tree is ordered by use: open, add, go to implementation and type hierarchy, history and
+  comparisons, search, expand, rename/move/delete, copy name and Open XML last. `Expand All` and `Collapse All` are
+  on projects, `References`, folders, and POUs and interfaces with members (a function block with its methods,
+  properties and their folders).
+- `Open XML` moved to the `...` menu of the split editor's title bar.
+- The TwinCAT view container opens by itself the first time a workspace shows TwinCAT projects.
+- The breadcrumbs of the split editor and of object notebooks show the object's place in the TwinCAT tree
+  (`Machine › Plc › POUs › FB_Valve › Close`) instead of the folders of its file from the root of the disk.
+- A walkthrough, *Get Started with Explorer for TwinCAT* (`Help: Welcome`), shows where the tree, Go to Object,
+  Search and the per-object git views are.
+- The TwinCAT Search view's message names what was searched: `5 results for "fbValve" (Match Case) in 1 file`.
+- `Go to Object...` shows the tree's icons and kinds (`FB`, `PRG`, `ENUM`, `STRUCT`, `Method`, `GVL`...).
+- `TwinCAT: Refresh` is now `TwinCAT: Reload Projects`, `Reveal in TwinCAT Explorer` is `Reveal in TwinCAT
+  Solution`, and `Hide Notebook Toolbars (XAE-like Layout)` is `Hide or Show Notebook Toolbars (XAE-like
+  Layout)...`, as it asks which.
+- `Open Changes as TwinCAT Notebook` is now `Compare with HEAD (Notebook)`, and `Compare with Git Ref as TwinCAT
+  Notebook...` is `Compare with Branch or Commit (Notebook)...`.
 - `check` with `compiler: true` says that it ran XAE's Check all objects, and with an object checks only that
   object's PLC project.
+
+### Fixed
+- Screen readers read the TwinCAT projects, PLC projects, POUs, DUTs, GVLs and tasks of the tree by their label
+  (`FB_Valve (FB)`), not by the path of their file, and folders without a trailing space.
+- Screen readers read the files and objects of TwinCAT Changes, TwinCAT Commits and History by their label,
+  description and status (`FB_Valve (FB), FillerPlc · POUs/Devices, Modified`), not by the path of the file.
+- MCP server: with TwinCAT XAE open, `add_object` makes an alias, and `add_member` (and `add_object`) a property
+  of an interface. XAE refused both ("Base class not specified" for the alias), then failed on the interface
+  property's accessor.
+- Code excluded from the build (*Exclude from build* in XAE, on a folder or an object) shows no problems, as XAE
+  does not compile it. Before, an unknown name there was an error, in the editors and in the MCP tool `check`. Built
+  code that uses a name declared there gets an error now (`'FB_Old' is excluded from the build`), where it had none.
+  The TwinCAT tree marks such folders and objects `excluded from build`, and `check` names the objects it leaves
+  unchecked.
 
 ## 0.22.0 - 2026-11-08
 

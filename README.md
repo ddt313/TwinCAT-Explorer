@@ -6,7 +6,7 @@ Implementation**, and brings Structured Text language features and git views tha
 The code stays in the `.TcPOU`, `.TcDUT`, `.TcGVL` and `.TcIO` XML files, and saving writes back only
 the sections you edited.
 
-![The TwinCAT tree beside the split editor of a function block: the Declaration above the Implementation](docs/images/vscode-overview.png)
+![The Solution tree of the TwinCAT view container beside the split editor of a function block: the Declaration above the Implementation](docs/images/vscode-overview.png)
 
 <!-- browser-only:start -->
 A companion [browser extension](#browser-extension) shows the TwinCAT files of a GitHub pull request or a
@@ -34,14 +34,18 @@ GitLab merge request the same way, as objects instead of XML.
 
 ### TwinCAT tree
 
-The XAE project tree in the Explorer: the PLC projects of each `.tsproj`, their folders and objects, and
+The XAE project tree, in its own TwinCAT view container: the PLC projects of each `.tsproj`, their folders and objects, and
 inside a POU its methods, properties, actions and transitions, with XAE's labels and icons and the git
 state of each object.
 
 <details>
 <summary>Details</summary>
 
-The **TwinCAT** view in the Explorer, below Outline and Timeline:
+The **Solution** view of the **TwinCAT** view container (the TwinCAT icon in the Activity Bar), with the
+**History** view below it. Its title bar has `Add` (POU, DUT, GVL, interface, folder, existing items, library),
+`Go to Object...` and `Search...`; `Reveal Active Editor` (when `twincatExplorer.autoReveal` is off) and `Reload Projects`
+are in its `...` menu. The container opens by itself the first time a workspace shows TwinCAT projects. Like any
+view, the tree can be dragged to the Explorer or elsewhere.
 
 - One root per `.tsproj`, then its PLC projects, `References`, and the folders and objects of each
   `.plcproj`. A PLC project saved as an Independent Project File (`_Config\PLC\Plc.xti`, which the
@@ -79,8 +83,8 @@ The **TwinCAT** view in the Explorer, below Outline and Timeline:
 - **Ctrl+Alt+T** (`TwinCAT: Go to Object...`) lists every object of the workspace.
 - Right-click a TwinCAT project, a PLC project, a folder or a folder inside a POU: `Find in Folder...`
   (`Find in Project...`) searches its code (see [TwinCAT Search](#twincat-search)).
-- Right-click a node with children: `Expand All` expands it and every branch below it, `Collapse All` folds
-  it and every branch below it again.
+- Right-click a TwinCAT project, a PLC project, `References`, a folder, or a POU or interface with members:
+  `Expand All` expands it and every branch below it, `Collapse All` folds it and every branch below it again.
 
 </details>
 
@@ -104,7 +108,7 @@ XAE, with its changes against `HEAD` and the blame of the current line.
   open in their own tabs. DUTs, GVLs and interfaces have a single pane.
 - **Opening:** a single click in the tree opens a preview tab; a double click, or an edit, keeps it.
 - **Look:**
-  - Breadcrumbs follow the XAE path.
+  - Breadcrumbs follow the place in the TwinCAT tree: `Machine › Plc › POUs › FB_Valve › Close`.
   - The panes are Monaco editors (the editor VS Code is built on). They use your VS Code font, tab
     and theme settings and the same colours.
 - **Changes vs HEAD:**
@@ -469,7 +473,7 @@ Rename (F2) changes the uses too, in every PLC project of the workspace.
 These work in both panes and in notebook cells. They come from a parser of the TwinCAT dialect
 (`EXTENDS`, `IMPLEMENTS`, `THIS^`, `SUPER^`, properties, `REFERENCE TO`, ...).
 
-![Completion after fbConveyor. lists the methods of FB_Conveyor, and the call with its arguments](docs/images/vscode-language.png)
+![Completion after fbConveyor.St lists the methods of FB_Conveyor, and their calls](docs/images/vscode-language.png)
 
 <details>
 <summary>Details</summary>
@@ -531,6 +535,9 @@ These work in both panes and in notebook cells. They come from a parser of the T
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
   unknown identifiers, unknown members and unknown named parameters. A click in the Problems panel
   opens the split editor at the problem.
+  - Code excluded from the build (*Exclude from build* in XAE, on a folder or an object) is not
+    checked, as XAE does not compile it; the TwinCAT tree marks it `excluded from build`. Built code
+    that uses a name declared there gets an error: `'FB_Old' is excluded from the build`.
 - **Quick fixes** (light bulb, `Ctrl+.`), as XAE's Auto Declare:
   - An unknown identifier: `Declare bDone in VAR`, `in VAR_INPUT`, `in VAR_OUTPUT`, `in VAR_IN_OUT`
     and `in VAR_TEMP`, the blocks the object can have (`VAR_GLOBAL` in a GVL; an action declares in its
@@ -562,8 +569,8 @@ PLC projects or in one project or folder of the tree (`Find in Folder...`), unsa
 <details>
 <summary>Details</summary>
 
-- **`TwinCAT: Search...`** (Ctrl+Shift+Alt+F, or the search icon of the **TwinCAT Search** view in the
-  Explorer) asks for the text and lists the matches as you type: per POU, DUT, GVL or interface, then per
+- **`TwinCAT: Search...`** (Ctrl+Shift+Alt+F, or the search icon of the Solution view or of the **TwinCAT
+  Search** view in the Panel, beside Problems and Output) asks for the text and lists the matches as you type: per POU, DUT, GVL or interface, then per
   section (`FB_Valve` Declaration, `M_Open` Implementation, `P_Speed.Get` Implementation), then the line
   with the match highlighted. A click opens the split editor at the match as a preview, keeping the focus
   in the list; a double click keeps the tab open.
@@ -589,9 +596,10 @@ PLC projects or in one project or folder of the tree (`Find in Folder...`), unsa
 
 ### Source Control views
 
-Three views in the Source Control sidebar that work per object instead of per file: **TwinCAT Changes**
-(uncommitted and branch changes, staged object by object), **TwinCAT Commits** (like GitLens' commits view)
-and **TwinCAT History** (the commits that changed one object).
+Views that work per object instead of per file: in the Source Control sidebar, **TwinCAT Changes**
+(uncommitted and branch changes, staged object by object, with a `Commit` button) and **TwinCAT Commits** (like
+GitLens' commits view); in the TwinCAT view container, below the tree, **History** (the commits that changed one
+object).
 
 ![TwinCAT Changes lists the changed methods and accessors; a click shows the change of FB_Valve.Close against HEAD](docs/images/vscode-changes.png)
 
@@ -656,7 +664,7 @@ and marked `M`, `A` or `D`.
   metadata change) opens in VS Code's diff editor, as in GitLens. An added or deleted file is
   compared with an empty one. A POU's whole file opens as a notebook diff from its inline button.
 
-**TwinCAT History** is like GitLens' file history, but per object.
+**History** (the TwinCAT History view) is like GitLens' file history, but per object.
 
 - **Which commits:**
   - The commits of `HEAD` that changed one method, property, accessor, action, DUT or GVL, newest
@@ -690,17 +698,17 @@ against git.
   `Reopen Editor With... > TwinCAT Object (Notebook)` on a tab. Each section is one cell.
 - **Whole-file notebook:** `Reopen Editor With... > TwinCAT File (Notebook)` shows a whole `.TcPOU` as
   one notebook.
-- **Notebook diff for git:** `Open Changes as TwinCAT Notebook` compares a whole file with `HEAD`
+- **Notebook diff for git:** `Compare with HEAD (Notebook)` compares a whole file with `HEAD`
   section by section, folding the unchanged sections. In Staged Changes it compares `HEAD` with the
   index.
   - The command is in the tree, Explorer and Source Control menus, and in the `...` menu of a split
     editor tab.
   - Staged renames are followed, and an open comparison refreshes after a commit, checkout or stage.
-  - `Compare with Git Ref as TwinCAT Notebook...` compares with any branch or commit, for example
+  - `Compare with Branch or Commit (Notebook)...` compares with any branch or commit, for example
     `origin/develop` when you review a merge request.
 - **Toolbars:** the extension hides the cell toolbar of TwinCAT notebooks. VS Code has no switch per
   notebook type for the rest (`Run All`, `Select Kernel`, `+ Code`, `+ Markdown`), so
-  `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` hides the top toolbar and the insert buttons
+  `TwinCAT: Hide or Show Notebook Toolbars (XAE-like Layout)...` hides the top toolbar and the insert buttons
   for every notebook. It changes `notebook.globalToolbar` and `notebook.insertToolbarLocation` in the
   user settings, and the same command shows them again.
 
@@ -801,13 +809,13 @@ features and editing work as on the desktop; saving writes the repository's file
   search it; a large repository takes a moment.
 - Deleting a POU, DUT, GVL or folder deletes it without the Recycle Bin: until it is committed, Source Control can
   discard the deletion.
-- **Changes vs HEAD:** *Open Changes as TwinCAT Notebook* and the split editor's *Show Changes vs HEAD* compare
+- **Changes vs HEAD:** *Compare with HEAD (Notebook)* and the split editor's *Show Changes vs HEAD* compare
   with HEAD as GitHub has it (the commit of the branch, tag or pull request open), read through GitHub's API. A
   public repository needs no sign-in; a private one asks to sign in with GitHub (the Accounts menu) once.
 - **TwinCAT Changes:** in the Source Control sidebar, what the branch changed since the base branch of the pull
   request open (press `.` on a pull request's page to open it in github.dev), else since the default branch, object
   by object, changes not committed included. *Compare Branch With* picks another branch, tag or commit.
-- **TwinCAT Commits:** the commits of HEAD, each with the objects it changed, and *Compare with Git Ref* against a
+- **TwinCAT Commits:** the commits of HEAD, each with the objects it changed, and *Compare with Branch or Commit* against a
   branch, tag or commit, from GitHub.
 - **TwinCAT History and blame:** the commits that changed an object (a rename of its file ends the list there) and the
   line blame of the split editor come from GitHub; blame needs a sign-in with GitHub, even for a public repository.
@@ -857,7 +865,7 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
 - **Tools:**
   - Reading: `status`, `objects` (the tree), `read`, `locate` (the object and line of code at lines of
     a file as `git diff` and `git blame` number them), `search_text` (a text or regular expression in the code,
-    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler).
+    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler; it names the objects excluded from the build and leaves them unchecked).
   - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
     `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
     the edited section, or the elements XAE writes for a new member or object (in the `.plcproj`, its
@@ -938,13 +946,15 @@ code --uninstall-extension thanhdang.explorer-for-twincat --profile <profile>
 
 ## Getting started
 
-1. Open a folder that contains a `.tsproj`. The **TwinCAT** view appears in the Explorer, and
-   **TwinCAT Changes**, **TwinCAT Commits** and **TwinCAT History** appear in the Source Control
-   sidebar.
+1. Open a folder that contains a `.tsproj`. The TwinCAT icon appears in the Activity Bar: its view container
+   holds the **Solution** tree and the **History** view. **TwinCAT Changes** and **TwinCAT Commits** appear in
+   the Source Control sidebar, and **TwinCAT Search** in the Panel.
 2. Click a POU, method or property in the tree. It opens in the split editor, with the Declaration
    above the Implementation.
 3. Edit and save with Ctrl+S. Only the sections you changed are written back to the XML file.
-4. Use **Ctrl+Alt+T** to jump to any object, **F12** and **Shift+F12** to follow the code, and the
+4. `Help: Welcome` > *Get Started with Explorer for TwinCAT* walks through the tree, Go to Object, Search and
+   the per-object git views.
+5. Use **Ctrl+Alt+T** to jump to any object, **F12** and **Shift+F12** to follow the code, and the
    Source Control views to review what changed.
 
 ## Commands
@@ -955,10 +965,10 @@ Commit SHA and Copy Name.
 
 | Command | What it does |
 |---|---|
-| `TwinCAT: Refresh` | Load the TwinCAT projects of the workspace again. |
+| `TwinCAT: Reload Projects` | Load the TwinCAT projects of the workspace again. |
 | `TwinCAT: Go to Object...` | Pick any object of the workspace and open it (Ctrl+Alt+T). |
 | `TwinCAT: Search...` | Search the Structured Text of the objects, in the TwinCAT Search view (Ctrl+Shift+Alt+F; see [TwinCAT Search](#twincat-search)). `Find in Folder...` / `Find in Project...` in the TwinCAT tree search one folder or project. |
-| `TwinCAT: Reveal in TwinCAT Explorer` / `TwinCAT: Reveal Active Editor` | Select the object or file in the TwinCAT tree. |
+| `TwinCAT: Reveal in TwinCAT Solution` / `TwinCAT: Reveal Active Editor` | Select the object or file in the TwinCAT tree. |
 | `TwinCAT: Open XML` | Open the object's file as XML text, at the object. |
 | `TwinCAT: Open Solution in TwinCAT XAE` | Bring the TwinCAT XAE that has the project open to the front, or start XAE on the solution that has the project, on Windows (see [Opening the solution in TwinCAT XAE](#opening-the-solution-in-twincat-xae)). |
 | `TwinCAT: Add POU...` / `TwinCAT: Add DUT...` / `TwinCAT: Add Global Variable List...` / `TwinCAT: Add Interface...` | Add an object to a PLC project or one of its folders (see [Adding POUs, DUTs, GVLs, interfaces and folders](#adding-pous-duts-gvls-interfaces-and-folders)). |
@@ -973,14 +983,14 @@ Commit SHA and Copy Name.
 | `TwinCAT: Auto Declare...` | Declare a variable at the cursor of a split editor or notebook cell, as XAE's Auto Declare (Shift+F2). |
 | `TwinCAT: Show Changes vs HEAD` / `TwinCAT: Hide Changes vs HEAD` | Show the split editor's panes as diffs against `HEAD`, or back as normal panes. |
 | `TwinCAT Diff View: Inline` / `Side by Side` | Show the diffs of the split editor and of the commit diff panel inline or side by side (VS Code's `diffEditor.renderSideBySide`). |
-| `TwinCAT: Open Changes as TwinCAT Notebook` | Compare a whole file with `HEAD` (or the index), section by section. |
-| `TwinCAT: Compare with Git Ref as TwinCAT Notebook...` | Compare a whole file with any branch, tag or commit. |
+| `TwinCAT: Compare with HEAD (Notebook)` | Compare a whole file with `HEAD` (or the index), section by section. |
+| `TwinCAT: Compare with Branch or Commit (Notebook)...` | Compare a whole file with any branch, tag or commit. |
 | `TwinCAT: Show History` | Show the commits that changed the object, in the TwinCAT History view. |
 | `TwinCAT: Go Back` / `TwinCAT: Go Forward` | The TwinCAT object shown before or after in the editors (also the arrows in the title bar of the split editor and of object notebooks). VS Code's own Go Back loses an object once its preview tab is replaced by the next one. |
 | `TwinCAT: Open Current Version` | From the commit diff panel, open the object as it is now. |
 | `TwinCAT: Toggle Line Blame` | Turn the current line blame of the split editor on or off. |
 | `TwinCAT: Check All Structured Text` | Analyse every section of every project and report the problems. |
-| `TwinCAT: Hide Notebook Toolbars (XAE-like Layout)` | Hide (or show again) the notebook toolbars in the user settings. |
+| `TwinCAT: Hide or Show Notebook Toolbars (XAE-like Layout)...` | Hide (or show again) the notebook toolbars in the user settings. |
 | `TwinCAT: Show Licenses` | List each TwinCAT license of each runtime on this machine and until when it is valid (see [TwinCAT licenses](#twincat-licenses)). |
 | `TwinCAT: Renew Trial License in TwinCAT XAE` | Open the 7-day trial license dialog of TwinCAT XAE for this machine or a remote system, where you type the security code (see [TwinCAT licenses](#twincat-licenses)). |
 | `TwinCAT: Set Up MCP Server for Claude Code` | Register the extension's MCP server with Claude Code for a workspace folder, in your `~/.claude.json`, and give the folder's `.claude/settings.local.json` its permission rules (see [MCP server for AI agents](#mcp-server-for-ai-agents)). |
@@ -1241,6 +1251,13 @@ npm run package
   `out/mcp/server.js`; `node out/mcp/server.js --root <repoDir>` runs it on a TwinCAT repository.
 - `node scripts/analyze-all.js <repoDir>` and `node scripts/coverage.js <repoDir>` check the parser
   and the resolver on a whole TwinCAT repository.
+- `samples/Demo` is a TwinCAT solution saved by TwinCAT XAE ([its README](samples/Demo/README.md)), to try the
+  extension, the scripts and the MCP server on. `test/unit/sample.test.ts` checks that the extension reads it as
+  XAE builds it and writes its files back as XAE wrote them. Change it in XAE, never by hand.
+- `node scripts/mcp-call.js <folder> <tool> '<json arguments>'` calls the MCP server's tools as an MCP client does,
+  without XAE (`--copy`: on a copy of the folder in the temp folder).
+- For AI agents: the skill `.claude/skills/reproduce-issue` reproduces a reported issue before fixing it, and
+  `.claude/hooks/session-start.sh` installs the packages and compiles when a Claude Code cloud session starts.
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
   bundled packages.
 - `node scripts/icons.js` writes the icons of the views (`media/icons`) again after a change of an

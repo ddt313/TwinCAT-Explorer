@@ -18,7 +18,8 @@ import { parseObjectText, positionIn, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
-import { MemberTarget, TreeNode, TwinCatTree, memberKinds } from './vscode/tree';
+import { MemberTarget, TreeNode, TwinCatTree, memberKinds, objectIcon } from './vscode/tree';
+import { objectKindWord } from './core/treeLabels';
 import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { SymbolRename } from './vscode/rename';
@@ -47,8 +48,11 @@ import { SolutionOpener } from './vscode/openInXae';
 import {
   DIFF_NOTEBOOK, DIFF_SCHEME, FILE_NOTEBOOK, INDEX, LOC_SCHEME, OBJECT_EDITOR, OBJECT_NOTEBOOK, OBJECT_SCHEME,
   ST_LANGUAGE, fileUri, isFileUri, isSourcePath, isTwinCatPath, objectUri, parseDiffUri, parseLocUri, parseObjectUri, realPathOf,
-  viewKey,
+  useXaeFolders, viewKey,
 } from './vscode/uris';
+
+/** workspaceState: the TwinCAT view container was opened once for this workspace. */
+const REVEALED_CONTAINER_KEY = 'twincatExplorer.revealedViewContainer';
 
 export interface TwinCatExplorerApi {
   workspace: TcWorkspace;
@@ -119,6 +123,17 @@ function userStubs(): StubSource[] {
 
 export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinCatExplorerApi {
   const ws = new TcWorkspace();
+  // The breadcrumbs of an object show its place in the TwinCAT tree: TwinCAT project, PLC project, folders.
+  useXaeFolders(fsPath => {
+    const entry = ws.entry(fsPath);
+    if (!entry) return undefined;
+    const plcKey = fileKey(entry.project.path);
+    for (const ts of ws.tsProjects) {
+      const ref = ts.plcProjects.find(r => r.plcprojPath && fileKey(r.plcprojPath) === plcKey);
+      if (ref) return [ts.name, ref.name, ...entry.include.split(/[\\/]/).slice(0, -1)];
+    }
+    return [entry.project.name, ...entry.include.split(/[\\/]/).slice(0, -1)];
+  });
   const index = new LanguageIndex(ws);
   // User stubs are read once projects are found, so windows without TwinCAT never warn about them.
   index.setStubs(BUNDLED_STUBS);
@@ -393,6 +408,12 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
       checkHasResults = false;
       license?.setShown(hasProjects);
       await vscode.commands.executeCommand('setContext', 'twincatExplorer.hasProjects', hasProjects);
+      // The first time a workspace shows TwinCAT projects, the TwinCAT view container opens once, so that the tree is
+      // where one starts rather than an icon to find.
+      if (hasProjects && !context.workspaceState.get<boolean>(REVEALED_CONTAINER_KEY)) {
+        await context.workspaceState.update(REVEALED_CONTAINER_KEY, true);
+        void vscode.commands.executeCommand('workbench.view.extension.twincat');
+      }
       if (hasProjects || ws.loadErrors.length) {
         log.info(`Loaded ${ws.tsProjects.length} TwinCAT project(s), ${ws.plcProjects.length} PLC project(s), `
           + `${ws.sourceEntries.length} source file(s); ignored ${uris.length - visible.length} .tsproj file(s) in hidden folders.`);
@@ -1317,6 +1338,8 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     vscode.commands.registerCommand('twincatExplorer.changes.unstageAll', (node?: ChangeNode) => changesView.unstageAll(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.openNotebook', (node?: ChangeNode) => node && changesView.openNotebook(node)),
     vscode.commands.registerCommand('twincatExplorer.changes.refresh', () => changesView.refresh()),
+    // Commits what is staged, as Source Control's Commit button does (the message box, or COMMIT_EDITMSG when it is empty).
+    vscode.commands.registerCommand('twincatExplorer.changes.commit', () => vscode.commands.executeCommand('git.commit')),
     vscode.commands.registerCommand('twincatExplorer.changes.showUncommitted', () => changesView.setScope({ kind: 'head' })),
     vscode.commands.registerCommand('twincatExplorer.changes.showBranch', () =>
       changesView.setScope({ kind: 'branch', ref: context.workspaceState.get<string>(lastRefKey, 'origin/develop') })),
@@ -1355,17 +1378,15 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.goToObject', async () => {
       const items: (vscode.QuickPickItem & { fsPath: string; objectId: string })[] = [];
-      const iconOf: Record<string, string> = {
-        pou: 'symbol-class', method: 'symbol-method', property: 'symbol-property', action: 'symbol-event',
-        transition: 'symbol-event', dut: 'symbol-structure', gvl: 'symbol-variable', itf: 'symbol-interface',
-      };
       for (const e of ws.sourceEntries) {
         const file = ws.getFile(e.path);
         if (!file) continue;
         for (const obj of file.ordered) {
           items.push({
-            label: `$(${iconOf[obj.kind] ?? 'symbol-misc'}) ${obj.qualifiedName}`,
-            description: obj.kind === 'pou' ? obj.pouKind : obj.kind,
+            // The tree's icons and kind words: FB, PRG, FUN, ENUM, STRUCT, Method, Property, GVL, Interface.
+            label: obj.qualifiedName,
+            iconPath: objectIcon(obj),
+            description: objectKindWord(obj),
             detail: `${e.project.name} · ${e.include}`,
             fsPath: file.path,
             objectId: obj.id,

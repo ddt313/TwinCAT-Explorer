@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="GVL_Parameters" Id="{a9500158-d6ca-46f9-ab17-8d43c9ff7401}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+VAR_GLOBAL PERSISTENT
+	stRecipe	: ST_Recipe := (sName := 'Default');
+	fMaxSpeed	: LREAL := 1.5; // m/s
+END_VAR
+]]></Declaration>
+  </GVL>
+</TcPlcObject>

@@ -3,14 +3,15 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.23.0 - 2026-11-11
 
 ### Added
 - The MCP server's `build`: TwinCAT XAE's Build PLC project, as XAE's Build menu runs it, with whether it
   succeeded and the compiler's errors and warnings. It compiles what the PLC project uses, unlike `check` with
   `compiler: true` (XAE's Check all objects), which also compiles unused objects and so can report errors that a
   build never shows. XAE saves its unsaved files before a build, so a build is refused while XAE has any, unless
-  the user agrees (`saveUserEdits: true`).
+  the user agrees (`saveUserEdits: true`). ([#116](https://github.com/ddt313/TwinCAT-Explorer/issues/116),
+  reported by [simongaoai-coder](https://github.com/simongaoai-coder))
 
 ### Changed
 - The TwinCAT views have a place of their own: the TwinCAT icon in the Activity Bar opens the **Solution** tree
@@ -54,7 +55,8 @@ All notable changes to Explorer for TwinCAT. The format follows
   does not compile it. Before, an unknown name there was an error, in the editors and in the MCP tool `check`. Built
   code that uses a name declared there gets an error now (`'FB_Old' is excluded from the build`), where it had none.
   The TwinCAT tree marks such folders and objects `excluded from build`, and `check` names the objects it leaves
-  unchecked.
+  unchecked ([#116](https://github.com/ddt313/TwinCAT-Explorer/issues/116), reported by
+  [simongaoai-coder](https://github.com/simongaoai-coder)).
 
 ## 0.22.0 - 2026-11-08
 

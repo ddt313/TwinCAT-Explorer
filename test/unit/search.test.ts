@@ -135,7 +135,7 @@ const gvl = (name: string, decl: string) => `${HEAD}
 </TcPlcObject>`;
 
 const project = (name: string): PlcProject => ({
-  path: path.resolve('S', name, `${name}.plcproj`), dir: path.resolve('S', name), name, compile: [], folders: [], libraries: [],
+  path: path.resolve('S', name, `${name}.plcproj`), dir: path.resolve('S', name), name, compile: [], folders: [], excluded: [], libraries: [],
 });
 
 /** Two PLC projects: Machine (FB_Valve in POUs\Valves with members in folders, MAIN, GVL_IO) and Cell (FB_Other). */

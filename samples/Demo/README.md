@@ -45,7 +45,7 @@ XAE writes `_Boot`, `_CompileInfo`, `_Libraries` and `.vs` on build: `.gitignore
 
 ## Checked by the tests
 
-`test/unit/sample.test.ts` (`npm run test:unit`) checks that the extension reads the sample as XAE builds it: both PLC projects with every file of them, no syntax error, and no problem but the unknown name in `FB_Prototype` (the extension does not read *Exclude from build* yet). It also checks that the files have the bytes XAE wrote, also after a section is edited and edited back. After changing the sample in XAE, run the tests: a problem found outside excluded code is the extension's own.
+`test/unit/sample.test.ts` (`npm run test:unit`) checks that the extension reads the sample as XAE builds it: both PLC projects with every file of them, no syntax error, and no problem. The unknown name in `FB_Prototype` is in a folder excluded from the build, which the extension, as XAE, does not check. It also checks that the files have the bytes XAE wrote, also after a section is edited and edited back. After changing the sample in XAE, run the tests: a problem they find is the extension's own.
 
 To look at it from the command line (after `npm run compile`):
 

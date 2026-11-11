@@ -1,10 +1,14 @@
 // samples/Demo, a TwinCAT solution saved by TwinCAT XAE (samples/Demo/README.md): the extension reads it as XAE
 // builds it, and writes its files back as XAE wrote them. XAE builds it with 0 errors and 0 warnings, so a problem the
-// extension finds there, outside code excluded from the build, is the extension's own.
+// extension finds there is the extension's own.
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { Session } from '../../src/mcp/session';
+import * as T from '../../src/mcp/tools';
+import { UndoLog } from '../../src/mcp/undo';
 import { TcWorkspace } from '../../src/core/workspace';
 import { decodeBytes, encodeText, parseTcText } from '../../src/core/tcfile';
 import { applySectionEdits } from '../../src/core/splice';
@@ -49,7 +53,7 @@ test('samples/Demo: no syntax error in any section', () => {
   assert.deepEqual(errors, []);
 });
 
-test('samples/Demo: no problem but in the code excluded from the build', () => {
+test('samples/Demo: no problem, the unknown name in the code excluded from the build left aside', () => {
   const ws = load();
   const index = new LanguageIndex(ws);
   index.setStubs(BUNDLED_STUBS);
@@ -58,9 +62,24 @@ test('samples/Demo: no problem but in the code excluded from the build', () => {
     const a = analyze(index, ctx, index.sectionText(ctx.fileKey, ctx.sectionKey)!);
     problems.push(...a.problems.map(p => `${ctx.object.qualifiedName} [${ctx.label}] ${p.severity}: ${p.message}`));
   }
-  // FB_Prototype is in POUs\Experimental, which Machine.plcproj excludes from the build (ExcludeFromBuild): XAE's
-  // build never compiles it. The extension does not read ExcludeFromBuild yet, so it reports the unknown name there.
-  assert.deepEqual(problems, ["FB_Prototype [Implementation] error: Unknown identifier 'UnknownSymbol'"]);
+  assert.deepEqual(problems, []);
+  // FB_Prototype is in POUs\Experimental, which Machine.plcproj excludes from the build (ExcludeFromBuild): XAE's build
+  // never compiles it, so its unknown name UnknownSymbol is no problem, as for XAE.
+  const excluded = index.allContexts().filter(c => c.excluded).map(c => `${c.object.qualifiedName} [${c.label}]`);
+  assert.deepEqual(excluded.sort(), ['FB_Prototype [Declaration]', 'FB_Prototype [Implementation]']);
+});
+
+test('samples/Demo: the MCP tool check finds no problem, and names the object excluded from the build', () => {
+  const undo = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-undo-'));
+  try {
+    const t: T.Tools = { session: new Session(SAMPLE), undo: new UndoLog(SAMPLE, path.join(undo, 'undo.jsonl')) };
+    t.session.refresh();
+    assert.equal(T.check(t, {}), 'Syntax and name check of the extension (not the TwinCAT compiler): no problems.\n'
+      + 'Excluded from the build, not checked: FB_Prototype');
+    assert.equal(T.check(t, { object: 'FB_Prototype' }), 'FB_Prototype is excluded from the build (Exclude from build in XAE): not checked.');
+  } finally {
+    fs.rmSync(undo, { recursive: true, force: true });
+  }
 });
 
 test('samples/Demo: its files have the bytes XAE wrote, and a section edited and edited back gives them again', () => {

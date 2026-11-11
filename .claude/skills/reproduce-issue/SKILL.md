@@ -33,8 +33,8 @@ npm run compile   # after any change of src/, test/ or scripts/: the scripts and
 
 `samples/Demo` is a TwinCAT solution saved by TwinCAT XAE 3.1.4026 (its README lists what it holds): the PLC project
 DemoLib, also saved as a library, and Machine, which references it. XAE builds it with no error and no warning, so
-the extension must find no problem there but the one in `FB_Prototype`, which is in a folder excluded from the build
-(`test/unit/sample.test.ts`).
+the extension must find no problem there (`test/unit/sample.test.ts`); the unknown name in `FB_Prototype` is in a
+folder excluded from the build, which neither XAE nor the extension checks.
 
 ```bash
 node scripts/parse-all.js samples/Demo              # syntax errors of every section

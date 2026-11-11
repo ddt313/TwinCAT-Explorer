@@ -11,7 +11,7 @@ import {
 import { Builtins } from './builtins';
 import { TcWorkspace, SourceEntry, fileKey } from '../core/workspace';
 import { ObjectKind, Section, TcObject, TcSourceFile } from '../core/tcfile';
-import { PlcProject, resolutionLibraryName } from '../core/project';
+import { PlcProject, excludedFromBuild, resolutionLibraryName } from '../core/project';
 import type { InstalledSymbols } from '../core/libraries';
 
 export interface SectionContext {
@@ -27,6 +27,8 @@ export interface SectionContext {
   accessor?: 'Get' | 'Set';
   types: TypeSym[];
   gvl?: GvlSym;
+  /** In a source file excluded from the build (XAE's Exclude from build), which XAE does not compile. */
+  excluded?: true;
 }
 
 interface FileSyms {
@@ -35,6 +37,8 @@ interface FileSyms {
   /** The parsed file the symbols were built from (TcWorkspace.getFile gives a new one when the file changed). */
   source: TcSourceFile | undefined;
   scope: Scope;
+  /** Excluded from the build (see SectionContext.excluded). */
+  excluded: boolean;
   pous: PouSym[];
   types: TypeSym[];
   gvls: GvlSym[];
@@ -297,7 +301,8 @@ export class LanguageIndex {
   private addStubDeclarations(scope: Scope, text: string, key: string, gvlName?: string): void {
     const parsed = this.parseDecl(text);
     const fake: FileSyms = {
-      key, path: key, source: undefined, scope, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(), texts: new Map(),
+      key, path: key, source: undefined, scope, excluded: false, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(),
+      texts: new Map(),
     };
     for (const unit of parsed.units) {
       if (unit.header && POU_KIND[unit.header.pouKind]) {
@@ -407,9 +412,10 @@ export class LanguageIndex {
 
   private buildFile(entry: SourceEntry, scope: Scope): FileSyms {
     const file = this.ws.getFile(entry.path);
+    const excluded = excludedFromBuild(entry.project, entry.include);
     const f: FileSyms = {
-      key: entry.key, path: entry.path, source: file, scope, pous: [], types: [], gvls: [], contexts: new Map(), decls: new Map(),
-      texts: new Map(),
+      key: entry.key, path: entry.path, source: file, scope, excluded, pous: [], types: [], gvls: [], contexts: new Map(),
+      decls: new Map(), texts: new Map(),
     };
     if (!file?.root) return f;
     const overlay = this.overlays.get(entry.key);
@@ -419,7 +425,7 @@ export class LanguageIndex {
     const ctxBase = (s: Section, obj: TcObject): SectionContext => ({
       fileKey: entry.key, filePath: entry.path, sectionKey: s.key, label: s.label, role: s.role, scope,
       object: { id: obj.id, kind: obj.kind, name: obj.name, qualifiedName: obj.qualifiedName, folderPath: obj.folderPath }, types: [],
-      accessor: s.accessor,
+      accessor: s.accessor, ...(excluded ? { excluded: true as const } : {}),
     });
 
     if (root.kind === 'pou' || root.kind === 'itf') {
@@ -616,6 +622,12 @@ export class LanguageIndex {
     const out: SectionContext[] = [];
     for (const f of this.files.values()) out.push(...f.contexts.values());
     return out;
+  }
+
+  /** Whether a symbol is declared in a source file excluded from the build (see SectionContext.excluded). */
+  excludedFromBuild(sym: Sym): boolean {
+    const key = sym.loc?.fileKey;
+    return key !== undefined && this.files.get(key)?.excluded === true;
   }
 
   allGlobals(): GlobalSym[] {

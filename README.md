@@ -535,6 +535,9 @@ These work in both panes and in notebook cells. They come from a parser of the T
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
   unknown identifiers, unknown members and unknown named parameters. A click in the Problems panel
   opens the split editor at the problem.
+  - Code excluded from the build (*Exclude from build* in XAE, on a folder or an object) is not
+    checked, as XAE does not compile it; the TwinCAT tree marks it `excluded from build`. Built code
+    that uses a name declared there gets an error: `'FB_Old' is excluded from the build`.
 - **Quick fixes** (light bulb, `Ctrl+.`), as XAE's Auto Declare:
   - An unknown identifier: `Declare bDone in VAR`, `in VAR_INPUT`, `in VAR_OUTPUT`, `in VAR_IN_OUT`
     and `in VAR_TEMP`, the blocks the object can have (`VAR_GLOBAL` in a GVL; an action declares in its
@@ -862,7 +865,7 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
 - **Tools:**
   - Reading: `status`, `objects` (the tree), `read`, `locate` (the object and line of code at lines of
     a file as `git diff` and `git blame` number them), `search_text` (a text or regular expression in the code,
-    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler).
+    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler; it names the objects excluded from the build and leaves them unchecked).
   - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
     `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
     the edited section, or the elements XAE writes for a new member or object (in the `.plcproj`, its

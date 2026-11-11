@@ -5,6 +5,13 @@ All notable changes to Explorer for TwinCAT. The format follows
 
 ## Unreleased
 
+### Added
+- The MCP server's `build`: TwinCAT XAE's Build PLC project, as XAE's Build menu runs it, with whether it
+  succeeded and the compiler's errors and warnings. It compiles what the PLC project uses, unlike `check` with
+  `compiler: true` (XAE's Check all objects), which also compiles unused objects and so can report errors that a
+  build never shows. XAE saves its unsaved files before a build, so a build is refused while XAE has any, unless
+  the user agrees (`saveUserEdits: true`).
+
 ### Changed
 - The TwinCAT views have a place of their own: the TwinCAT icon in the Activity Bar opens the **Solution** tree
   (until now the TwinCAT view of the Explorer, below Outline and Timeline) with the **History** view below it
@@ -32,6 +39,8 @@ All notable changes to Explorer for TwinCAT. The format follows
   Layout)...`, as it asks which.
 - `Open Changes as TwinCAT Notebook` is now `Compare with HEAD (Notebook)`, and `Compare with Git Ref as TwinCAT
   Notebook...` is `Compare with Branch or Commit (Notebook)...`.
+- `check` with `compiler: true` says that it ran XAE's Check all objects, and with an object checks only that
+  object's PLC project.
 
 ### Fixed
 - Screen readers read the TwinCAT projects, PLC projects, POUs, DUTs, GVLs and tasks of the tree by their label

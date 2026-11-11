@@ -887,7 +887,12 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
     XAE is refused unless the user agrees (`saveUserEdits: true`). Where XAE does not save it, the answer
     says so, and the tools see the object once the user saves it in XAE.
   - XAE's own Ctrl+Z does not undo such a change; `undo_last_edit` does, in XAE.
-  - `check` with `compiler: true` runs XAE's *Check all objects* and gives the compiler's messages.
+  - `check` with `compiler: true` runs XAE's *Check all objects* and gives the compiler's messages. It
+    compiles every object, also those the PLC project does not use, so it can report errors that a build
+    never shows.
+  - `build` runs XAE's *Build PLC project* (one project, or all) and tells whether it succeeded, with the
+    compiler's errors and warnings: the build status the user sees in XAE. XAE saves every unsaved file
+    before a build, so `build` is refused while XAE has one, unless the user agrees (`saveUserEdits: true`).
   - The server finds the XAE instances on the desktop (TcXaeShell, or Visual Studio with TwinCAT), never
     starts one, never brings one to the front and never answers its dialogs. A call that a dialog of XAE
     blocks fails after its timeout with the dialog's text. Its link to XAE, `XaeBridge.exe`, is compiled

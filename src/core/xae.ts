@@ -406,7 +406,17 @@ export class Xae {
     return { found: r.found, files: r.files.map(f => ({ name: f.name, data: Buffer.from(f.data, 'base64') })) };
   }
 
+  /** XAE's Check all objects of a PLC project: the Build pane's text it wrote. */
   check(item: Omit<XaeItem, 'path'>): string {
     return this.request<{ output: string }>({ cmd: 'check', ...item, path: [] }, 180_000).output;
+  }
+
+  /**
+   * XAE's Build PLC project: the Build pane's text, and `failed` when the build failed. XAE saves every unsaved file
+   * first, so unless `saveUserEdits`, nothing is built while XAE has one, and `unsaved` lists them (the .tsproj and
+   * .plcproj given too).
+   */
+  build(item: Omit<XaeItem, 'path'>, plcproj: string, saveUserEdits = false): { output?: string; failed?: boolean; unsaved?: string[] } {
+    return this.request({ cmd: 'build', ...item, path: [], plcproj, saveUserEdits }, 600_000);
   }
 }

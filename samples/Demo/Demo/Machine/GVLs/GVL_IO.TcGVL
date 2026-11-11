@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="GVL_IO" Id="{8a3bfc93-eaf8-4cd9-8dc2-625b6ff9b2c4}">
+    <Declaration><![CDATA[VAR_GLOBAL
+	bInletOpen		AT %Q*	: BOOL;
+	bConveyorRun	AT %Q*	: BOOL;
+	nLevelRaw		AT %I*	: INT;
+	bStartButton	AT %I*	: BOOL;
+END_VAR
+]]></Declaration>
+  </GVL>
+</TcPlcObject>

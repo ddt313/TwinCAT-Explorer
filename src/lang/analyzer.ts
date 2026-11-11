@@ -78,7 +78,28 @@ export class Analyzer {
       this.stmts(r.body);
     }
     this.occurrences.sort((a, b) => a.start - b.start);
+    this.excludedUses();
     return { ctx: this.ctx, text: this.text, occurrences: this.occurrences, problems: this.problems, paramHints: this.paramHints };
+  }
+
+  /**
+   * Built code that uses a name declared in code excluded from the build, which XAE's compiler does not know: an error
+   * at each use of a POU, DUT, GVL, global variable or enumeration value, once for `GVL_X.bVar` and `E_X.Value`. A
+   * member reached through an instance (`fbX.M_Run()`) is left aside: the instance's type has the error already.
+   */
+  private excludedUses(): void {
+    if (this.ctx.excluded) return;
+    let last: Occurrence | undefined;
+    for (const o of this.occurrences) {
+      const s = o.sym;
+      const named = s.kind === 'pou' || s.kind === 'type' || s.kind === 'gvl' || s.kind === 'enumValue' || (s.kind === 'var' && s.owner.kind === 'gvl');
+      if (o.decl || !named || !this.index.excludedFromBuild(s)) continue;
+      const chained = last !== undefined && (last.start === o.start || this.text.slice(last.end, o.start).trim() === '.');
+      last = o;
+      if (chained) continue;
+      const owner = s.kind === 'enumValue' || s.kind === 'var' ? s.owner : undefined;
+      this.problem(o, owner ? `'${s.name}' of ${owner.name} is excluded from the build` : `'${s.name}' is excluded from the build`);
+    }
   }
 
   // ------------------------------------------------------------------ recording
@@ -88,7 +109,8 @@ export class Analyzer {
   }
 
   private problem(span: A.Span, message: string, severity: Problem['severity'] = 'error'): void {
-    if (this.recording) this.problems.push({ start: span.start, end: Math.max(span.end, span.start + 1), message, severity });
+    // Code excluded from the build is not checked, as XAE does not compile it.
+    if (this.recording && !this.ctx.excluded) this.problems.push({ start: span.start, end: Math.max(span.end, span.start + 1), message, severity });
   }
 
   private unknown(id: A.Ident, message: string): void {

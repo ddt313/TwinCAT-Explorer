@@ -350,8 +350,8 @@ export class Xae {
     return this.request<{ name: string }[]>({ cmd: 'children', ...item });
   }
 
-  /** A child of an item. `info`: CreateChild's vInfo (an array; methods and accessors take none). */
-  create(parent: XaeItem, name: string, subType: number, info: (string | number)[] | undefined, decl?: string): void {
+  /** A child of an item. `info`: CreateChild's vInfo (an array, or a type for an alias or an interface property; methods and accessors take none). */
+  create(parent: XaeItem, name: string, subType: number, info: string | (string | number)[] | undefined, decl?: string): void {
     this.request({ cmd: 'create', ...parent, name, subType, info, decl });
   }
 
@@ -406,7 +406,17 @@ export class Xae {
     return { found: r.found, files: r.files.map(f => ({ name: f.name, data: Buffer.from(f.data, 'base64') })) };
   }
 
+  /** XAE's Check all objects of a PLC project: the Build pane's text it wrote. */
   check(item: Omit<XaeItem, 'path'>): string {
     return this.request<{ output: string }>({ cmd: 'check', ...item, path: [] }, 180_000).output;
+  }
+
+  /**
+   * XAE's Build PLC project: the Build pane's text, and `failed` when the build failed. XAE saves every unsaved file
+   * first, so unless `saveUserEdits`, nothing is built while XAE has one, and `unsaved` lists them (the .tsproj and
+   * .plcproj given too).
+   */
+  build(item: Omit<XaeItem, 'path'>, plcproj: string, saveUserEdits = false): { output?: string; failed?: boolean; unsaved?: string[] } {
+    return this.request({ cmd: 'build', ...item, path: [], plcproj, saveUserEdits }, 600_000);
   }
 }

@@ -88,7 +88,7 @@ export const ST = 1;
 export interface ItemCopy {
   name: string;
   subType: number;
-  info?: (string | number)[];
+  info?: string | (string | number)[];
   decl?: string;
   impl?: string;
   children: ItemCopy[];

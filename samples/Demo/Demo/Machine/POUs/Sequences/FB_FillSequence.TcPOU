@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_FillSequence" Id="{e4a43d7b-daeb-48bc-8daa-528e001dc24e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_FillSequence
+VAR_INPUT
+	bStart		: BOOL;
+	fLevel		: T_Percent;
+	stRecipe	: ST_Recipe;
+	iInlet		: I_Valve;
+END_VAR
+VAR_OUTPUT
+	eStep		: E_FillStep;
+	bDone		: BOOL;
+END_VAR
+VAR
+	tonSettle	: TON;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE eStep OF
+	E_FillStep.Idle:
+		bDone := FALSE;
+		IF bStart THEN
+			eStep := E_FillStep.OpenInlet;
+		END_IF
+
+	E_FillStep.OpenInlet:
+		IF iInlet.Open(bForce := FALSE) THEN
+			eStep := E_FillStep.Filling;
+		END_IF
+
+	E_FillStep.Filling:
+		IF fLevel >= stRecipe.fTargetLevel THEN
+			iInlet.Close();
+			eStep := E_FillStep.Settle;
+		END_IF
+
+	E_FillStep.Settle:
+		tonSettle(IN := TRUE, PT := stRecipe.tSettle);
+		IF tonSettle.Q THEN
+			tonSettle(IN := FALSE);
+			eStep := E_FillStep.Done;
+		END_IF
+
+	E_FillStep.Done:
+		bDone := TRUE;
+		IF NOT bStart THEN
+			eStep := E_FillStep.Idle;
+		END_IF
+END_CASE
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

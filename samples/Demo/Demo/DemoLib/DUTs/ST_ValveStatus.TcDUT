@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_ValveStatus" Id="{a826fa27-fbb9-47d0-9d7e-3596e5163cef}">
+    <Declaration><![CDATA[TYPE ST_ValveStatus :
+STRUCT
+	eState		: E_ValveState;
+	bInterlocked	: BOOL;
+	nCycles		: UDINT;
+	fOpenTime	: LREAL; // s
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

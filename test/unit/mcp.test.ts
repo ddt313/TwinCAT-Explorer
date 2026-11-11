@@ -307,6 +307,8 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
     for (let i = 1; i <= p.length; i++) items.add(p.slice(0, i).join('^'));
   }
   const calls: string[] = [];
+  /** CreateChild's vInfo for each item made. */
+  const infos = new Map<string, string | (string | number)[] | undefined>();
   const at = new Set<string>();
   const projects: { dirty: Set<string>; save?: (file: string) => void } = { dirty: new Set() };
   type Item = { tsproj: string; plc: string; path: string[]; file?: string };
@@ -358,10 +360,13 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
       const base = item.path.join('^');
       return [...items].filter(p => p.split('^').slice(0, -1).join('^') === base).map(p => ({ name: p.split('^').pop()! }));
     },
-    create: (parent: Item, name: string, subType: number) => {
+    create: (parent: Item, name: string, subType: number, info?: string | (string | number)[], decl?: string) => {
       seen(parent);
       const p = [...parent.path, name].join('^');
+      // As XAE: an interface's accessors (654, 655) have no declaration to set.
+      if (decl !== undefined && (subType === 654 || subType === 655)) throw new Error(`InvalidCastException: ${p} is no ITcPlcDeclaration`);
       items.add(p);
+      infos.set(p, info);
       calls.push(`create ${p} ${subType}`);
     },
     delete: (parent: Item, name: string) => {
@@ -372,8 +377,47 @@ function fakeXae(t: T.Tools, dirtyFiles: string[] = [], open?: string[]) {
     },
   };
   t.xae = xae as unknown as T.Tools['xae'];
-  return { texts, calls, at, projects };
+  return { texts, calls, at, projects, infos };
 }
+
+test('build and check with compiler: true run XAE\'s Build PLC project and Check all objects, and say which ran', () => withTools((t, root) => {
+  assert.match(T.build(t, {}), /^TwinCAT XAE's Build PLC project[^\n]*\nPlc: not open in TwinCAT XAE, so not built$/);
+  assert.throws(() => T.build(t, { project: 'Nope' }), /No PLC project Nope: one of Plc/);
+  const dir = path.join(root, 'A', 'Plc');
+  const builds: { saveUserEdits?: boolean }[] = [];
+  let answer: { output?: string; failed?: boolean; unsaved?: string[] } = {};
+  fakeXae(t);
+  Object.assign(t.xae!, {
+    check: () => `------ Build started: Application: A.Plc -------\nTypify code...\n${path.join(dir, 'POUs', 'FB_Unused.TcPOU')}(3) : error: C0077: Unknown type: 'FB_Missing'\nCompile complete -- 1 errors, 0 warnings\n`,
+    build: (_item: unknown, plcproj: string, saveUserEdits?: boolean) => {
+      assert.equal(plcproj, path.join(dir, 'Plc.plcproj'));
+      builds.push({ saveUserEdits });
+      return answer;
+    },
+  });
+  const checked = T.check(t, { compiler: true, object: 'MAIN' });
+  assert.match(checked, /^TwinCAT XAE's Check all objects: compiles every object, also those the PLC project does not use/);
+  assert.match(checked, /\nPlc \(TwinCAT XAE process 4242\):\nPOUs[\\/]FB_Unused\.TcPOU\(3\) : error: C0077: Unknown type: 'FB_Missing'\nCompile complete -- 1 errors, 0 warnings$/);
+
+  answer = { failed: false, output: '------ Build started: Project: Plc, Configuration: Release TwinCAT OS (x64) ------\nTypify code...\n'
+    + 'Build complete -- 0 errors, 0 warnings : Ready for download\n\n========== Build: 1 succeeded or up-to-date, 0 failed, 0 skipped ==========\n' };
+  assert.equal(T.build(t, { project: 'plc' }), "TwinCAT XAE's Build PLC project: compiles what the PLC project uses, as XAE's Build menu does.\n"
+    + 'Plc (TwinCAT XAE process 4242): build succeeded: 0 error(s), 0 warning(s)\n'
+    + 'Build complete -- 0 errors, 0 warnings : Ready for download\n========== Build: 1 succeeded or up-to-date, 0 failed, 0 skipped ==========');
+
+  const warnings = Array.from({ length: 3 }, (_, i) => `${path.join(dir, 'POUs', 'MAIN.TcPOU')}(${i + 1}) : warning: C0371: unused ${i}`).join('\n');
+  answer = { failed: true, output: `${warnings}\n${path.join(dir, 'POUs', 'MAIN.TcPOU')}(7) : error: C0032: Cannot convert type 'DINT' to type 'INT'\n`
+    + 'Build complete -- 1 errors, 3 warnings : No download possible\n========== Build: 0 succeeded or up-to-date, 1 failed, 0 skipped ==========\n' };
+  const failed = T.build(t, { limit: 2 });
+  assert.match(failed, /\nPlc \(TwinCAT XAE process 4242\): build failed: 1 error\(s\), 3 warning\(s\)\nPOUs[\\/]MAIN\.TcPOU\(1\) : warning: C0371: unused 0\nPOUs[\\/]MAIN\.TcPOU\(2\) : warning: C0371: unused 1\n-- 2 of 4 messages\nBuild complete -- 1 errors, 3 warnings/);
+
+  // XAE saves its unsaved files before a build: refused unless the user agreed.
+  answer = { unsaved: [path.join(dir, 'POUs', 'MAIN.TcPOU')] };
+  assert.throws(() => T.build(t, {}), /A[\\/]Plc[\\/]POUs[\\/]MAIN\.TcPOU has unsaved changes in TwinCAT XAE, and a build saves them first[\s\S]*saveUserEdits: true/);
+  answer = { failed: false, output: '' };
+  assert.match(T.build(t, { saveUserEdits: true }), /build succeeded/);
+  assert.deepEqual(builds.map(b => !!b.saveUserEdits), [false, false, false, true]);
+}));
 
 test('with XAE open, edits go through XAE: its text, its hash, undo there too, and the file is left to XAE', () => withTools((t, root) => {
   const file = path.join(root, 'A/Plc/POUs/FB_Valve.TcPOU');
@@ -461,6 +505,20 @@ test('with XAE open, members and objects made or deleted save no TwinCAT project
   // add_object and its undo; never the .tsproj.
   assert.deepEqual(calls.filter(c => c.startsWith('save')), ['save FB_Valve.TcPOU', 'save FB_Valve.TcPOU', 'save FB_Pump.TcPOU', 'save FB_Valve.TcPOU']);
   assert.deepEqual(calls.filter(c => c.startsWith('project')), ['project Plc.plcproj', 'project Plc.plcproj save', 'project Plc.plcproj', 'project Plc.plcproj save']);
+}));
+
+test('with XAE open, CreateChild gets the vInfo XAE takes: a type alone for an alias and an interface property, no declaration for its accessor', () => withTools(t => {
+  T.addObject(t, { folder: 'POUs', kind: 'ITF', name: 'I_Pump' }); // in the files, before XAE is open
+  const { infos } = fakeXae(t);
+  T.addObject(t, { folder: 'DUTs', kind: 'ALIAS', name: 'T_Percent', type: 'LREAL' });
+  assert.equal(infos.get('DUTs^T_Percent'), 'LREAL');
+  T.addMember(t, { owner: 'I_Pump', kind: 'property', name: 'Speed', type: 'LREAL', accessors: ['Get'] });
+  assert.equal(infos.get('POUs^I_Pump^Speed'), 'LREAL');
+  assert.ok(infos.has('POUs^I_Pump^Speed^Get'), 'its accessor is made, with no declaration');
+  T.addMember(t, { owner: 'FB_Valve', kind: 'property', name: 'P_Speed', type: 'LREAL', accessors: ['Get'] });
+  assert.deepEqual(infos.get('POUs^FB_Valve^P_Speed'), [1, 'LREAL'], 'a function block property: language and type');
+  T.addObject(t, { folder: 'POUs', kind: 'FUN', name: 'F_Twice', type: 'INT' });
+  assert.deepEqual(infos.get('POUs^F_Twice'), [1, 'INT']);
 }));
 
 test('with XAE open, add_object and its undo save the .plcproj alone; one with unsaved changes in XAE is refused', () => withTools((t, root) => {

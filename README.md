@@ -1281,8 +1281,18 @@ See the [changelog](CHANGELOG.md).
 npm install
 npm run compile
 npm run test:unit
+npm run test:integration
 npm run package
 ```
+
+- `npm run test:integration` runs `test/integration` in a real VS Code (`scripts/test-integration.js`
+  downloads the latest stable one into `.vscode-test`, or takes `VSCODE_VERSION`, or `VSCODE_EXECUTABLE`) on a
+  copy of `samples/Demo` under git: activation, the TwinCAT tree, the split editor and the notebook, the
+  language features as VS Code asks for them, saving, changes on disk, the TwinCAT Changes view, rename.
+  `TWINCAT_TEST_GREP=<regex>` runs some of them. On Linux without a display: `xvfb-run -a npm run test:integration`.
+- In GitHub Actions both `npm run test:unit` and `npm run test:integration` write their results to the Summary tab of
+  the run (`scripts/test-summary.js`, with `scripts/test-summary-reporter.js` for node:test): the counts, each failure
+  with its message, the tests. `TWINCAT_TEST_SUMMARY=<file.md>` writes the same Markdown locally.
 
 - `npm run compile` also type-checks `src/webview` and bundles it (Monaco, vscode-textmate,
   oniguruma) with esbuild into `out/webview`.
@@ -1313,7 +1323,8 @@ npm run package
 - `node scripts/mcp-call.js <folder> <tool> '<json arguments>'` calls the MCP server's tools as an MCP client does,
   without XAE (`--copy`: on a copy of the folder in the temp folder).
 - For AI agents: the skill `.claude/skills/reproduce-issue` reproduces a reported issue before fixing it, and
-  `.claude/hooks/session-start.sh` installs the packages and compiles when a Claude Code cloud session starts.
+  `.claude/hooks/session-start.sh` installs the packages and compiles when a Claude Code cloud session starts,
+  and downloads VS Code in the background for `npm run test:integration` (which waits for it while it runs).
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
   bundled packages.
 - `node scripts/icons.js` writes the icons of the views (`media/icons`) again after a change of an

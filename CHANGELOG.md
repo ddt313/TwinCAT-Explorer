@@ -47,6 +47,11 @@ All notable changes to Explorer for TwinCAT. The format follows
 - The highlights of a symbol in a pane tell written from read as the analysis does: also a variable passed to a
   `VAR_IN_OUT` is written.
 
+### Fixed
+- `TwinCAT: Search...` (Ctrl+Shift+Alt+F) in the split editor searches the text selected there, as in a text
+  editor; it started with the last search text. A line selected whole searches that line, without its
+  indentation and line break, in both.
+
 ## 0.23.0 - 2026-11-11
 
 ### Added

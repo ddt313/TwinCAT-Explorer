@@ -212,12 +212,32 @@ export class ObjectFileSystem implements vscode.FileSystemProvider {
    * the document ignoring later changes.)
    */
   private reloadAfterSave(uri: vscode.Uri): void {
-    setTimeout(() => {
-      const stamp = this.stamps.get(uri.toString());
-      if (stamp) stamp.sig = '';
-      debugLog(`reload after save ${uri.path.split('/').pop()}`);
-      this.emitter.fire([{ type: vscode.FileChangeType.Changed, uri }]);
-    }, 300);
+    setTimeout(() => this.reload(uri, 'after save'), 300);
+  }
+
+  /**
+   * Makes VS Code read a clean document of the URI again: the object gets a new modification time (VS Code
+   * skips the read when the stat it gets is the one it last read) and a change event.
+   */
+  reload(uri: vscode.Uri, why: string): void {
+    const stamp = this.stamps.get(uri.toString());
+    if (stamp) stamp.sig = '';
+    debugLog(`reload ${why} ${uri.path.split('/').pop()}`);
+    this.emitter.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+  }
+
+  /**
+   * Whether the sections of a document (by key) still show the object view on disk; undefined when the object
+   * cannot be read. Texts of keys the view does not have count as different.
+   */
+  showsDisk(uri: vscode.Uri, sections: { key: string; text: string }[]): boolean | undefined {
+    let disk: Map<string, string>;
+    try {
+      disk = new Map(this.load(uri).sections.map(s => [s.key, s.text]));
+    } catch {
+      return undefined;
+    }
+    return sections.length === disk.size && sections.every(s => disk.get(s.key) === s.text);
   }
 
   /**

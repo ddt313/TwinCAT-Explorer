@@ -187,6 +187,27 @@ test('diagnostics: an unknown name typed in a cell is reported there, and goes w
   assert.ok(fs.readFileSync(fsPath).equals(before), 'saving the text as it was changed the file');
 });
 
+test('revert (File: Revert File) in a notebook: the cells show the disk again, with no problem left', async () => {
+  const nb = await openNotebook(MAIN, 'MAIN');
+  const impl = cellOf(nb, /^uRaw/);
+  const disk = impl.getText();
+  // The revert may replace the cell: the problems of every cell of the notebook count.
+  const problems = () => nb.getCells().flatMap(c => vscode.languages.getDiagnostics(c.document.uri).map(d => d.message));
+  const add = new vscode.WorkspaceEdit();
+  add.insert(impl.uri, new vscode.Position(0, 0), 'nUnknownThing := 1;\n');
+  assert.ok(await vscode.workspace.applyEdit(add));
+  assert.ok(nb.isDirty);
+  await waitFor(() => problems().includes("Unknown identifier 'nUnknownThing'"), 'the problem of the unknown name');
+  await vscode.window.showNotebookDocument(nb);
+  await vscode.commands.executeCommand('workbench.action.files.revert');
+  await waitFor(() => !nb.isDirty || undefined, 'the notebook to be clean');
+  const text = () => cellOf(nb, /^(uRaw|nUnknownThing)/).getText();
+  await waitFor(() => text() === disk || undefined, 'the cell to show the disk text', 5000).catch(() => {
+    throw new Error(`the cell kept the discarded text: ${JSON.stringify(text().slice(0, 40))}`);
+  });
+  await waitFor(() => problems().length === 0 || undefined, 'no problem once reverted');
+});
+
 // ---------------------------------------------------------------------------------------------- saving and files
 
 test('save from a notebook: the edited section is written into the .TcPOU, as XAE writes it', async () => {

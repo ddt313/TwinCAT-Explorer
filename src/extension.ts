@@ -16,6 +16,7 @@ import { Xae } from './core/xae';
 import { XaeSaveHost, saveThroughXae } from './core/xaeSave';
 import { Accessor, parseObjectText, positionIn, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
+import { watchNotebookReverts } from './vscode/notebookRevert';
 import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
 import { MemberTarget, TreeNode, TwinCatTree, memberKinds, objectIcon } from './vscode/tree';
@@ -309,6 +310,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     vscode.workspace.registerTextDocumentContentProvider(LOC_SCHEME, locations),
     vscode.workspace.registerFileSystemProvider(OBJECT_SCHEME, objectFs, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider(DIFF_SCHEME, diffFs, { isCaseSensitive: true, isReadonly: true }),
+    watchNotebookReverts(objectFs),
     vscode.workspace.registerNotebookSerializer(OBJECT_NOTEBOOK, new ObjectSerializer(), { transientOutputs: true }),
     vscode.workspace.registerNotebookSerializer(DIFF_NOTEBOOK, fileSerializer,
       { transientOutputs: true, transientDocumentMetadata: { original: true, bom: true } }),

@@ -51,6 +51,11 @@ All notable changes to Explorer for TwinCAT. The format follows
 - `TwinCAT: Search...` (Ctrl+Shift+Alt+F) in the split editor searches the text selected there, as in a text
   editor; it started with the last search text. A line selected whole searches that line, without its
   indentation and line break, in both.
+- Revert File (and Don't Save when the tab closes) in a notebook shows the object as it is on disk again. The
+  notebook turned clean but kept the discarded text in its cells, with its problems, and the next edit made it
+  dirty with that text, which a save then wrote. VS Code reverts a notebook without reading the file again while
+  the file's modification time and size are those it last read; the notebook now reads the disk again when it
+  turns clean with cells that differ from it. The split editor was not affected.
 
 ## 0.23.0 - 2026-11-11
 

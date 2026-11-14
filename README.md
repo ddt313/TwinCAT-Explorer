@@ -1320,7 +1320,8 @@ npm run package
 - `node scripts/mcp-call.js <folder> <tool> '<json arguments>'` calls the MCP server's tools as an MCP client does,
   without XAE (`--copy`: on a copy of the folder in the temp folder).
 - For AI agents: the skill `.claude/skills/reproduce-issue` reproduces a reported issue before fixing it, and
-  `.claude/hooks/session-start.sh` installs the packages and compiles when a Claude Code cloud session starts.
+  `.claude/hooks/session-start.sh` installs the packages and compiles when a Claude Code cloud session starts,
+  and downloads VS Code in the background for `npm run test:integration` (which waits for it while it runs).
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
   bundled packages.
 - `node scripts/icons.js` writes the icons of the views (`media/icons`) again after a change of an

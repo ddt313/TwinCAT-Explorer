@@ -248,9 +248,9 @@ it.
     after the last one.
 - **Then:** the tree shows the new member and it opens in the split editor, or the notebook if
   `twincatExplorer.editor` says so. A new property opens at its `Get` (or `Set`).
-- **Implement Interfaces...** on a function block with `IMPLEMENTS`: picks from the methods and
-  properties of its interfaces, and of the interfaces these extend, that neither the function block
-  nor one it extends has yet. Each gets the declaration it has in the interface and an empty
+- **Implement Interfaces...** on a function block with `IMPLEMENTS`, or that extends one: picks from
+  the methods and properties of its interfaces and of those of the function blocks it extends, and of
+  the interfaces these extend, that neither the function block nor one it extends has yet. Each gets the declaration it has in the interface and an empty
   implementation.
 - A file with unsaved changes in an editor is refused: save or revert them first. To take back a new
   member, use Discard Changes in the TwinCAT Changes view.
@@ -535,8 +535,10 @@ These work in both panes and in notebook cells. They come from a parser of the T
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
   unknown identifiers, unknown members and unknown named parameters, and a function block that lacks
   methods or properties of its interfaces (`FB_Valve does not implement method Close of I_Valve`, at
-  the name after `IMPLEMENTS`; not a `FUNCTION_BLOCK ABSTRACT`). A click in the Problems panel opens
-  the split editor at the problem.
+  the name after `IMPLEMENTS`; not a `FUNCTION_BLOCK ABSTRACT`). The interfaces of the function blocks
+  it extends count too, as an `ABSTRACT` base leaves them to it: `... of I_Valve (through
+  FB_ValveBase)`, at the name after `EXTENDS`. A click in the Problems panel opens the split editor at
+  the problem.
   - Each problem shows its kind as its code (`unknown-member`). The setting
     `twincatExplorer.diagnostics.rules` makes a kind a warning or turns it off:
     `{ "unknown-member": "warning", "unknown-type": "off" }`. The kinds: `syntax`,

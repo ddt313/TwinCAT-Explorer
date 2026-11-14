@@ -3,7 +3,7 @@
 
 import * as A from './ast';
 import { ELEMENTARY } from './builtins';
-import { unimplementedMembers } from './hierarchy';
+import { implementingBases, unimplementedMembers } from './hierarchy';
 import { LanguageIndex } from './index';
 import { RESERVED, parseDeclaration } from './parser';
 import { MemberSym, PouSym, Scope } from './symbols';
@@ -77,15 +77,24 @@ function stubSpec(index: LanguageIndex, m: MemberSym): MemberSpec {
 
 /**
  * The methods and properties a function block lacks to implement its interfaces: those of the interfaces it
- * names after IMPLEMENTS, and of the interfaces these extend, that neither it nor a function block it extends
- * has. Each comes with the declaration of the interface's.
+ * names after IMPLEMENTS, then of those the function blocks it extends name (an ABSTRACT base leaves them to it),
+ * and of the interfaces these extend, that neither it nor a function block it extends has. Each comes with the
+ * declaration of the interface's.
  */
 export function interfaceStubs(index: LanguageIndex, file: TcSourceFile): InterfaceStubs {
   const root = file.root;
   const decl = root?.sections.find(s => s.role === 'decl' && !s.accessor);
   const pou = decl && index.context(fileKey(file.path), decl.key)?.pou;
   if (!root || !pou) throw new Error(`${file.path} is not a POU of a PLC project of the workspace`);
-  return stubsFor(index, pou.scope, pou.implementsNames, [pou], root.members.map(m => m.name));
+  const own = root.members.map(m => m.name);
+  const out = stubsFor(index, pou.scope, pou.implementsNames, [pou], own);
+  for (const b of implementingBases(index, pou)) {
+    const more = stubsFor(index, b.scope, b.implementsNames, [pou], [...own, ...out.stubs.map(s => s.spec.name)]);
+    out.stubs.push(...more.stubs);
+    out.interfaces.push(...more.interfaces.filter(i => !out.interfaces.includes(i)));
+    out.missing.push(...more.missing.filter(m => !out.missing.includes(m)));
+  }
+  return out;
 }
 
 /**

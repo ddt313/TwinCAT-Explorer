@@ -9,7 +9,7 @@ import {
   BOOL, GlobalSym, MemberSym, NamespaceSym, PouSym, Scope, Sym, Ty, TypeSym, UNKNOWN, VarSym, elem, isLibrarySym,
 } from './symbols';
 import { ELEMENTARY, TIME_LITERAL_TYPES } from './builtins';
-import { unimplementedMembers } from './hierarchy';
+import { implementingBases, unimplementedMembers } from './hierarchy';
 
 export interface Occurrence {
   start: number;
@@ -484,20 +484,31 @@ export class Analyzer {
 
   /**
    * The methods and properties of its interfaces that a function block lacks, as XAE's compiler reports them: one
-   * error at each name after IMPLEMENTS they come through. An ABSTRACT function block may lack them; one that
-   * extends a function block not found (or known by its name only) is left aside, as that may have them.
+   * error at each name after IMPLEMENTS they come through, and for the interfaces of the function blocks it extends
+   * (an ABSTRACT base that leaves them to it), one at the name after EXTENDS. An ABSTRACT function block may lack
+   * them; one that extends a function block not found (or known by its name only) is left aside, as that may have
+   * them. A member lacking is reported once, at its first place.
    */
   private unimplemented(h: A.Header): void {
     const pou = this.ctx.pou;
-    if (!pou || this.ctx.member || h.pouKind !== 'FUNCTION_BLOCK' || h.implements.length === 0 || h.modifiers.includes('ABSTRACT')) return;
-    const u = unimplementedMembers(this.index, pou.scope, h.implements, [pou], []);
-    if (!u.basesKnown) return;
-    for (const via of h.implements) {
-      const lacking = u.members.filter(m => m.via === via);
-      if (lacking.length === 0) continue;
-      const name = via.parts.map(p => p.name).join('.');
-      const list = lacking.map(m => `${m.member.kind} ${m.member.name}${m.from.name.toUpperCase() === via.parts[via.parts.length - 1].upper ? '' : ` (of ${m.from.name})`}`);
-      this.problem(via, 'unimplemented-interface', `${pou.name} does not implement ${list.join(', ')} of ${name}`);
+    if (!pou || this.ctx.member || h.pouKind !== 'FUNCTION_BLOCK' || h.modifiers.includes('ABSTRACT')) return;
+    const bases = implementingBases(this.index, pou);
+    const sources = [
+      ...(h.implements.length ? [{ scope: pou.scope, names: h.implements, at: undefined as A.QualName | undefined, through: '' }] : []),
+      ...(h.extends.length ? bases.map(b => ({ scope: b.scope, names: b.implementsNames, at: h.extends[0], through: ` (through ${b.name})` })) : []),
+    ];
+    const reported: string[] = [];
+    for (const src of sources) {
+      const u = unimplementedMembers(this.index, src.scope, src.names, [pou], reported);
+      if (!u.basesKnown) return;
+      for (const via of src.names) {
+        const lacking = u.members.filter(m => m.via === via);
+        if (lacking.length === 0) continue;
+        reported.push(...lacking.map(m => m.member.name));
+        const name = via.parts.map(p => p.name).join('.');
+        const list = lacking.map(m => `${m.member.kind} ${m.member.name}${m.from.name.toUpperCase() === via.parts[via.parts.length - 1].upper ? '' : ` (of ${m.from.name})`}`);
+        this.problem(src.at ?? via, 'unimplemented-interface', `${pou.name} does not implement ${list.join(', ')} of ${name}${src.through}`);
+      }
     }
   }
 

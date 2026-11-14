@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { AnalyzeOptions, analyze, problemLevels } from '../../src/lang/analyzer';
 import { quickFixes } from '../../src/lang/autoDeclare';
+import { interfaceStubs } from '../../src/lang/members';
 import { LanguageIndex } from '../../src/lang/index';
 import { TypeTree, hierarchyTypeAt, implementations, relatedMembers, subtypes, supertypes, typeTree } from '../../src/lang/hierarchy';
 import { symbolLabel } from '../../src/lang/rename';
@@ -301,6 +302,43 @@ test('a function block that lacks methods or properties of its interfaces: an er
     // Its quick fix: Implement Interfaces.
     const fixes = quickFixes(index, at, text, analyze(index, at, text).problems);
     assert.deepEqual(fixes.map(f => [f.kind, f.title, f.preferred]), [['implement', 'Implement Interfaces in FB_Half...', true]]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a function block that extends an ABSTRACT one lacks what the interfaces of its bases need: an error at the name after EXTENDS', () => {
+  const { root, index, file } = project({
+    // FB_Base implements I_Valve but has Open only; FB_Mid has Reset; FB_Leaf, the concrete one, has Ready.
+    'POUs/FB_Base.TcPOU': pou('FB_Base', 80, 'FUNCTION_BLOCK ABSTRACT FB_Base IMPLEMENTS I_Valve\n', '',
+      method('Open', 81, 'METHOD Open : BOOL\n', 'Open := TRUE;')),
+    'POUs/FB_Mid.TcPOU': pou('FB_Mid', 90, 'FUNCTION_BLOCK ABSTRACT FB_Mid EXTENDS FB_Base\n', '',
+      method('Reset', 91, 'METHOD Reset : BOOL\n', 'Reset := TRUE;')),
+    'POUs/FB_Leaf.TcPOU': pou('FB_Leaf', 100, 'FUNCTION_BLOCK FB_Leaf EXTENDS FB_Mid IMPLEMENTS I_Device\n', '',
+      property('Ready', 101, 'PROPERTY Ready : BOOL', 'Ready := TRUE;')),
+    'POUs/FB_Done.TcPOU': pou('FB_Done', 110, 'FUNCTION_BLOCK FB_Done EXTENDS FB_Mid\n', '',
+      method('Close', 111, 'METHOD Close : BOOL\n', 'Close := TRUE;') + property('Ready', 113, 'PROPERTY Ready : BOOL', 'Ready := TRUE;')),
+  });
+  try {
+    // The ABSTRACT ones may lack them.
+    assert.deepEqual(declProblems(index, file('POUs/FB_Base.TcPOU'), 80), []);
+    assert.deepEqual(declProblems(index, file('POUs/FB_Mid.TcPOU'), 90), []);
+    // I_Device (its own) is implemented; Close of I_Valve, named by FB_Base two levels up, is lacking.
+    assert.deepEqual(declProblems(index, file('POUs/FB_Leaf.TcPOU'), 100),
+      ['error unimplemented-interface: FB_Leaf does not implement method Close of I_Valve (through FB_Base)']);
+    const key = `${guid(100).replace(/[{}]/g, '')}:decl`;
+    const ctx = index.context(fileKey(file('POUs/FB_Leaf.TcPOU')), key)!;
+    const text = index.sectionText(ctx.fileKey, key)!;
+    const problems = analyze(index, ctx, text).problems;
+    assert.equal(text.slice(problems[0].start, problems[0].end), 'FB_Mid', 'at the name after EXTENDS');
+    assert.deepEqual(quickFixes(index, ctx, text, problems).map(f => f.title), ['Implement Interfaces in FB_Leaf...']);
+    assert.deepEqual(declProblems(index, file('POUs/FB_Done.TcPOU'), 110), []);
+
+    // Implement Interfaces adds what the interfaces of its bases need too.
+    const leaf = index.ws.getFile(file('POUs/FB_Leaf.TcPOU'))!;
+    const stubs = interfaceStubs(index, leaf);
+    assert.deepEqual(stubs.stubs.map(st => `${st.from}.${st.spec.name}`), ['I_Valve.Close']);
+    assert.deepEqual(stubs.interfaces, ['I_Device', 'I_Valve']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

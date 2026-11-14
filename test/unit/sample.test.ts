@@ -82,6 +82,52 @@ test('samples/Demo: the MCP tool check finds no problem, and names the object ex
   }
 });
 
+/**
+ * The MCP tool check on a copy of samples/Demo with FB_ValveBase (DemoLib), which implements I_Valve, changed by
+ * `change`; Machine's FB_Valve extends it and overrides Open only.
+ */
+function checkChangedValveBase(change: (text: string) => string): string {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-copy-'));
+  try {
+    fs.cpSync(SAMPLE, copy, { recursive: true });
+    const base = path.join(copy, 'Demo', 'DemoLib', 'POUs', 'Valves', 'FB_ValveBase.TcPOU');
+    fs.writeFileSync(base, change(fs.readFileSync(base, 'utf8')));
+    const t: T.Tools = { session: new Session(copy), undo: new UndoLog(copy, path.join(copy, 'undo.jsonl')) };
+    t.session.refresh();
+    return T.check(t, {});
+  } finally {
+    fs.rmSync(copy, { recursive: true, force: true });
+  }
+}
+
+const withoutClose = (text: string) => {
+  const out = text.replace(/\s*<Method Name="Close"[\s\S]*?<\/Method>/, '');
+  assert.notEqual(out, text, 'FB_ValveBase has a method Close');
+  return out;
+};
+
+test('samples/Demo: FB_ValveBase without ABSTRACT and without Close lacks Close of I_Valve, and so does FB_Valve', () => {
+  // FB_ValveBase is ABSTRACT: without it and with all its methods, no problem.
+  const concrete = (text: string) => {
+    const out = text.replace('FUNCTION_BLOCK ABSTRACT FB_ValveBase', 'FUNCTION_BLOCK FB_ValveBase');
+    assert.notEqual(out, text, 'FB_ValveBase is ABSTRACT');
+    return out;
+  };
+  assert.match(checkChangedValveBase(concrete), /: no problems\./);
+  assert.equal(checkChangedValveBase(text => withoutClose(concrete(text))),
+    'Syntax and name check of the extension (not the TwinCAT compiler): 2 problem(s)\n'
+    + 'FB_Valve decl:1  error: FB_Valve does not implement method Close of I_Valve (through FB_ValveBase) [unimplemented-interface]\n'
+    + 'FB_ValveBase decl:1  error: FB_ValveBase does not implement method Close of I_Valve [unimplemented-interface]\n'
+    + 'Excluded from the build, not checked: FB_Prototype');
+});
+
+test('samples/Demo: FB_ValveBase ABSTRACT without Close may lack it, FB_Valve that extends it may not', () => {
+  assert.equal(checkChangedValveBase(withoutClose),
+    'Syntax and name check of the extension (not the TwinCAT compiler): 1 problem(s)\n'
+    + 'FB_Valve decl:1  error: FB_Valve does not implement method Close of I_Valve (through FB_ValveBase) [unimplemented-interface]\n'
+    + 'Excluded from the build, not checked: FB_Prototype');
+});
+
 test('samples/Demo: its files have the bytes XAE wrote, and a section edited and edited back gives them again', () => {
   const ws = load();
   let edited = 0;

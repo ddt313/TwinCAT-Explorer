@@ -9,7 +9,10 @@ All notable changes to Explorer for TwinCAT. The format follows
 - An error at the name after `IMPLEMENTS` when a function block lacks methods or properties of that interface (or
   of the interfaces it extends), as XAE's compiler reports it: `FB_Valve does not implement method Close of
   I_Valve`. Those of a function block it extends count; a `FUNCTION_BLOCK ABSTRACT` is not checked, nor one that
-  extends a function block not found. Its quick fix runs `Implement Interfaces...`.
+  extends a function block not found. The interfaces of the function blocks it extends are checked too (an
+  `ABSTRACT` base leaves them to it), with an error at the name after `EXTENDS`: `FB_Valve does not implement
+  method Close of I_Valve (through FB_ValveBase)`. Its quick fix runs `Implement Interfaces...`.
+- `Implement Interfaces...` also adds what the interfaces of the function blocks it extends need.
 - Each Structured Text problem has a code, its kind (`unknown-member`, `unknown-type`, `syntax`...), shown in the
   Problems panel, in the split editor and in the MCP server's answers.
 - `twincatExplorer.diagnostics.rules`: the level of each kind of problem, `error`, `warning` or `off`

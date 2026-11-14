@@ -33,6 +33,20 @@ export function descendants(index: LanguageIndex, pou: PouSym): PouSym[] {
   return index.allGlobals().filter((g): g is PouSym => g.kind === 'pou' && g !== pou && ancestors(index, g).has(pou));
 }
 
+/** The function blocks a function block extends (its base, then the base's...) that name interfaces after IMPLEMENTS. */
+export function implementingBases(index: LanguageIndex, pou: PouSym): PouSym[] {
+  const out: PouSym[] = [];
+  const seen = new Set<PouSym>([pou]);
+  for (let p = pou, depth = 0; p.extendsNames.length && depth < 20; depth++) {
+    const b = index.resolveGlobal(p.extendsNames[0].parts, p.scope);
+    if (b?.kind !== 'pou' || seen.has(b)) break;
+    seen.add(b);
+    if (b.implementsNames.length) out.push(b);
+    p = b;
+  }
+  return out;
+}
+
 /** What a function block lacks to implement its interfaces (see unimplementedMembers). */
 export interface Unimplemented {
   /** Each method or property lacking, with the name after IMPLEMENTS it comes through and the interface declaring it. */

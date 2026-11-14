@@ -1281,8 +1281,15 @@ See the [changelog](CHANGELOG.md).
 npm install
 npm run compile
 npm run test:unit
+npm run test:integration
 npm run package
 ```
+
+- `npm run test:integration` runs `test/integration` in a real VS Code (`scripts/test-integration.js`
+  downloads the latest stable one into `.vscode-test`, or takes `VSCODE_VERSION`, or `VSCODE_EXECUTABLE`) on a
+  copy of `samples/Demo` under git: activation, the TwinCAT tree, the split editor and the notebook, the
+  language features as VS Code asks for them, saving, changes on disk, the TwinCAT Changes view, rename.
+  `TWINCAT_TEST_GREP=<regex>` runs some of them. On Linux without a display: `xvfb-run -a npm run test:integration`.
 
 - `npm run compile` also type-checks `src/webview` and bundles it (Monaco, vscode-textmate,
   oniguruma) with esbuild into `out/webview`.

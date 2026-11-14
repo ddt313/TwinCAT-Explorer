@@ -88,6 +88,11 @@ browser), and the git views find no repository there.
 1. Write the test and run it: `npm run compile && node --test --test-reporter=spec out/test/unit/<file>.test.js`.
    It must fail, and for the reason of the report, not another.
 2. Fix the code: the test passes. Then `npm run test:unit`: all pass.
+   - **A case of VS Code itself** (the tree, opening, saving or reloading an editor, a notebook, a view, a
+     command, what VS Code asks the language features): a test in `test/integration/extension.test.ts`, on the
+     copy of samples/Demo it opens. Run it with `xvfb-run -a npm run test:integration` (in a cloud session too),
+     `TWINCAT_TEST_GREP=<regex>` for that test alone. The split editor's webview (Monaco) is not reached from
+     there: test its document (`twincat:`) or the host's side.
 3. When the fix changes what the extension finds in the sample, update the expected problems in
    `test/unit/sample.test.ts`, saying why.
 

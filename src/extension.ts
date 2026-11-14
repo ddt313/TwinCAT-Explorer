@@ -1074,6 +1074,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   // XAE's Auto Declare: the quick fixes of unknown names and members, and Auto Declare... (Shift+F2).
   const autoDeclare = new AutoDeclare(index, features, objectEditors, {
     addMember: (fsPath, objectId, kind, name, type) => members.addNamed(kind, { fsPath, objectId, folderPath: [], actions: false }, name, type),
+    implementInterfaces: fsPath => members.implementInterfaces(fsPath),
     openBeside: (fsPath, objectId) => openDefault(fsPath, objectId, { preview: false, preserveFocus: true, viewColumn: vscode.ViewColumn.Beside }),
   });
   objectEditors.fixes = autoDeclare;

@@ -11,6 +11,7 @@ import { findTsProjects } from '../core/paths';
 import { PlcProject } from '../core/project';
 import { Section, TcObject, TcSourceFile } from '../core/tcfile';
 import { SourceEntry, TcWorkspace, fileKey } from '../core/workspace';
+import { AnalyzeOptions, problemLevels } from '../lang/analyzer';
 import { SectionFeatures } from '../lang/features';
 import { LanguageIndex, SectionContext, StubSource } from '../lang/index';
 import { BUNDLED_STUBS } from '../lang/stubs';
@@ -36,7 +37,8 @@ export class Session {
   readonly ws = new TcWorkspace();
   readonly index = new LanguageIndex(this.ws);
   readonly features: SectionFeatures;
-  private ignore = new Set<string>();
+  /** Identifiers to ignore and levels of problems, from the settings. */
+  private options: AnalyzeOptions = {};
   private loaded = false;
   private tsprojs: string[] = [];
   private scannedAt = 0;
@@ -48,7 +50,7 @@ export class Session {
   private librariesStamp: string | undefined;
 
   constructor(readonly root: string) {
-    this.features = new SectionFeatures(this.index, () => this.ignore);
+    this.features = new SectionFeatures(this.index, () => this.options);
   }
 
   /** Loads the projects the first time; later, loads them again when a project file changed, and has the index re-check the source files. */
@@ -85,7 +87,7 @@ export class Session {
     }).join('\n');
   }
 
-  /** Library stubs and identifiers to ignore from the folder's .vscode/settings.json, as the extension takes them. */
+  /** Library stubs, identifiers to ignore and levels of problems from the folder's .vscode/settings.json, as the extension takes them. */
   private readSettings(): void {
     let settings: Record<string, unknown> = {};
     try {
@@ -94,7 +96,10 @@ export class Session {
       // no settings
     }
     const list = (key: string) => (Array.isArray(settings[key]) ? (settings[key] as unknown[]).filter((v): v is string => typeof v === 'string') : []);
-    this.ignore = new Set(list('twincatExplorer.diagnostics.ignore').map(s => s.toUpperCase()));
+    this.options = {
+      ignore: new Set(list('twincatExplorer.diagnostics.ignore').map(s => s.toUpperCase())),
+      levels: problemLevels(settings['twincatExplorer.diagnostics.rules']),
+    };
     const stubs: StubSource[] = [...BUNDLED_STUBS];
     for (const p of list('twincatExplorer.stubFiles')) {
       const full = path.resolve(this.root, p);

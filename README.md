@@ -533,8 +533,18 @@ These work in both panes and in notebook cells. They come from a parser of the T
 - **Rename Symbol** (F2): the name under the cursor and its uses (see
   [Renaming with the uses](#renaming-with-the-uses)).
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
-  unknown identifiers, unknown members and unknown named parameters. A click in the Problems panel
-  opens the split editor at the problem.
+  unknown identifiers, unknown members and unknown named parameters, and a function block that lacks
+  methods or properties of its interfaces (`FB_Valve does not implement method Close of I_Valve`, at
+  the name after `IMPLEMENTS`; not a `FUNCTION_BLOCK ABSTRACT`). A click in the Problems panel opens
+  the split editor at the problem.
+  - Each problem shows its kind as its code (`unknown-member`). The setting
+    `twincatExplorer.diagnostics.rules` makes a kind a warning or turns it off:
+    `{ "unknown-member": "warning", "unknown-type": "off" }`. The kinds: `syntax`,
+    `unknown-identifier`, `unknown-type`, `unknown-member`, `unknown-value`, `unknown-parameter`,
+    `excluded-from-build`, `unimplemented-interface`.
+  - `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU,
+    method, property, action, DUT or GVL turns those kinds off there (a POU's in its members too);
+    without a value, all of them. XAE ignores attributes it does not know.
   - Code excluded from the build (*Exclude from build* in XAE, on a folder or an object) is not
     checked, as XAE does not compile it; the TwinCAT tree marks it `excluded from build`. Built code
     that uses a name declared there gets an error: `'FB_Old' is excluded from the build`.
@@ -550,6 +560,8 @@ These work in both panes and in notebook cells. They come from a parser of the T
   - A member that a function block, program or interface of the workspace lacks (`fbValve.M_Reset()`):
     `Add method M_Reset to FB_Valve` or `Add property ...`, the one the use asks for first. It gets the
     type of the use and opens.
+  - A function block that lacks methods or properties of its interfaces: `Implement Interfaces in
+    FB_Valve...`, which runs `TwinCAT: Implement Interfaces...`.
 - **Auto Declare...** (`Shift+F2`, as in XAE, or the context menu) asks for the scope (`CONSTANT`,
   `RETAIN` and `PERSISTENT` blocks too), name, type, initial value and comment. It starts with the
   unknown name at the cursor and the type of its use.
@@ -1015,7 +1027,7 @@ Commit SHA and Copy Name.
 | Ctrl+F12 / Ctrl+Shift+F12 | split editor, notebook cells | Go to / Peek Implementations: what implements or overrides the interface, function block, method or property at the cursor |
 | Ctrl+Shift+Space | split editor, notebook cells | The parameters of the call at the cursor (signature help) |
 | F2 | split editor, notebook cells | Rename Symbol: the name under the cursor and its uses |
-| Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property |
+| Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property, Implement Interfaces |
 | Shift+F2 | split editor, notebook cells | Auto Declare... |
 | Alt+F5 / Shift+Alt+F5 | split editor | Next / previous change vs `HEAD` |
 | Alt+Left / Alt+Right (macOS: Ctrl+- / Ctrl+Shift+-) | split editor, object notebooks, TwinCAT tree | TwinCAT: Go Back / Go Forward through the objects shown |
@@ -1031,6 +1043,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.foldersFirst` | `true` | Sort folders before objects in the TwinCAT tree. |
 | `twincatExplorer.diagnostics.enabled` | `true` | Report Structured Text problems in open TwinCAT editors and notebooks. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
+| `twincatExplorer.diagnostics.rules` | `{}` | The level of each kind of problem instead of its own: `error`, `warning` or `off` (`{ "unknown-member": "warning" }`). |
 | `twincatExplorer.saveThroughXae` | `false` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
 | `twincatExplorer.blame.currentLine` | `false` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
 | `twincatExplorer.licenseStatusBar` | `true` | Show in the status bar how long the TwinCAT license that ends first has left (see [TwinCAT licenses](#twincat-licenses)). |

@@ -7,7 +7,7 @@
 
 import * as vscode from 'vscode';
 import { LanguageIndex, SectionContext } from '../lang/index';
-import { Analysis, Analyzer, Occurrence, analyze } from '../lang/analyzer';
+import { AnalyzeOptions, Analysis, Analyzer, Occurrence, Problem, analyze, problemLevels } from '../lang/analyzer';
 import { SectionFeatures, describeOwner } from '../lang/features';
 import { Loc, Sym, Ty, tyToString } from '../lang/symbols';
 import { completionContext, expressionBeforeDot } from '../lang/completion';
@@ -37,9 +37,10 @@ export function diagnosticsEnabled(): boolean {
 }
 
 /** A problem found by the Structured Text analysis, as a VS Code diagnostic. */
-export function toDiagnostic(range: vscode.Range, message: string, severity: 'error' | 'warning'): vscode.Diagnostic {
-  const d = new vscode.Diagnostic(range, message, severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
+export function toDiagnostic(range: vscode.Range, p: Pick<Problem, 'message' | 'severity' | 'code'>, message = p.message): vscode.Diagnostic {
+  const d = new vscode.Diagnostic(range, message, p.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
   d.source = 'TwinCAT';
+  d.code = p.code;
   return d;
 }
 
@@ -157,12 +158,14 @@ export class LanguageFeatures implements
   splitLocator?: SplitLocator;
 
   constructor(private readonly index: LanguageIndex, private readonly ws: TcWorkspace) {
-    this.sections = new SectionFeatures(index, () => this.ignoreSet());
+    this.sections = new SectionFeatures(index, () => this.analyzeOptions());
   }
 
-  private ignoreSet(): Set<string> {
-    const list = vscode.workspace.getConfiguration('twincatExplorer').get<string[]>('diagnostics.ignore', []);
-    return new Set(list.map(s => s.toUpperCase()));
+  /** The identifiers never reported as unknown and the levels of the problems, from the settings. */
+  private analyzeOptions(): AnalyzeOptions {
+    const config = vscode.workspace.getConfiguration('twincatExplorer');
+    const list = config.get<string[]>('diagnostics.ignore', []);
+    return { ignore: new Set(list.map(s => s.toUpperCase())), levels: problemLevels(config.get('diagnostics.rules')) };
   }
 
   /** Drops cached analyses, e.g. after the diagnostics settings changed. */
@@ -478,7 +481,7 @@ export class LanguageFeatures implements
     collection.clear();
     const byFile = new Map<string, vscode.Diagnostic[]>();
     let problems = 0;
-    const ignore = this.ignoreSet();
+    const options = this.analyzeOptions();
     // Each file once (getFile checks the disk), not once per section.
     const files = new Map<string, TcSourceFile | undefined>();
     for (const ctx of this.index.allContexts()) {
@@ -488,14 +491,14 @@ export class LanguageFeatures implements
       if (!file || !section) continue;
       // A section with unsaved edits is reported live in its editor; its offsets no longer match the XML.
       if (this.index.sectionText(ctx.fileKey, ctx.sectionKey) !== section.text) continue;
-      const a = analyze(this.index, ctx, section.text, { ignore });
+      const a = analyze(this.index, ctx, section.text, options);
       if (a.problems.length === 0) continue;
       const diags = byFile.get(ctx.filePath) ?? [];
       for (const p of a.problems) {
         const start = positionIn(file.text, sectionOffsetToFileOffset(file, section, p.start));
         const end = positionIn(file.text, sectionOffsetToFileOffset(file, section, p.end));
         diags.push(toDiagnostic(new vscode.Range(start.line, start.character, end.line, end.character),
-          `${ctx.object.qualifiedName} (${ctx.label}): ${p.message}`, p.severity));
+          p, `${ctx.object.qualifiedName} (${ctx.label}): ${p.message}`));
         problems++;
       }
       byFile.set(ctx.filePath, diags);
@@ -525,7 +528,7 @@ export class CellDiagnostics implements vscode.Disposable {
       return;
     }
     this.collection.set(doc.uri, r.analysis.problems.map(p =>
-      toDiagnostic(new vscode.Range(doc.positionAt(p.start), doc.positionAt(p.end)), p.message, p.severity)));
+      toDiagnostic(new vscode.Range(doc.positionAt(p.start), doc.positionAt(p.end)), p)));
   }
 
   schedule(doc: vscode.TextDocument, delay = 250): void {

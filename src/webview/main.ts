@@ -1554,7 +1554,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
             return {
               startLineNumber: r.startLineNumber, startColumn: r.startColumn, endLineNumber: r.endLineNumber, endColumn: r.endColumn,
               message: mk.message, severity: mk.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
-              source: 'TwinCAT',
+              source: 'TwinCAT', ...(mk.code ? { code: mk.code } : {}),
             };
           }));
         }

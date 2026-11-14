@@ -986,11 +986,11 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     for (const s of parsed.sections) {
       const ctx = diagnosticsEnabled() ? this.index.context(fk, s.key) : undefined;
       const problems = ctx ? this.features.problemsOf(ctx, s.text) : [];
-      all.push({ key: s.key, markers: problems.map(p => ({ start: p.start, end: p.end, message: p.message, severity: p.severity })) });
+      all.push({ key: s.key, markers: problems.map(p => ({ start: p.start, end: p.end, message: p.message, severity: p.severity, code: p.code })) });
       if (problems.length === 0) continue;
       // One copy per section, so the Problems panel shows the line numbers of the pane.
       const uri = locUriOf(doc.uri, s.key, meta.get(s.key)?.label ?? s.key);
-      this.diagnostics.set(uri, problems.map(p => toDiagnostic(rangeIn(s.text, p.start, p.end), p.message, p.severity)));
+      this.diagnostics.set(uri, problems.map(p => toDiagnostic(rangeIn(s.text, p.start, p.end), p)));
       uris.push(uri);
     }
     if (uris.length) this.diagnosed.set(doc.uri.toString(), uris);

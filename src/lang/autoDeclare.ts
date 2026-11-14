@@ -747,19 +747,25 @@ export type QuickFix =
   | {
     kind: 'member'; title: string; problem: A.Span; preferred: boolean;
     member: 'method' | 'property'; name: string; type?: string; owner: PouSym;
-  };
+  }
+  | { kind: 'implement'; title: string; problem: A.Span; preferred: boolean; owner: PouSym };
 
 /**
  * The quick fixes of problems of a section: an unknown identifier is declared in VAR, VAR_INPUT, VAR_OUTPUT,
  * VAR_IN_OUT or VAR_TEMP of the declaration (those it can have, VAR_GLOBAL in a GVL; see declarationTarget), with
  * the type its uses give (see unknownNameAt); a member that a function block, program or interface of the
- * workspace lacks is added to it as a method or property, the one its use asks for first.
+ * workspace lacks is added to it as a method or property, the one its use asks for first; the methods and
+ * properties of its interfaces that a function block lacks are added by Implement Interfaces.
  */
 export function quickFixes(index: LanguageIndex, ctx: SectionContext, text: string, problems: readonly Problem[]): QuickFix[] {
   const out: QuickFix[] = [];
   if (problems.length === 0) return out;
   const uses = new Uses(index, ctx, text);
   for (const problem of problems) {
+    if (problem.code === 'unimplemented-interface') {
+      if (ctx.pou) out.push({ kind: 'implement', title: `Implement Interfaces in ${ctx.pou.name}...`, problem, preferred: true, owner: ctx.pou });
+      continue;
+    }
     const name = unknownName(uses, problem.start);
     if (name?.start === problem.start) {
       const target = declarationTarget(index, ctx);

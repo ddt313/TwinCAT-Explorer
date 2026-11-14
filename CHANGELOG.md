@@ -3,6 +3,21 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- An error at the name after `IMPLEMENTS` when a function block lacks methods or properties of that interface (or
+  of the interfaces it extends), as XAE's compiler reports it: `FB_Valve does not implement method Close of
+  I_Valve`. Those of a function block it extends count; a `FUNCTION_BLOCK ABSTRACT` is not checked, nor one that
+  extends a function block not found. Its quick fix runs `Implement Interfaces...`.
+- Each Structured Text problem has a code, its kind (`unknown-member`, `unknown-type`, `syntax`...), shown in the
+  Problems panel, in the split editor and in the MCP server's answers.
+- `twincatExplorer.diagnostics.rules`: the level of each kind of problem, `error`, `warning` or `off`
+  (`{ "unknown-member": "warning" }`). The MCP server reads it from `.vscode/settings.json` too.
+- `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU, method,
+  property, action, DUT or GVL turns those kinds of problems off there (a POU's in its members too); without a
+  value, all of them.
+
 ## 0.23.0 - 2026-11-11
 
 ### Added

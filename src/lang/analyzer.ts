@@ -9,6 +9,7 @@ import {
   BOOL, GlobalSym, MemberSym, NamespaceSym, PouSym, Scope, Sym, Ty, TypeSym, UNKNOWN, VarSym, elem, isLibrarySym,
 } from './symbols';
 import { ELEMENTARY, TIME_LITERAL_TYPES } from './builtins';
+import { unimplementedMembers } from './hierarchy';
 
 export interface Occurrence {
   start: number;
@@ -18,11 +19,41 @@ export interface Occurrence {
   role: 'name' | 'member' | 'type' | 'arg';
 }
 
+/**
+ * The kinds of problems, each a check that the setting twincatExplorer.diagnostics.rules can make an error, a warning
+ * or turn off, and the attribute `{attribute 'explorer.disable' := '<code>, ...'}` turn off in a POU or GVL.
+ */
+export const PROBLEM_CODES = {
+  'syntax': 'Syntax errors.',
+  'unknown-identifier': 'A name that is not declared.',
+  'unknown-type': 'A type that is not declared.',
+  'unknown-member': 'A member that the type of the object does not have.',
+  'unknown-value': 'A value that the enumeration does not have.',
+  'unknown-parameter': 'A parameter that the function, function block or method does not have.',
+  'excluded-from-build': 'A use of a name declared in code excluded from the build.',
+  'unimplemented-interface': 'A method or property of an interface that a function block (not ABSTRACT) lacks.',
+} as const;
+
+export type ProblemCode = keyof typeof PROBLEM_CODES;
+
+export type ProblemLevel = 'error' | 'warning' | 'off';
+
+/** The levels of the setting twincatExplorer.diagnostics.rules (`{ "unknown-member": "warning" }`), those valid. */
+export function problemLevels(setting: unknown): Partial<Record<ProblemCode, ProblemLevel>> {
+  const out: Partial<Record<ProblemCode, ProblemLevel>> = {};
+  if (!setting || typeof setting !== 'object' || Array.isArray(setting)) return out;
+  for (const [code, level] of Object.entries(setting)) {
+    if (code in PROBLEM_CODES && (level === 'error' || level === 'warning' || level === 'off')) out[code as ProblemCode] = level;
+  }
+  return out;
+}
+
 export interface Problem {
   start: number;
   end: number;
   message: string;
   severity: 'error' | 'warning';
+  code: ProblemCode;
 }
 
 /** An argument passed by position (`LIMIT(0, fIn, 100)`): the parameter it goes to, for an inlay hint. */
@@ -43,6 +74,8 @@ export interface Analysis {
 export interface AnalyzeOptions {
   /** Upper-case identifiers never reported as unknown. */
   ignore?: Set<string>;
+  /** The level of the problems of a code, instead of its own (twincatExplorer.diagnostics.rules). */
+  levels?: Partial<Record<ProblemCode, ProblemLevel>>;
 }
 
 interface Resolved {
@@ -70,11 +103,11 @@ export class Analyzer {
   run(): Analysis {
     if (this.ctx.role === 'decl') {
       const r = this.index.parseDecl(this.text);
-      for (const e of r.errors) this.problem(e, e.message);
+      for (const e of r.errors) this.problem(e, 'syntax', e.message);
       for (const unit of r.units) this.declUnit(unit);
     } else {
       const r = this.index.parseBody(this.text);
-      for (const e of r.errors) this.problem(e, e.message);
+      for (const e of r.errors) this.problem(e, 'syntax', e.message);
       this.stmts(r.body);
     }
     this.occurrences.sort((a, b) => a.start - b.start);
@@ -98,7 +131,7 @@ export class Analyzer {
       last = o;
       if (chained) continue;
       const owner = s.kind === 'enumValue' || s.kind === 'var' ? s.owner : undefined;
-      this.problem(o, owner ? `'${s.name}' of ${owner.name} is excluded from the build` : `'${s.name}' is excluded from the build`);
+      this.problem(o, 'excluded-from-build', owner ? `'${s.name}' of ${owner.name} is excluded from the build` : `'${s.name}' is excluded from the build`);
     }
   }
 
@@ -108,14 +141,18 @@ export class Analyzer {
     if (this.recording) this.occurrences.push({ start: span.start, end: span.end, sym, decl, role });
   }
 
-  private problem(span: A.Span, message: string, severity: Problem['severity'] = 'error'): void {
+  private problem(span: A.Span, code: ProblemCode, message: string, severity: Problem['severity'] = 'error'): void {
     // Code excluded from the build is not checked, as XAE does not compile it.
-    if (this.recording && !this.ctx.excluded) this.problems.push({ start: span.start, end: Math.max(span.end, span.start + 1), message, severity });
+    const disabled = this.ctx.disabled;
+    if (!this.recording || this.ctx.excluded || disabled?.has(code) || disabled?.has('*')) return;
+    const level = this.options.levels?.[code] ?? severity;
+    if (level === 'off') return;
+    this.problems.push({ start: span.start, end: Math.max(span.end, span.start + 1), message, severity: level, code });
   }
 
-  private unknown(id: A.Ident, message: string): void {
+  private unknown(id: A.Ident, code: ProblemCode, message: string): void {
     if (this.options.ignore?.has(id.upper)) return;
-    this.problem(id, message);
+    this.problem(id, code, message);
   }
 
   // ------------------------------------------------------------------ types
@@ -437,11 +474,31 @@ export class Analyzer {
       }
       for (const q of [...h.extends, ...h.implements]) this.typeName(q);
       if (h.returnType) this.typeSpec(h.returnType);
+      this.unimplemented(h);
     }
     for (const block of unit.varBlocks) {
       for (const decl of block.decls) this.varDecl(decl);
     }
     for (const td of unit.typeDecls) this.typeDecl(td);
+  }
+
+  /**
+   * The methods and properties of its interfaces that a function block lacks, as XAE's compiler reports them: one
+   * error at each name after IMPLEMENTS they come through. An ABSTRACT function block may lack them; one that
+   * extends a function block not found (or known by its name only) is left aside, as that may have them.
+   */
+  private unimplemented(h: A.Header): void {
+    const pou = this.ctx.pou;
+    if (!pou || this.ctx.member || h.pouKind !== 'FUNCTION_BLOCK' || h.implements.length === 0 || h.modifiers.includes('ABSTRACT')) return;
+    const u = unimplementedMembers(this.index, pou.scope, h.implements, [pou], []);
+    if (!u.basesKnown) return;
+    for (const via of h.implements) {
+      const lacking = u.members.filter(m => m.via === via);
+      if (lacking.length === 0) continue;
+      const name = via.parts.map(p => p.name).join('.');
+      const list = lacking.map(m => `${m.member.kind} ${m.member.name}${m.from.name.toUpperCase() === via.parts[via.parts.length - 1].upper ? '' : ` (of ${m.from.name})`}`);
+      this.problem(via, 'unimplemented-interface', `${pou.name} does not implement ${list.join(', ')} of ${name}`);
+    }
   }
 
   private varDecl(decl: A.VarDecl): void {
@@ -522,7 +579,7 @@ export class Analyzer {
         this.occ(parts[parts.length - 1], g, 'type');
         return this.instanceType(g);
       }
-      if (!ns || !ns.isLibrary) this.unknown(parts[parts.length - 1], `Unknown type '${q.parts.map(p => p.name).join('.')}'`);
+      if (!ns || !ns.isLibrary) this.unknown(parts[parts.length - 1], 'unknown-type', `Unknown type '${q.parts.map(p => p.name).join('.')}'`);
       return UNKNOWN;
     }
     const g = this.index.lookupGlobal(this.ctx.scope, parts[0].upper);
@@ -530,7 +587,7 @@ export class Analyzer {
       this.occ(parts[0], g, 'type');
       return this.instanceType(g);
     }
-    this.unknown(parts[0], `Unknown type '${parts[0].name}'`);
+    this.unknown(parts[0], 'unknown-type', `Unknown type '${parts[0].name}'`);
     return UNKNOWN;
   }
 
@@ -595,7 +652,7 @@ export class Analyzer {
         const r = this.lookupName(e, expected);
         if (!r) {
           // It may be a variable the POU inherits from a library POU whose variables are not known.
-          if (!this.ctx.pou || !this.extendsNamesOnly(this.ctx.pou)) this.unknown(e, `Unknown identifier '${e.name}'`);
+          if (!this.ctx.pou || !this.extendsNamesOnly(this.ctx.pou)) this.unknown(e, 'unknown-identifier', `Unknown identifier '${e.name}'`);
           return UNKNOWN;
         }
         this.occ(e, r.sym, 'name');
@@ -606,7 +663,7 @@ export class Analyzer {
         if (objTy.k === 'unknown') return UNKNOWN;
         const r = this.memberOf(objTy, e.member.upper);
         if (!r) {
-          if (this.membersKnown(objTy)) this.unknown(e.member, `'${e.member.name}' is not a member of ${describeTy(objTy)}`);
+          if (this.membersKnown(objTy)) this.unknown(e.member, 'unknown-member', `'${e.member.name}' is not a member of ${describeTy(objTy)}`);
           return UNKNOWN;
         }
         this.occ(e.member, r.sym, 'member');
@@ -647,7 +704,7 @@ export class Analyzer {
         for (const f of e.fields) {
           const r = t.k !== 'unknown' ? this.memberOf(t, f.name.upper) : undefined;
           if (r) this.occ(f.name, r.sym, 'member');
-          else if (this.membersKnown(t)) this.unknown(f.name, `'${f.name.name}' is not a member of ${describeTy(t)}`);
+          else if (this.membersKnown(t)) this.unknown(f.name, 'unknown-member', `'${f.name.name}' is not a member of ${describeTy(t)}`);
           this.expr(f.value, r?.ty);
         }
         return t;
@@ -668,14 +725,14 @@ export class Analyzer {
     if (u === 'STRING' || u === 'WSTRING') return { k: 'string', wide: u === 'WSTRING' };
     const g = this.index.lookupGlobal(this.ctx.scope, u);
     if (!g) {
-      this.unknown(e.prefix, `Unknown type '${e.prefix.name}'`);
+      this.unknown(e.prefix, 'unknown-type', `Unknown type '${e.prefix.name}'`);
       return UNKNOWN;
     }
     this.occ(e.prefix, g, 'type');
     if (g.kind === 'type' && g.dutKind === 'enum' && e.valueIdent) {
       const v = g.values.find(x => x.name.toUpperCase() === e.valueIdent!.upper);
       if (v) this.occ(e.valueIdent, v, 'member');
-      else if (!isLibrarySym(g)) this.unknown(e.valueIdent, `'${e.valueIdent.name}' is not a value of ${g.name}`);
+      else if (!isLibrarySym(g)) this.unknown(e.valueIdent, 'unknown-value', `'${e.valueIdent.name}' is not a value of ${g.name}`);
     }
     return this.instanceType(g);
   }
@@ -725,7 +782,7 @@ export class Analyzer {
       if (a.name) {
         p = params?.find(x => x.name.toUpperCase() === a.name!.upper);
         if (p) this.occ(a.name, p, 'arg');
-        else if (complete) this.unknown(a.name, `Unknown parameter '${a.name.name}'`);
+        else if (complete) this.unknown(a.name, 'unknown-parameter', `Unknown parameter '${a.name.name}'`);
       } else {
         p = positional?.[i];
         this.paramHint(args, a, p?.name);

@@ -1713,6 +1713,54 @@
           "default": [],
           "description": "Identifiers that are never reported as unknown (for example symbols of a library without a stub)."
         },
+        "twincatExplorer.diagnostics.rules": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "The level of each kind of Structured Text problem, instead of its own (all are errors): `error`, `warning` or `off`, for example `{ \"unknown-member\": \"warning\" }`. The kind is the code a problem shows in the Problems panel. To turn checks off in one POU, method, DUT or GVL, put `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in its declaration (without a value: all checks); XAE ignores attributes it does not know.",
+          "properties": {
+            "syntax": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "Syntax errors."
+            },
+            "unknown-identifier": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A name that is not declared."
+            },
+            "unknown-type": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A type that is not declared."
+            },
+            "unknown-member": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A member that the type of the object does not have."
+            },
+            "unknown-value": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A value that the enumeration does not have."
+            },
+            "unknown-parameter": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A parameter that the function, function block or method does not have."
+            },
+            "excluded-from-build": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A use of a name declared in code excluded from the build."
+            },
+            "unimplemented-interface": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A method or property of an interface that a function block (not ABSTRACT) lacks."
+            }
+          },
+          "additionalProperties": false
+        },
         "twincatExplorer.stubFiles": {
           "type": "array",
           "items": {

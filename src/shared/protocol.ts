@@ -63,6 +63,8 @@ export interface Marker {
   end: number;
   message: string;
   severity: 'error' | 'warning';
+  /** The kind of problem (see PROBLEM_CODES), shown after the message as VS Code shows a diagnostic's. */
+  code?: string;
 }
 
 /** A commit that last changed lines of the panes (line blame). */

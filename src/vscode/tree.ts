@@ -73,6 +73,7 @@ export class TreeNode {
     const parts: string[] = [this.kind];
     if (this.openable) parts.push('openable');
     if (this.fsPath) parts.push('hasFile');
+    if (this.fsPath && this.objectId) parts.push('hasObject');
     if (this.kind === 'file' && this.fsPath && isSourcePath(this.fsPath)) parts.push('stFile');
     if (this.name) parts.push('named');
     if (this.memberTarget) parts.push(this.memberTarget.actions ? 'addMember addAction' : 'addMember');

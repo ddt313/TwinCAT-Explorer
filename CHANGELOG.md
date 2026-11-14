@@ -6,6 +6,15 @@ All notable changes to Explorer for TwinCAT. The format follows
 ## Unreleased
 
 ### Added
+- Copy Path and Copy Relative Path in the TwinCAT tree's context menu, beside Copy Name, on the nodes a file holds:
+  the TwinCAT and PLC projects, POUs, DUTs, GVLs and interfaces, and the methods, properties and actions, which
+  copy their POU's `.TcPOU`. As in VS Code's Explorer, the relative path is that of the workspace folder, in the
+  separator `explorer.copyRelativePathSeparator` sets. Then Copy Qualified Name, on the nodes of an object: its
+  name with its PLC project, `Machine:FB_Valve.Open` or `Machine:FB_Conveyor.Speed.Get`, as the MCP server's tools
+  take it. Open XML moves below them. ([#125](https://github.com/ddt313/TwinCAT-Explorer/issues/125))
+- Copy File Path, Copy Relative File Path and Copy Qualified Name in the context menu of an object's editor tab, and
+  in the Command Palette while one is active. VS Code's own Copy Path and Copy Relative Path copy the tab's name
+  there (`FB_Valve.Open`). ([#125](https://github.com/ddt313/TwinCAT-Explorer/issues/125))
 - An error at the name after `IMPLEMENTS` when a function block lacks methods or properties of that interface (or
   of the interfaces it extends), as XAE's compiler reports it: `FB_Valve does not implement method Close of
   I_Valve`. Those of a function block it extends count; a `FUNCTION_BLOCK ABSTRACT` is not checked, nor one that

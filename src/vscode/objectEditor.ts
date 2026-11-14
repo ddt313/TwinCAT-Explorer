@@ -196,6 +196,8 @@ export class EditorSession implements vscode.Disposable {
   readonly fileKey: string;
   /** The panes show their changes as diffs (as the webview reported). */
   changesMode = false;
+  /** The text selected in the focused pane of the webview ('' for none). */
+  selection = '';
   /** What the panes compare with: HEAD, or a commit chosen in the TwinCAT Changes view (until the diff is hidden). */
   base: CompareBase = HEAD_BASE;
   /** Base texts were found (false outside a git repository), once the last 'base' message was sent. */
@@ -245,7 +247,7 @@ export class EditorSession implements vscode.Disposable {
 
   /** Handles a message from the webview (also used by the tests to simulate one). */
   receive(m: WebviewMessage): Promise<void> {
-    if (m.type !== 'edit' && m.type !== 'probeResult') debugLog(`webview -> host ${m.type} ${JSON.stringify(m).slice(0, 300)}`);
+    if (m.type !== 'edit' && m.type !== 'probeResult' && m.type !== 'selection') debugLog(`webview -> host ${m.type} ${JSON.stringify(m).slice(0, 300)}`);
     switch (m.type) {
       case 'ready': return this.enqueue(() => this.init());
       case 'edit': return this.enqueue(() => this.applyEdit(m));
@@ -306,6 +308,9 @@ export class EditorSession implements vscode.Disposable {
         return Promise.resolve();
       case 'callHierarchy':
         void this.provider.callHierarchy?.(this.fileKey, m.key, m.text, m.offset);
+        return Promise.resolve();
+      case 'selection':
+        this.selection = m.text;
         return Promise.resolve();
       case 'error':
         this.provider.log?.(`Split editor webview: ${m.message}`);

@@ -888,7 +888,13 @@ function cursorMoved(pane: Pane, position: Monaco.Position): void {
 
 /** Focus, cursor and mouse handling of an editor a pane shows (its own one, or the modified side of its diff). */
 function wireEditor(pane: Pane, editor: Monaco.editor.ICodeEditor): void {
-  editor.onDidFocusEditorText(() => focused(pane));
+  editor.onDidFocusEditorText(() => {
+    focused(pane);
+    reportSelection(editor);
+  });
+  editor.onDidChangeCursorSelection(() => {
+    if (editor.hasTextFocus()) reportSelection(editor);
+  });
   editor.onDidChangeCursorPosition(e => {
     scheduleBlame(pane);
     cursorMoved(pane, e.position);
@@ -899,6 +905,25 @@ function wireEditor(pane: Pane, editor: Monaco.editor.ICodeEditor): void {
   editor.onMouseLeave(() => {
     pointerOnBlame = false;
   });
+}
+
+let reportedSelection = '';
+let selectionTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Tells the host the text selected in the focused pane: Search... starts with it. */
+function reportSelection(editor: Monaco.editor.ICodeEditor): void {
+  if (selectionTimer) clearTimeout(selectionTimer);
+  selectionTimer = setTimeout(() => {
+    selectionTimer = undefined;
+    const model = editor.getModel();
+    const selection = editor.getSelection();
+    const text = model && selection && !selection.isEmpty() ? model.getValueInRange(selection) : '';
+    // Big selections are no search text: not sent.
+    const sent = text.length <= 1000 ? text : '';
+    if (sent === reportedSelection) return;
+    reportedSelection = sent;
+    post({ type: 'selection', text: sent });
+  }, 50);
 }
 
 function focused(pane: Pane): void {

@@ -42,6 +42,7 @@ import { BlameService } from './vscode/blame';
 import { AutoDeclare } from './vscode/autoDeclare';
 import { CompareBase, ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
+import { searchTextOf } from './lang/search';
 import { SEARCH_VIEW, ScopeChoice, SearchNode, SearchOption, SearchView } from './vscode/searchView';
 import { checkMcpSetup, setUpMcpServer } from './vscode/mcpSetup';
 import { LicenseStatus } from './vscode/license';
@@ -1216,10 +1217,12 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     return undefined;
   };
   /** The text selected on one line of a text editor or notebook cell: what Search... starts with. */
+  /** The text selected in the active editor or split editor, to search: one line, without the spaces around it. */
   const selectedText = (): string | undefined => {
     const editor = vscode.window.activeTextEditor;
-    const text = editor && !editor.selection.isEmpty ? editor.document.getText(editor.selection) : '';
-    return text && !text.includes('\n') && text.length <= 200 ? text : undefined;
+    const session = editor ? undefined : objectEditors.activeSession();
+    const raw = editor ? (editor.selection.isEmpty ? '' : editor.document.getText(editor.selection)) : session?.selection ?? '';
+    return searchTextOf(raw);
   };
   const searchOptions: SearchOption[] = ['matchCase', 'wholeWord', 'regex', 'skipComments'];
 

@@ -193,6 +193,8 @@ export type WebviewMessage =
   | { type: 'typeHierarchy'; key: string; text: string; offset: number }
   | { type: 'accessReferences'; key: string; text: string; offset: number }
   | { type: 'callHierarchy'; key: string; text: string; offset: number }
+  /** The text selected in the focused pane ('' for none), for Search... (Ctrl+Shift+Alt+F) to start with. */
+  | { type: 'selection'; text: string }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 

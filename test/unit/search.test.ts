@@ -6,7 +6,7 @@ import { PlcProject } from '../../src/core/project';
 import { TcSourceFile, parseTcText } from '../../src/core/tcfile';
 import { SourceEntry, fileKey } from '../../src/core/workspace';
 import {
-  QueryError, SearchCount, SearchHit, SearchQuery, SearchScope, SearchSource, compileQuery, matchLines, searchSections,
+  QueryError, SearchCount, SearchHit, SearchQuery, SearchScope, SearchSource, compileQuery, matchLines, searchSections, searchTextOf,
 } from '../../src/lang/search';
 
 /** The texts of the matches of a query. */
@@ -209,4 +209,16 @@ test('the text of a section can come from an editor with unsaved edits', () => {
   const [hit] = [...searchSections(edited, { kind: 'all' }, compileQuery({ text: 'bOpen' }), 100)].filter((h): h is SearchHit => !!h && h.section.role === 'impl');
   assert.equal(hit.text, 'bClosed := NOT bOpen; bOpen := FALSE;');
   assert.deepEqual(hit.matches, [{ start: 15, end: 20 }, { start: 22, end: 27 }]);
+});
+
+test('a selection searches its one line, without the spaces and line break around it', () => {
+  assert.equal(searchTextOf('nCount'), 'nCount');
+  // A line selected whole (Shift+Down, triple click): its indentation and line break are left out.
+  assert.equal(searchTextOf('    nCount := nCount + 1;\r\n'), 'nCount := nCount + 1;');
+  assert.equal(searchTextOf('\tfbAxis.Execute\n'), 'fbAxis.Execute');
+  // Nothing, spaces only, several lines or a long text: no search text.
+  assert.equal(searchTextOf(''), undefined);
+  assert.equal(searchTextOf('  \n'), undefined);
+  assert.equal(searchTextOf('a := 1;\nb := 2;'), undefined);
+  assert.equal(searchTextOf('x'.repeat(201)), undefined);
 });

@@ -603,7 +603,7 @@ PLC projects or in one project or folder of the tree (`Find in Folder...`), unsa
 <summary>Details</summary>
 
 - **`TwinCAT: Search...`** (Ctrl+Shift+Alt+F, or the search icon of the Solution view or of the **TwinCAT
-  Search** view in the Panel, beside Problems and Output) asks for the text and lists the matches as you type: per POU, DUT, GVL or interface, then per
+  Search** view in the Panel, beside Problems and Output) asks for the text (the one selected in the editor or split editor, on one line, searched at once) and lists the matches as you type: per POU, DUT, GVL or interface, then per
   section (`FB_Valve` Declaration, `M_Open` Implementation, `P_Speed.Get` Implementation), then the line
   with the match highlighted. A click opens the split editor at the match as a preview, keeping the focus
   in the list; a double click keeps the tab open.

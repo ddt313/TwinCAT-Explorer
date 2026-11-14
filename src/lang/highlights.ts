@@ -3,7 +3,7 @@
 // editor and the notebook cells (VS Code's document highlights); written or read as the analysis says (Occurrence.access).
 // Independent of the VS Code API.
 
-import { Analysis, Occurrence } from './analyzer';
+import { Analysis, Occurrence, throughIndexesOnly } from './analyzer';
 import { keywordBlocks } from './blocks';
 import { Tk, Token, lex } from './lexer';
 import { RESERVED } from './parser';
@@ -35,9 +35,7 @@ function written(o: Occurrence): boolean {
   if (o.decl) return true;
   if (o.access !== 'write' && o.access !== 'readwrite') return false;
   // Through indexes only (`aPos[i]`, `a[b[1]]`), not through a member or bit.
-  let path = o.path ?? '';
-  for (let inner = path.replace(/\[[^[\]]*\]/g, ''); inner !== path; inner = path.replace(/\[[^[\]]*\]/g, '')) path = inner;
-  return path === '';
+  return throughIndexesOnly(o.path);
 }
 
 /** A section the highlights are in: its text, and its analysis (none outside the language index). */

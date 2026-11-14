@@ -7,6 +7,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { analyze } from '../../src/lang/analyzer';
 import { highlightsAcross } from '../../src/lang/highlights';
+import { callGraphOf, callerLabel } from '../../src/lang/callGraph';
+import { SectionFeatures } from '../../src/lang/features';
+import { symbolLabel } from '../../src/lang/rename';
+import { PouSym } from '../../src/lang/symbols';
+import { Session } from '../../src/mcp/session';
+import * as T from '../../src/mcp/tools';
+import { UndoLog } from '../../src/mcp/undo';
 import { LanguageIndex } from '../../src/lang/index';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 import { TcWorkspace, fileKey } from '../../src/core/workspace';
@@ -88,7 +95,8 @@ END_VAR
 };
 
 /** A workspace of the files above, with its index. */
-function project(): { root: string; index: LanguageIndex; file: (rel: string) => string } {
+function project(overrides: Record<string, string> = {}): { root: string; index: LanguageIndex; file: (rel: string) => string } {
+  const files = { ...FILES, ...overrides };
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-access-'));
   const write = (rel: string, text: string) => {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -99,9 +107,9 @@ function project(): { root: string; index: LanguageIndex; file: (rel: string) =>
   write('A/Plc/Plc.plcproj', `<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup><Name>Plc</Name></PropertyGroup>
-  <ItemGroup>${Object.keys(FILES).map(f => `<Compile Include="${f.replace(/\//g, '\\')}"><SubType>Code</SubType></Compile>`).join('')}</ItemGroup>
+  <ItemGroup>${Object.keys(files).map(f => `<Compile Include="${f.replace(/\//g, '\\')}"><SubType>Code</SubType></Compile>`).join('')}</ItemGroup>
 </Project>`);
-  for (const [rel, text] of Object.entries(FILES)) write(`A/Plc/${rel}`, text);
+  for (const [rel, text] of Object.entries(files)) write(`A/Plc/${rel}`, text);
   const ws = new TcWorkspace();
   ws.load([path.join(root, 'A/A.tsproj')]);
   const index = new LanguageIndex(ws);
@@ -162,6 +170,52 @@ test('how code uses each name: written, read, called, its address taken, through
     assert.deepEqual(highlights('F_Inc(n);\nn := 1;\ni := n;', 'n)'), ['n:write', 'n:write', 'n:read']);
     assert.deepEqual(highlights('aPos[i] := 1;\nstStatus.eState := 1;', 'aPos'), ['aPos:write']);
     assert.deepEqual(highlights('stStatus.eState := 1;\nstStatus := stOther;', 'stStatus.'), ['stStatus:read', 'stStatus:write']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the call graph: instances called (in an array too), methods, functions, recursion, built-ins left out', () => {
+  const { root, index } = project({
+    'POUs/F_A.TcPOU': pou('F_A', 50, 'FUNCTION F_A : BOOL\n', 'F_A := F_B();'),
+    'POUs/F_B.TcPOU': pou('F_B', 51, 'FUNCTION F_B : BOOL\n', 'F_B := F_A() AND ABS(1) > 0;'),
+    'POUs/MAIN.TcPOU': pou('MAIN', 40, `PROGRAM MAIN
+VAR
+	aValves : ARRAY[1..2] OF FB_Valve;
+	fbValve : FB_Valve;
+	n : INT;
+END_VAR
+`, 'aValves[1]();\nfbValve.Open();\nF_Inc(n);\nF_A();\nn := fbValve.Pos;'),
+  });
+  try {
+    const graph = callGraphOf(index, new SectionFeatures(index));
+    const edges = graph.sites.map(s => `${callerLabel(s.caller)} -> ${symbolLabel(s.callee)}`).sort();
+    // ABS is a built-in; reading a property is no call.
+    assert.deepEqual(edges, ['F_A -> F_B', 'F_B -> F_A', 'MAIN -> FB_Valve', 'MAIN -> FB_Valve.Open', 'MAIN -> F_A', 'MAIN -> F_Inc']);
+    const fA = index.allGlobals().find((g): g is PouSym => g.kind === 'pou' && g.name === 'F_A')!;
+    assert.deepEqual(graph.incoming(fA).map(s => callerLabel(s.caller)).sort(), ['F_B', 'MAIN']);
+    assert.deepEqual(graph.outgoing(fA).map(s => symbolLabel(s.callee)), ['F_B']);
+
+    // The MCP tool: recursion ends where a caller comes again.
+    const undo = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-access-undo-'));
+    try {
+      const t: T.Tools = { session: new Session(root), undo: new UndoLog(root, path.join(undo, 'undo.jsonl')) };
+      t.session.refresh();
+      assert.equal(T.calls(t, { symbol: 'F_A', depth: 3 }), [
+        'F_A: called by (3 levels)',
+        '  MAIN',
+        '    · MAIN impl:4  F_A();',
+        '  F_B',
+        '    · F_B impl:1  F_B := F_A() AND ABS(1) > 0;',
+        '    F_A (recursive)',
+        '      · F_A impl:1  F_A := F_B();',
+      ].join('\n'));
+      assert.equal(T.calls(t, { symbol: 'F_Inc' }), 'F_Inc: called by\n  MAIN\n    · MAIN impl:3  F_Inc(n);');
+      assert.equal(T.calls(t, { symbol: 'F_Inc', direction: 'outgoing' }), 'F_Inc: calls\n  nothing in the workspace');
+      assert.throws(() => T.calls(t, { symbol: 'MAIN.fbValve' }), /fbValve is not a function, program, function block, method, action or property: the places it is called are in references/);
+    } finally {
+      fs.rmSync(undo, { recursive: true, force: true });
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

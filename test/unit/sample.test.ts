@@ -182,6 +182,35 @@ test('samples/Demo: Show References by Access groups the places of stStatus, wri
   assert.equal(groups[2].places[0].where, 'FB_ValveBase · Declaration:6');
 });
 
+test('samples/Demo: the MCP tool calls: who calls a method, through its interface too, up to the task', () => {
+  const undo = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-undo-'));
+  try {
+    const t: T.Tools = { session: new Session(SAMPLE), undo: new UndoLog(SAMPLE, path.join(undo, 'undo.jsonl')) };
+    t.session.refresh();
+    const fill = 'MAIN impl:2  fbFill(bStart := GVL_IO.bStartButton, fLevel := F_Clamp(WORD_TO_LREAL(uRaw.nValue) / 327.67, 0, 100), stRecipe := GVL_Parameters.stRecipe, iInlet := fbInlet);';
+    // FB_Valve.Open overrides it and calls it through SUPER^; FB_FillSequence calls it through I_Valve; MAIN, run by PlcTask, calls FB_FillSequence.
+    assert.equal(T.calls(t, { symbol: 'FB_ValveBase.Open', depth: 2 }), [
+      'FB_ValveBase.Open: called by (2 levels)',
+      '  FB_Valve.Open',
+      '    · FB_Valve.Open impl:1  Open := SUPER^.Open(bForce := bForce);',
+      '    FB_FillSequence (via I_Valve.Open)',
+      '      · FB_FillSequence impl:9  IF iInlet.Open(bForce := FALSE) THEN',
+      '  FB_FillSequence (via I_Valve.Open)',
+      '    · FB_FillSequence impl:9  IF iInlet.Open(bForce := FALSE) THEN',
+      '    MAIN',
+      `      · ${fill}`,
+    ].join('\n'));
+    // A call through SUPER^ reaches the base's own, not the override.
+    assert.doesNotMatch(T.calls(t, { symbol: 'FB_Valve.Open' }), /SUPER/);
+    assert.equal(T.calls(t, { symbol: 'MAIN' }), 'MAIN: called by\n  PlcTask (task)');
+    const out = T.calls(t, { symbol: 'FB_FillSequence', direction: 'outgoing' });
+    assert.match(out, /^  TON \(Tc2_Standard\)\n    · FB_FillSequence impl:20  tonSettle\(IN := TRUE, PT := stRecipe\.tSettle\);$/m);
+    assert.match(out, /^  I_Valve\.Close\n    · FB_FillSequence impl:15  iInlet\.Close\(\);$/m);
+  } finally {
+    fs.rmSync(undo, { recursive: true, force: true });
+  }
+});
+
 test('samples/Demo: its files have the bytes XAE wrote, and a section edited and edited back gives them again', () => {
   const ws = load();
   let edited = 0;

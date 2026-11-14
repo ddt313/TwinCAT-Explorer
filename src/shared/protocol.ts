@@ -192,6 +192,7 @@ export type WebviewMessage =
   /** Show Type Hierarchy at an offset of a pane (context menu): the host shows it in VS Code's References view. */
   | { type: 'typeHierarchy'; key: string; text: string; offset: number }
   | { type: 'accessReferences'; key: string; text: string; offset: number }
+  | { type: 'callHierarchy'; key: string; text: string; offset: number }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 

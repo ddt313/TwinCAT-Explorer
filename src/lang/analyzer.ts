@@ -19,6 +19,13 @@ import { implementingBases, unimplementedMembers } from './hierarchy';
  */
 export type Access = 'read' | 'write' | 'readwrite' | 'address' | 'call';
 
+/** Whether a path goes through indexes only (`[i]`, `[a[1]]`) or is none: what is used is then the variable's element or itself. */
+export function throughIndexesOnly(path: string | undefined): boolean {
+  let p = path ?? '';
+  for (let inner = p.replace(/\[[^[\]]*\]/g, ''); inner !== p; inner = p.replace(/\[[^[\]]*\]/g, '')) p = inner;
+  return p === '';
+}
+
 export interface Occurrence {
   start: number;
   end: number;

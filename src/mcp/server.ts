@@ -133,6 +133,19 @@ register('references', {
   }, annotations: readOnly,
 }, run(T.references));
 
+register('calls', {
+  description: 'The call hierarchy of a function, program, function block (its body: an instance called), method or action: '
+    + 'incoming (default), what calls it, with the tasks that call a program and, for a method, the calls through the interface '
+    + 'or base method it implements or overrides ("via"); or outgoing, what it calls. Each caller or callee, its calls (·), then '
+    + 'one level deeper up to depth (1 to 5). Built-in functions are left out; library POUs end the hierarchy.',
+  inputSchema: {
+    ...symbolRef,
+    direction: z.enum(['incoming', 'outgoing']).optional(),
+    depth: z.number().int().min(1).max(5).optional(),
+    limit: z.number().int().positive().optional(),
+  }, annotations: readOnly,
+}, run(T.calls));
+
 register('hierarchy', {
   description: 'Supertypes and subtypes of a function block or interface; for a method or property, what implements or overrides it.',
   inputSchema: symbolRef, annotations: readOnly,

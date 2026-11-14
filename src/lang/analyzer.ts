@@ -11,12 +11,27 @@ import {
 import { ELEMENTARY, TIME_LITERAL_TYPES } from './builtins';
 import { implementingBases, unimplementedMembers } from './hierarchy';
 
+/**
+ * How code uses a name: `write` (the target of `:=`, `S=`, `R=`, `REF=` or `=>`, the variable of a FOR, an input
+ * passed in a call), `readwrite` (passed to a VAR_IN_OUT), `address` (taken by ADR, BITADR or `REF=`, so that it
+ * may be written through it), `call` (a function, program, method or action called, a function block instance
+ * called), else `read`.
+ */
+export type Access = 'read' | 'write' | 'readwrite' | 'address' | 'call';
+
 export interface Occurrence {
   start: number;
   end: number;
   sym: Sym;
   decl: boolean;
   role: 'name' | 'member' | 'type' | 'arg';
+  /** How it is used; none for a declaration and a type. */
+  access?: Access;
+  /**
+   * The member, index or bit it is used through, when that is what is written, read or called:
+   * `.eState` of `stStatus.eState := x` for stStatus, `[i]` of `aPos[i] := 0`, `.Open` of `fbValve.Open()`.
+   */
+  path?: string;
 }
 
 /**
@@ -84,6 +99,8 @@ interface Resolved {
 }
 
 const PARAM_SECTIONS = new Set(['VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT']);
+/** Built-ins that take the address of their argument, which may then be written through it. */
+const ADDRESS_BUILTINS = new Set(['ADR', 'BITADR']);
 const COMPARISON = new Set(['=', '<>', '<', '>', '<=', '>=']);
 const LITERAL_TYPES: Record<A.LiteralType, Ty> = {
   int: elem('DINT'), real: elem('LREAL'), bool: BOOL, string: { k: 'string', wide: false },
@@ -95,6 +112,8 @@ export class Analyzer {
   readonly problems: Problem[] = [];
   readonly paramHints: ParamHint[] = [];
   private recording = true;
+  /** The occurrences recorded, by start, to set how each is used once its expression is known (see use). */
+  private readonly occAt = new Map<number, Occurrence>();
   private readonly namespaceSyms = new Map<Scope, NamespaceSym>();
 
   constructor(readonly index: LanguageIndex, readonly ctx: SectionContext, readonly text: string,
@@ -138,7 +157,51 @@ export class Analyzer {
   // ------------------------------------------------------------------ recording
 
   private occ(span: A.Span, sym: Sym, role: Occurrence['role'], decl = false): void {
-    if (this.recording) this.occurrences.push({ start: span.start, end: span.end, sym, decl, role });
+    if (!this.recording) return;
+    const o: Occurrence = { start: span.start, end: span.end, sym, decl, role };
+    if (!decl && role !== 'type') o.access = 'read';
+    this.occurrences.push(o);
+    this.occAt.set(o.start, o);
+  }
+
+  /**
+   * Sets how an expression analysed already is used: the name it ends in, and the variable it is a member,
+   * index or bit of, with that part as its path (`stStatus.eState`: eState, and stStatus with `.eState`). A
+   * dereference stops it: of `pData^.n := 0` pData is read.
+   */
+  private use(e: A.Expr, access: Access, path = ''): void {
+    const set = (span: A.Span, p: string) => {
+      const o = this.occAt.get(span.start);
+      // Of a qualified name (`GVL_IO.bStart`, `E_State.Idle`) only the name: the GVL or type is no variable.
+      if (!o || o.decl || o.role === 'type' || (p && o.sym.kind !== 'var')) return;
+      o.access = access;
+      if (p) o.path = p;
+      else delete o.path;
+    };
+    switch (e.kind) {
+      case 'Ident':
+        set(e, path);
+        break;
+      case 'Member':
+        set(e.member, path);
+        this.use(e.object, access, `.${e.member.name}${path}`);
+        break;
+      case 'Index': {
+        const first = e.indices[0];
+        const last = e.indices[e.indices.length - 1];
+        const indexText = first && last ? this.text.slice(first.start, last.end).replace(/\s+/g, ' ') : '';
+        this.use(e.object, access, `[${indexText}]${path}`);
+        break;
+      }
+      case 'BitAccess':
+        this.use(e.object, access, `.${e.bit}${path}`);
+        break;
+      case 'Paren':
+        this.use(e.expr, access, path);
+        break;
+      default:
+        break;
+    }
   }
 
   private problem(span: A.Span, code: ProblemCode, message: string, severity: Problem['severity'] = 'error'): void {
@@ -613,6 +676,9 @@ export class Analyzer {
       case 'Assign': {
         const t = this.expr(s.target);
         this.expr(s.value, t);
+        this.use(s.target, 'write');
+        // x REF= y: x refers to y from now on, and y may be written through it.
+        if (s.op === 'REF=') this.use(s.value, 'address');
         break;
       }
       case 'ExprStmt':
@@ -636,6 +702,7 @@ export class Analyzer {
       }
       case 'For': {
         const t = this.expr(s.variable);
+        this.use(s.variable, 'write');
         this.expr(s.from, t);
         this.expr(s.to, t);
         if (s.by) this.expr(s.by, t);
@@ -678,14 +745,18 @@ export class Analyzer {
           return UNKNOWN;
         }
         this.occ(e.member, r.sym, 'member');
+        // Read through the member until a use says otherwise (written, called).
+        this.use(e, 'read');
         return r.ty;
       }
       case 'BitAccess':
         this.expr(e.object);
+        this.use(e, 'read');
         return BOOL;
       case 'Index': {
         const t = this.deref(this.expr(e.object));
         for (const i of e.indices) this.expr(i);
+        this.use(e, 'read');
         if (t.k === 'array') return t.of;
         if (t.k === 'string') return elem('BYTE');
         return UNKNOWN;
@@ -750,6 +821,7 @@ export class Analyzer {
 
   private call(e: A.Expr & { kind: 'Call' }): Ty {
     const calleeTy = this.expr(e.callee);
+    this.use(e.callee, 'call');
     const t = this.deref(calleeTy);
     if (t.k === 'callable') {
       const s = t.sym;
@@ -757,6 +829,7 @@ export class Analyzer {
         const names = /^\w+\((.*)\)/.exec(s.signature)?.[1].split(',').map(n => n.trim()) ?? [];
         e.args.forEach((a, i) => this.paramHint(e.args, a, names[i]));
         const argTys = e.args.map(a => (a.value ? this.expr(a.value) : UNKNOWN));
+        if (ADDRESS_BUILTINS.has(s.name.toUpperCase()) && e.args[0]?.value) this.use(e.args[0].value, 'address');
         return s.returns(argTys);
       }
       if (s.kind === 'pou') {
@@ -790,15 +863,23 @@ export class Analyzer {
     const positional = params?.filter(p => p.section === 'VAR_INPUT' || p.section === 'VAR_IN_OUT');
     args.forEach((a, i) => {
       let p: VarSym | undefined;
+      const output = a.op === '=>';
       if (a.name) {
         p = params?.find(x => x.name.toUpperCase() === a.name!.upper);
-        if (p) this.occ(a.name, p, 'arg');
-        else if (complete) this.unknown(a.name, 'unknown-parameter', `Unknown parameter '${a.name.name}'`);
+        if (p) {
+          this.occ(a.name, p, 'arg');
+          // Q => x reads the output Q; IN := x writes the input IN.
+          this.use(a.name, output ? 'read' : 'write');
+        } else if (complete) this.unknown(a.name, 'unknown-parameter', `Unknown parameter '${a.name.name}'`);
       } else {
         p = positional?.[i];
         this.paramHint(args, a, p?.name);
       }
-      if (a.value) this.expr(a.value, p ? this.varType(p) : undefined);
+      if (a.value) {
+        this.expr(a.value, p ? this.varType(p) : undefined);
+        if (output) this.use(a.value, 'write');
+        else if (p?.section === 'VAR_IN_OUT') this.use(a.value, 'readwrite');
+      }
     });
   }
 

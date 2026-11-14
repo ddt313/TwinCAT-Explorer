@@ -102,7 +102,17 @@ test('finds definitions and references by name and by a word of a line', () => w
   assert.match(T.definition(t, { symbol: 'FB_Valve.nCount' }), /nCount : INT[\s\S]*Declared at FB_Valve decl:6/);
   assert.match(T.definition(t, { object: 'MAIN', part: 'impl', line: 2, word: 'M_Close' }), /^FB_Valve\.M_Close — Method of FB_Valve/);
   const refs = T.references(t, { symbol: 'FB_Valve.M_Close' });
-  assert.match(refs, /MAIN impl:2  fbValve\.M_Close\(\);/);
+  // Each place with how it is used there: the method's result is written in it.
+  assert.equal(refs, [
+    'FB_Valve.M_Close: 3 place(s): 1 declaration, 1 write, 1 call',
+    'FB_Valve.M_Close decl:1  declaration  METHOD M_Close : BOOL',
+    'FB_Valve.M_Close impl:2  write  M_Close := TRUE;',
+    'MAIN impl:2  call  fbValve.M_Close();',
+  ].join('\n'));
+  assert.equal(T.references(t, { symbol: 'FB_Valve.M_Close', access: ['call'] }), [
+    'FB_Valve.M_Close: 1 of 3 place(s) (call); all: 1 declaration, 1 write, 1 call',
+    'MAIN impl:2  call  fbValve.M_Close();',
+  ].join('\n'));
   assert.match(T.findSymbol(t, { query: 'fbv' }), /^FB_Valve  — Function block in Plc/m);
 }));
 

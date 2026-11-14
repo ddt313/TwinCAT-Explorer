@@ -1,8 +1,9 @@
 // What to highlight in a section around the cursor: the keywords of the block the cursor is on (IF, ELSIF, ELSE,
 // END_IF), or the occurrences of the symbol it is on in the same section, written or read. Serves the split
-// editor and the notebook cells (VS Code's document highlights). Independent of the VS Code API.
+// editor and the notebook cells (VS Code's document highlights); written or read as the analysis says (Occurrence.access).
+// Independent of the VS Code API.
 
-import { Analysis } from './analyzer';
+import { Analysis, Occurrence } from './analyzer';
 import { keywordBlocks } from './blocks';
 import { Tk, Token, lex } from './lexer';
 import { RESERVED } from './parser';
@@ -15,8 +16,6 @@ export interface Highlight {
   kind: HighlightKind;
 }
 
-const isOp = (t: Token | undefined, text: string) => t?.kind === Tk.Op && t.text === text;
-
 /** The token the cursor is on or right after; an identifier before any other token. */
 function tokenAt(tokens: Token[], offset: number): Token | undefined {
   let found: Token | undefined;
@@ -28,50 +27,17 @@ function tokenAt(tokens: Token[], offset: number): Token | undefined {
   return found;
 }
 
-/** Index of the bracket that matches the one at `i` (`[` forwards, `]` backwards), or -1. */
-function matching(tokens: Token[], i: number, step: 1 | -1): number {
-  const [open, close] = step === 1 ? ['[', ']'] : [']', '['];
-  let depth = 0;
-  for (let j = i; j >= 0 && j < tokens.length; j += step) {
-    if (isOp(tokens[j], open)) depth++;
-    else if (isOp(tokens[j], close) && --depth === 0) return j;
-  }
-  return -1;
-}
-
 /**
- * Whether the name at token `i` is written: the target of an assignment (`x := `, `a.b[i] := `, `x REF= `, `x S= `),
- * of a call's output (`Q => x`), or a declaration. Of `a.b := 1` only `b` is written.
+ * Whether a use writes the variable as a whole: the target of an assignment (`x := `, `x[i] := `, `x REF= `, `x S= `),
+ * of a call's output (`Q => x`), passed to a VAR_IN_OUT, or a declaration. Of `a.b := 1` only `b` is written.
  */
-function written(tokens: Token[], i: number): boolean {
-  // The end of the name with its indexes and dereferences (`x[i]^`).
-  let k = i;
-  for (;;) {
-    if (isOp(tokens[k + 1], '[')) {
-      const j = matching(tokens, k + 1, 1);
-      if (j < 0) return false;
-      k = j;
-    } else if (isOp(tokens[k + 1], '^')) {
-      k++;
-    } else {
-      break;
-    }
-  }
-  const next = tokens[k + 1];
-  if (isOp(next, ':=')) return true;
-  if (next?.kind === Tk.Ident && ['S', 'R', 'REF'].includes(next.upper) && isOp(tokens[k + 2], '=') && tokens[k + 2].start === next.end) {
-    return true;
-  }
-  // The start of the access path it ends (`fb.aData[2].x`).
-  let s = i;
-  while (isOp(tokens[s - 1], '.')) {
-    let j = s - 2;
-    if (isOp(tokens[j], '^')) j--;
-    if (isOp(tokens[j], ']')) j = matching(tokens, j, -1) - 1;
-    if (j < 0 || tokens[j].kind !== Tk.Ident) break;
-    s = j;
-  }
-  return isOp(tokens[s - 1], '=>') && (isOp(next, ')') || isOp(next, ','));
+function written(o: Occurrence): boolean {
+  if (o.decl) return true;
+  if (o.access !== 'write' && o.access !== 'readwrite') return false;
+  // Through indexes only (`aPos[i]`, `a[b[1]]`), not through a member or bit.
+  let path = o.path ?? '';
+  for (let inner = path.replace(/\[[^[\]]*\]/g, ''); inner !== path; inner = path.replace(/\[[^[\]]*\]/g, '')) path = inner;
+  return path === '';
 }
 
 /** A section the highlights are in: its text, and its analysis (none outside the language index). */
@@ -82,15 +48,12 @@ export interface HighlightSection {
 
 /** The uses of a symbol (by its id) or of an identifier (by its upper-case name) in a section. */
 function usesIn(section: HighlightSection, target: { symId: string } | { upper: string }): Highlight[] {
-  const tokens = lex(section.text).tokens;
   if ('upper' in target) {
+    const tokens = lex(section.text).tokens;
     return tokens.filter(t => t.kind === Tk.Ident && t.upper === target.upper).map(t => ({ start: t.start, end: t.end, kind: 'text' }));
   }
-  const index = new Map(tokens.map((t, i) => [t.start, i]));
-  return (section.analysis?.occurrences ?? []).filter(o => o.sym.id === target.symId).map(o => {
-    const i = index.get(o.start);
-    return { start: o.start, end: o.end, kind: o.decl || (i !== undefined && written(tokens, i)) ? 'write' : 'read' };
-  });
+  return (section.analysis?.occurrences ?? []).filter(o => o.sym.id === target.symId)
+    .map(o => ({ start: o.start, end: o.end, kind: written(o) ? 'write' : 'read' }));
 }
 
 /**

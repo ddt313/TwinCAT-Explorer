@@ -128,6 +128,39 @@ test('samples/Demo: FB_ValveBase ABSTRACT without Close may lack it, FB_Valve th
     + 'Excluded from the build, not checked: FB_Prototype');
 });
 
+test('samples/Demo: the MCP tool references tells who writes a variable, through which member', () => {
+  const undo = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-undo-'));
+  try {
+    const t: T.Tools = { session: new Session(SAMPLE), undo: new UndoLog(SAMPLE, path.join(undo, 'undo.jsonl')) };
+    t.session.refresh();
+    // stStatus of FB_ValveBase, written in its methods and in FB_Valve, which extends it.
+    assert.equal(T.references(t, { symbol: 'FB_ValveBase.stStatus', access: ['write', 'readwrite', 'address'] }), [
+      'stStatus: 9 of 18 place(s) (write, readwrite, address); all: 1 declaration, 9 write, 8 read',
+      'FB_Valve impl:4  write .eState  stStatus.eState := E_ValveState.Open;',
+      'FB_Valve impl:6  write .eState  stStatus.eState := E_ValveState.Closed;',
+      'FB_Valve.A_Reset impl:1  write .eState  stStatus.eState := E_ValveState.Closed;',
+      'FB_Valve.A_Reset impl:2  write .nCycles  stStatus.nCycles := 0;',
+      'FB_ValveBase impl:3  write .eState  stStatus.eState := E_ValveState.Error;',
+      'FB_ValveBase impl:5  write .bInterlocked  stStatus.bInterlocked := bInterlock;',
+      'FB_ValveBase.Close impl:1  write .eState  stStatus.eState := E_ValveState.Closing;',
+      'FB_ValveBase.Open impl:4  write .eState  stStatus.eState := E_ValveState.Opening;',
+      'FB_ValveBase.Open impl:5  write .nCycles  stStatus.nCycles := stStatus.nCycles + 1;',
+    ].join('\n'));
+    // A function block instance: called, a property set, a method called, an output read.
+    assert.equal(T.references(t, { symbol: 'MAIN.fbConveyor' }), [
+      'fbConveyor: 6 place(s): 1 declaration, 1 write, 2 call, 2 read',
+      'MAIN decl:4  declaration  fbConveyor\t: FB_Conveyor;',
+      'MAIN impl:6  call  fbConveyor(bEnable := fbFill.bDone);',
+      'MAIN impl:7  read .bRunning  IF fbFill.bDone AND NOT fbConveyor.bRunning THEN',
+      'MAIN impl:8  write .Speed  fbConveyor.Speed := GVL_Parameters.fMaxSpeed;',
+      'MAIN impl:9  call .Start  fbConveyor.Start();',
+      'MAIN impl:11  read .bRunning  GVL_IO.bConveyorRun := fbConveyor.bRunning;',
+    ].join('\n'));
+  } finally {
+    fs.rmSync(undo, { recursive: true, force: true });
+  }
+});
+
 test('samples/Demo: its files have the bytes XAE wrote, and a section edited and edited back gives them again', () => {
   const ws = load();
   let edited = 0;

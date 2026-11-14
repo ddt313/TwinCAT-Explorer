@@ -82,14 +82,19 @@ export class SectionFeatures {
   }
 
   referenceLocs(target: Sym, includeDeclaration: boolean): Loc[] {
-    const out: Loc[] = [];
+    return this.references(target, includeDeclaration).map(r => r.loc);
+  }
+
+  /** The places a symbol is declared (with includeDeclaration) and used, each with its occurrence: how it is used there. */
+  references(target: Sym, includeDeclaration: boolean): { loc: Loc; occ: Occurrence; text: string }[] {
+    const out: { loc: Loc; occ: Occurrence; text: string }[] = [];
     for (const ctx of this.index.allContexts()) {
       const text = this.index.sectionText(ctx.fileKey, ctx.sectionKey);
       if (text === undefined) continue;
       const a = this.analysisOf(ctx, text);
       for (const occ of a.occurrences) {
         if (occ.sym.id === target.id && (includeDeclaration || !occ.decl)) {
-          out.push({ fileKey: ctx.fileKey, sectionKey: ctx.sectionKey, start: occ.start, end: occ.end });
+          out.push({ loc: { fileKey: ctx.fileKey, sectionKey: ctx.sectionKey, start: occ.start, end: occ.end }, occ, text });
         }
       }
     }

@@ -14,6 +14,7 @@ import { NewObjectKind } from '../core/newObjects';
 import { objectTreeLabel } from '../core/treeLabels';
 import { PlcProject, sameName } from '../core/project';
 import { fileKey } from '../core/workspace';
+import { Occurrence } from '../lang/analyzer';
 import { describeOwner } from '../lang/features';
 import { implementations, typeTree, TypeTree } from '../lang/hierarchy';
 import { newObjectStubs, objectNameProblem } from '../lang/objects';
@@ -238,13 +239,32 @@ export function definition(t: Tools, r: SymbolRef): string {
   return out.join('\n');
 }
 
-export function references(t: Tools, r: SymbolRef & { limit?: number }): string {
+/** How a place uses a name, as references shows and filters it. */
+export const ACCESS_KINDS = ['declaration', 'write', 'readwrite', 'address', 'call', 'read', 'type'] as const;
+export type AccessKind = typeof ACCESS_KINDS[number];
+
+function accessKind(o: Occurrence): AccessKind {
+  return o.decl ? 'declaration' : o.role === 'type' ? 'type' : o.access ?? 'read';
+}
+
+/**
+ * Every place a symbol is declared or used, each with how it is used there (`write .eState`: through that member)
+ * and its line; with `access`, those used so only. A count per kind first.
+ */
+export function references(t: Tools, r: SymbolRef & { limit?: number; access?: AccessKind[] }): string {
   const s = t.session;
   const sym = findSym(t, r);
-  const locs = s.features.referenceLocs(sym, true);
+  const all = s.features.references(sym, true);
+  const counts = ACCESS_KINDS.map(k => [k, all.filter(x => accessKind(x.occ) === k).length] as const).filter(([, n]) => n > 0);
+  const summary = counts.map(([k, n]) => `${n} ${k}`).join(', ');
+  const wanted = r.access?.length ? new Set(r.access) : undefined;
+  const places = wanted ? all.filter(x => wanted.has(accessKind(x.occ))) : all;
   const limit = r.limit ?? 200;
-  const out = [`${symbolName(sym)}: ${locs.length} place(s)`, ...locs.slice(0, limit).map(l => s.describeLoc(l))];
-  if (locs.length > limit) out.push(`-- ${limit} of ${locs.length}`);
+  const head = wanted
+    ? `${symbolName(sym)}: ${places.length} of ${all.length} place(s) (${[...wanted].join(', ')})${all.length ? `; all: ${summary}` : ''}`
+    : `${symbolName(sym)}: ${all.length} place(s)${all.length ? `: ${summary}` : ''}`;
+  const out = [head, ...places.slice(0, limit).map(x => s.describeLoc(x.loc, accessKind(x.occ) + (x.occ.path ? ` ${x.occ.path}` : '')))];
+  if (places.length > limit) out.push(`-- ${limit} of ${places.length}`);
   return out.join('\n');
 }
 

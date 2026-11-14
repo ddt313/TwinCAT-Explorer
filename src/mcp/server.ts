@@ -121,8 +121,15 @@ register('definition', {
 }, run(T.definition));
 
 register('references', {
-  description: 'Every place a symbol is declared or used in the Structured Text of the workspace.',
-  inputSchema: { ...symbolRef, limit: z.number().int().positive().optional() }, annotations: readOnly,
+  description: 'Every place a symbol is declared or used in the Structured Text of the workspace, each with how it is used there: '
+    + 'declaration, write (target of :=, S=, R=, REF= or =>, FOR variable, input passed in a call), readwrite (passed to a VAR_IN_OUT), '
+    + 'address (ADR, BITADR, REF=), call, read, or type. A variable written, read or called through a member or index shows it: '
+    + '"write .eState" for stStatus.eState := x. Only code in the workspace: not I/O mapping, ADS or HMI writes, not writes through pointers. '
+    + 'Who writes a variable: access ["write", "readwrite", "address"].',
+  inputSchema: {
+    ...symbolRef, limit: z.number().int().positive().optional(),
+    access: z.array(z.enum(T.ACCESS_KINDS)).optional().describe('Only the places used so'),
+  }, annotations: readOnly,
 }, run(T.references));
 
 register('hierarchy', {

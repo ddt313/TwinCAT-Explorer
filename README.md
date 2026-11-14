@@ -517,7 +517,7 @@ These work in both panes and in notebook cells. They come from a parser of the T
   of a state machine) with the comment on their line, as `20 — Wait for the axis`, which can be searched
   for; and the `{region}`s of both.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
-  double-click a result to open it.
+  double-click a result to open it. The highlights of a symbol in a pane tell written from read.
 - **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that
   implement it, directly, through an interface that extends it or by extending one that implements it;
   on a function block, those that extend it, at any depth; on a method or property, also at a call
@@ -880,6 +880,16 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
   - Reading: `status`, `objects` (the tree), `read`, `locate` (the object and line of code at lines of
     a file as `git diff` and `git blame` number them), `search_text` (a text or regular expression in the code,
     as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler; it names the objects excluded from the build and leaves them unchecked).
+  - `references` tells how each place uses the name, and filters by it (`access`):
+    `declaration`, `write` (the target of `:=`, `S=`, `R=`, `REF=` or `=>`, the variable of a `FOR`, an
+    input passed in a call), `readwrite` (passed to a `VAR_IN_OUT`), `address` (`ADR`, `BITADR`, `REF=`),
+    `call`, `read` or `type`. A variable used through a member or index shows it:
+    `FB_ValveBase impl:3  write .eState  stStatus.eState := E_ValveState.Error;`. A method called on
+    an instance (`fbValve.Open()`) is a call, not a write. Of `pData^.n := 0`, `pData` is read: what a
+    pointer points to is not followed. Who writes a variable: `access: ["write", "readwrite",
+    "address"]`. The references of a variable are those of that variable; those of a field of a
+    structure (`ST_ValveStatus.eState`) are those of every variable of that type. Only the code of the
+    workspace counts: not the I/O mapping, ADS or an HMI.
   - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
     `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
     the edited section, or the elements XAE writes for a new member or object (in the `.plcproj`, its

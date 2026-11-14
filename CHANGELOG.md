@@ -20,6 +20,14 @@ All notable changes to Explorer for TwinCAT. The format follows
 - `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU, method,
   property, action, DUT or GVL turns those kinds of problems off there (a POU's in its members too); without a
   value, all of them.
+- The MCP server's `references` tells how each place uses the name: `declaration`, `write`, `readwrite`
+  (passed to a `VAR_IN_OUT`), `address` (`ADR`, `BITADR`, `REF=`), `call`, `read` or `type`, with the member or
+  index a variable is used through (`write .eState` for `stStatus.eState := ...`), and a count per kind. Its new
+  `access` filter answers who writes a variable: `access: ["write", "readwrite", "address"]`.
+
+### Changed
+- The highlights of a symbol in a pane tell written from read as the analysis does: also a variable passed to a
+  `VAR_IN_OUT` is written.
 
 ## 0.23.0 - 2026-11-11
 

@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { TcWorkspace, fileKey } from './core/workspace';
 import { objectAtOffset } from './core/tcfile';
-import { isInHiddenFolder } from './core/paths';
+import { isInHiddenFolder, relativePathText } from './core/paths';
 import { debugLog } from './core/debugLog';
 import { LanguageIndex, SectionContext, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
@@ -1422,6 +1422,16 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.copyName', async (node?: TreeNode) => {
       if (node?.name) await vscode.env.clipboard.writeText(node.name);
+    }),
+    // A method, property or accessor has the file of its POU, as the POU's own node has.
+    vscode.commands.registerCommand('twincatExplorer.copyPath', async (node?: TreeNode) => {
+      if (node?.fsPath) await vscode.env.clipboard.writeText(node.fsPath);
+    }),
+    vscode.commands.registerCommand('twincatExplorer.copyRelativePath', async (node?: TreeNode) => {
+      if (!node?.fsPath) return;
+      // As VS Code's Explorer: relative to the workspace folder, without its name, in the separator it is set to.
+      const separator = vscode.workspace.getConfiguration('explorer').get<string>('copyRelativePathSeparator');
+      await vscode.env.clipboard.writeText(relativePathText(vscode.workspace.asRelativePath(fileUri(node.fsPath), false), separator));
     }),
     vscode.commands.registerCommand('twincatExplorer.setUpMcpServer', () => setUpMcpServer(context)),
     vscode.commands.registerCommand('twincatExplorer.showLicenses', () => license?.show()),

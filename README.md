@@ -975,7 +975,10 @@ code --uninstall-extension thanhdang.explorer-for-twincat --profile <profile>
 
 All commands are in the Command Palette under the `TwinCAT` categories. The views add more in their
 title bars and context menus, for example Rename..., Move to Folder..., Delete, Discard Changes, Copy
-Commit SHA and Copy Name.
+Commit SHA and Copy Name. Beside Copy Name, the TwinCAT tree has Copy Path and Copy Relative Path on the nodes a
+file holds (projects, POUs, DUTs, GVLs, interfaces, and the methods, properties and actions, which copy their POU's
+file), as VS Code's Explorer has them: the relative path is that of the workspace folder, in the separator
+`explorer.copyRelativePathSeparator` sets.
 
 | Command | What it does |
 |---|---|

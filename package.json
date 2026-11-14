@@ -554,6 +554,16 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.copyPath",
+        "title": "Copy Path",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.copyRelativePath",
+        "title": "Copy Relative Path",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.addPou",
         "title": "Add POU...",
         "category": "TwinCAT"
@@ -814,6 +824,14 @@
         },
         {
           "command": "twincatExplorer.copyName",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.copyRelativePath",
           "when": "false"
         },
         {
@@ -1271,7 +1289,7 @@
         {
           "command": "twincatExplorer.openXml",
           "when": "view == twincatExplorer.tree && viewItem =~ /hasFile/",
-          "group": "9_copy@2"
+          "group": "9_copy@4"
         },
         {
           "command": "twincatExplorer.openChanges",
@@ -1377,6 +1395,16 @@
           "command": "twincatExplorer.copyName",
           "when": "view == twincatExplorer.tree && viewItem =~ /named/",
           "group": "9_copy@1"
+        },
+        {
+          "command": "twincatExplorer.copyPath",
+          "when": "view == twincatExplorer.tree && viewItem =~ /hasFile/",
+          "group": "9_copy@2"
+        },
+        {
+          "command": "twincatExplorer.copyRelativePath",
+          "when": "view == twincatExplorer.tree && viewItem =~ /hasFile/",
+          "group": "9_copy@3"
         },
         {
           "command": "twincatExplorer.expandAll",

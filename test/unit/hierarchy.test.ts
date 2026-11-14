@@ -3,7 +3,9 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { analyze } from '../../src/lang/analyzer';
+import { AnalyzeOptions, analyze, problemLevels } from '../../src/lang/analyzer';
+import { quickFixes } from '../../src/lang/autoDeclare';
+import { interfaceStubs } from '../../src/lang/members';
 import { LanguageIndex } from '../../src/lang/index';
 import { TypeTree, hierarchyTypeAt, implementations, relatedMembers, subtypes, supertypes, typeTree } from '../../src/lang/hierarchy';
 import { symbolLabel } from '../../src/lang/rename';
@@ -245,6 +247,133 @@ test('EXTENDS that go round end the hierarchy and the implementations', () => {
     assert.deepEqual(labels(implementations(index, motor)), ['FB_Drive']);
     const reset = symAt(index, file('POUs/FB_Drive.TcPOU'), 51, 'decl', 'METHOD |Reset');
     assert.deepEqual(labels(implementations(index, reset)), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** The problems of the declaration of the POU with this GUID, as `code: message`, with these analysis options. */
+function declProblems(index: LanguageIndex, filePath: string, n: number, options?: AnalyzeOptions): string[] {
+  const key = `${guid(n).replace(/[{}]/g, '')}:decl`;
+  const ctx = index.context(fileKey(filePath), key)!;
+  return analyze(index, ctx, index.sectionText(fileKey(filePath), key)!, options).problems.map(p => `${p.severity} ${p.code}: ${p.message}`);
+}
+
+test('a function block that lacks methods or properties of its interfaces: an error at the name after IMPLEMENTS', () => {
+  const { root, index, file } = project({
+    // Close of I_Valve, Reset and Ready of I_Device (which I_Valve extends) are lacking.
+    'POUs/FB_Half.TcPOU': pou('FB_Half', 80, 'FUNCTION_BLOCK FB_Half IMPLEMENTS I_Valve\n', '',
+      method('Open', 81, 'METHOD Open : BOOL\n', 'Open := TRUE;')),
+    // Each of its interfaces gets its own error; Reset comes from its base, FB_Drive.
+    'POUs/FB_Two.TcPOU': pou('FB_Two', 90, 'FUNCTION_BLOCK FB_Two EXTENDS FB_Drive IMPLEMENTS I_Device, I_Valve\n', ''),
+    'POUs/FB_Abstract.TcPOU': pou('FB_Abstract', 100, 'FUNCTION_BLOCK ABSTRACT FB_Abstract IMPLEMENTS I_Valve\n', ''),
+    // Its base is not found: it may have them.
+    'POUs/FB_Lost.TcPOU': pou('FB_Lost', 110, 'FUNCTION_BLOCK FB_Lost EXTENDS FB_Nowhere IMPLEMENTS I_Valve\n', ''),
+  });
+  try {
+    assert.deepEqual(declProblems(index, file('POUs/FB_Half.TcPOU'), 80),
+      ['error unimplemented-interface: FB_Half does not implement method Close, method Reset (of I_Device), property Ready (of I_Device) of I_Valve']);
+    const at = index.context(fileKey(file('POUs/FB_Half.TcPOU')), `${guid(80).replace(/[{}]/g, '')}:decl`)!;
+    const text = index.sectionText(at.fileKey, at.sectionKey)!;
+    const p = analyze(index, at, text).problems[0];
+    assert.equal(text.slice(p.start, p.end), 'I_Valve');
+    // A member lacking through two names is reported at the first.
+    assert.deepEqual(declProblems(index, file('POUs/FB_Two.TcPOU'), 90), [
+      'error unimplemented-interface: FB_Two does not implement property Ready of I_Device',
+      'error unimplemented-interface: FB_Two does not implement method Open, method Close of I_Valve',
+    ]);
+    // A library interface: ITcUnknown of Tc3_Module, of which FB_Motor has TcAddRef only.
+    assert.deepEqual(declProblems(index, file('POUs/FB_Motor.TcPOU'), 60),
+      ['error unimplemented-interface: FB_Motor does not implement method TcRelease, method TcQueryInterface of ITcUnknown']);
+    assert.deepEqual(declProblems(index, file('POUs/FB_Abstract.TcPOU'), 100), [], 'an ABSTRACT function block');
+    assert.deepEqual(declProblems(index, file('POUs/FB_Lost.TcPOU'), 110), ["error unknown-type: Unknown type 'FB_Nowhere'"]);
+    // Implemented by itself, by its base, or both.
+    for (const [f, n] of [['POUs/FB_ValveBase.TcPOU', 20], ['POUs/FB_Valve.TcPOU', 30], ['POUs/FB_Pump.TcPOU', 40]] as const) {
+      assert.deepEqual(declProblems(index, file(f), n), [], f);
+    }
+
+    // The levels of the setting twincatExplorer.diagnostics.rules.
+    assert.deepEqual(declProblems(index, file('POUs/FB_Pump.TcPOU'), 40, { levels: { 'unimplemented-interface': 'off' } }), []);
+    assert.deepEqual(declProblems(index, file('POUs/FB_Lost.TcPOU'), 110, { levels: problemLevels({ 'unknown-type': 'warning', 'nonsense': 'off', 'syntax': 'loud' }) }),
+      ["warning unknown-type: Unknown type 'FB_Nowhere'"]);
+    assert.deepEqual(problemLevels({ 'unknown-type': 'warning', 'nonsense': 'off', 'syntax': 'loud' }), { 'unknown-type': 'warning' });
+    assert.deepEqual(problemLevels(['unknown-type']), {});
+
+    // Its quick fix: Implement Interfaces.
+    const fixes = quickFixes(index, at, text, analyze(index, at, text).problems);
+    assert.deepEqual(fixes.map(f => [f.kind, f.title, f.preferred]), [['implement', 'Implement Interfaces in FB_Half...', true]]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a function block that extends an ABSTRACT one lacks what the interfaces of its bases need: an error at the name after EXTENDS', () => {
+  const { root, index, file } = project({
+    // FB_Base implements I_Valve but has Open only; FB_Mid has Reset; FB_Leaf, the concrete one, has Ready.
+    'POUs/FB_Base.TcPOU': pou('FB_Base', 80, 'FUNCTION_BLOCK ABSTRACT FB_Base IMPLEMENTS I_Valve\n', '',
+      method('Open', 81, 'METHOD Open : BOOL\n', 'Open := TRUE;')),
+    'POUs/FB_Mid.TcPOU': pou('FB_Mid', 90, 'FUNCTION_BLOCK ABSTRACT FB_Mid EXTENDS FB_Base\n', '',
+      method('Reset', 91, 'METHOD Reset : BOOL\n', 'Reset := TRUE;')),
+    'POUs/FB_Leaf.TcPOU': pou('FB_Leaf', 100, 'FUNCTION_BLOCK FB_Leaf EXTENDS FB_Mid IMPLEMENTS I_Device\n', '',
+      property('Ready', 101, 'PROPERTY Ready : BOOL', 'Ready := TRUE;')),
+    'POUs/FB_Done.TcPOU': pou('FB_Done', 110, 'FUNCTION_BLOCK FB_Done EXTENDS FB_Mid\n', '',
+      method('Close', 111, 'METHOD Close : BOOL\n', 'Close := TRUE;') + property('Ready', 113, 'PROPERTY Ready : BOOL', 'Ready := TRUE;')),
+  });
+  try {
+    // The ABSTRACT ones may lack them.
+    assert.deepEqual(declProblems(index, file('POUs/FB_Base.TcPOU'), 80), []);
+    assert.deepEqual(declProblems(index, file('POUs/FB_Mid.TcPOU'), 90), []);
+    // I_Device (its own) is implemented; Close of I_Valve, named by FB_Base two levels up, is lacking.
+    assert.deepEqual(declProblems(index, file('POUs/FB_Leaf.TcPOU'), 100),
+      ['error unimplemented-interface: FB_Leaf does not implement method Close of I_Valve (through FB_Base)']);
+    const key = `${guid(100).replace(/[{}]/g, '')}:decl`;
+    const ctx = index.context(fileKey(file('POUs/FB_Leaf.TcPOU')), key)!;
+    const text = index.sectionText(ctx.fileKey, key)!;
+    const problems = analyze(index, ctx, text).problems;
+    assert.equal(text.slice(problems[0].start, problems[0].end), 'FB_Mid', 'at the name after EXTENDS');
+    assert.deepEqual(quickFixes(index, ctx, text, problems).map(f => f.title), ['Implement Interfaces in FB_Leaf...']);
+    assert.deepEqual(declProblems(index, file('POUs/FB_Done.TcPOU'), 110), []);
+
+    // Implement Interfaces adds what the interfaces of its bases need too.
+    const leaf = index.ws.getFile(file('POUs/FB_Leaf.TcPOU'))!;
+    const stubs = interfaceStubs(index, leaf);
+    assert.deepEqual(stubs.stubs.map(st => `${st.from}.${st.spec.name}`), ['I_Valve.Close']);
+    assert.deepEqual(stubs.interfaces, ['I_Device', 'I_Valve']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the attribute 'explorer.disable' turns checks off in a POU and its members, or in a member", () => {
+  const { root, index, file } = project({
+    'POUs/FB_Half.TcPOU': pou('FB_Half', 80, `{attribute 'explorer.disable' := 'unimplemented-interface, Unknown-Identifier'}
+FUNCTION_BLOCK FB_Half IMPLEMENTS I_Valve
+VAR
+	x : INT := nUnknown;
+	t : T_Unknown;
+END_VAR
+`, 'x := nOther;',
+    method('Open', 81, 'METHOD Open : BOOL\nVAR\n\ty : T_Other;\nEND_VAR\n', 'Open := nThird;')
+    + method('Close', 82, "{attribute 'explorer.disable'}\nMETHOD Close : BOOL\nVAR\n\ty : T_Other;\nEND_VAR\n", 'Close := nThird;')),
+    'POUs/MAIN.TcPOU': pou('MAIN', 70, "PROGRAM MAIN\n{attribute 'explorer.disable' := 'unknown-type'}\nVAR\n\tt : T_Unknown;\nEND_VAR\n", 'nUnknown := 1;'),
+  });
+  try {
+    const problems = (n: number, role: 'decl' | 'impl', f = 'POUs/FB_Half.TcPOU') => {
+      const key = `${guid(n).replace(/[{}]/g, '')}:${role}`;
+      const ctx = index.context(fileKey(file(f)), key)!;
+      return analyze(index, ctx, index.sectionText(ctx.fileKey, key)!).problems.map(p => `${p.code}: ${p.message}`);
+    };
+    // Codes in any case; those not named are still reported.
+    assert.deepEqual(problems(80, 'decl'), ["unknown-type: Unknown type 'T_Unknown'"]);
+    assert.deepEqual(problems(80, 'impl'), []);
+    // A method gets those of its POU.
+    assert.deepEqual(problems(81, 'decl'), ["unknown-type: Unknown type 'T_Other'"]);
+    assert.deepEqual(problems(81, 'impl'), []);
+    // Without a value: all.
+    assert.deepEqual(problems(82, 'decl'), []);
+    // Anywhere in the declaration; the implementation of the POU too.
+    assert.deepEqual(problems(70, 'decl', 'POUs/MAIN.TcPOU'), []);
+    assert.deepEqual(problems(70, 'impl', 'POUs/MAIN.TcPOU'), ["unknown-identifier: Unknown identifier 'nUnknown'"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

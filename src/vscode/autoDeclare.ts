@@ -1,6 +1,7 @@
 // XAE's Auto Declare in the split editor and in notebook cells: the quick fixes of the problems "Unknown
 // identifier" (declare the name in a VAR block of the declaration) and "not a member" of a function block, program
-// or interface of the workspace (add the method or property), and Auto Declare... (Shift+F2), which asks for the
+// or interface of the workspace (add the method or property), of a function block that lacks methods or properties
+// of its interfaces (Implement Interfaces...), and Auto Declare... (Shift+F2), which asks for the
 // scope, name, type, initial value and comment as XAE's dialog does. A declaration is an edit of the declaration
 // pane or cell, undone with Ctrl+Z there and written by safe saving. What to write comes from lang/autoDeclare.ts.
 
@@ -19,6 +20,8 @@ import { cellMeta } from './serializers';
 export interface AutoDeclareHooks {
   /** Adds a method or property named by its use to a POU or interface, without asking, and opens it. */
   addMember(fsPath: string, objectId: string, kind: 'method' | 'property', name: string, type: string | undefined): Promise<void>;
+  /** Implement Interfaces: adds to a function block the methods and properties of its interfaces it lacks, those picked. */
+  implementInterfaces(fsPath: string): Promise<void>;
   /** Opens an object view in its editor beside the active one, the focus staying where it is. */
   openBeside(fsPath: string, objectId: string): Promise<void>;
 }
@@ -88,6 +91,10 @@ export class AutoDeclare implements vscode.CodeActionProvider {
     try {
       if (fix.kind === 'declare') {
         await this.declare(ctx, fix.target, fix.scope, fix.variable, session ?? kept.notebook);
+        return;
+      }
+      if (fix.kind === 'implement') {
+        await this.hooks.implementInterfaces(ctx.filePath);
         return;
       }
       const loc = fix.owner.loc;

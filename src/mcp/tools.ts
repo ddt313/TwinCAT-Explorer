@@ -268,7 +268,7 @@ function problemsOfView(t: Tools, v: View): string[] {
     const text = ctx && s.index.sectionText(ctx.fileKey, ctx.sectionKey);
     if (!ctx || text === undefined || !sec.editable) continue;
     for (const p of s.features.analysisOf(ctx, text).problems) {
-      out.push(`${v.label} ${sec.role}:${positionIn(text, p.start).line + 1}  ${p.severity}: ${p.message}`);
+      out.push(`${v.label} ${sec.role}:${positionIn(text, p.start).line + 1}  ${p.severity}: ${p.message} [${p.code}]`);
     }
   }
   return out;
@@ -368,7 +368,7 @@ export function check(t: Tools, a: { object?: string; limit?: number; compiler?:
       if (text === undefined) continue;
       for (const p of s.features.analysisOf(ctx, text).problems) {
         const label = ctx.accessor ? `${ctx.object.qualifiedName}.${ctx.accessor}` : ctx.object.qualifiedName;
-        problems.push(`${label} ${ctx.role}:${positionIn(text, p.start).line + 1}  ${p.severity}: ${p.message}`);
+        problems.push(`${label} ${ctx.role}:${positionIn(text, p.start).line + 1}  ${p.severity}: ${p.message} [${p.code}]`);
       }
     }
   }

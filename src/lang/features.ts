@@ -3,7 +3,7 @@
 // (vscode/language.ts) and the MCP server both build on it. Independent of the VS Code API.
 
 import { LanguageIndex, SectionContext } from './index';
-import { Analysis, Occurrence, ParamHint, analyze } from './analyzer';
+import { AnalyzeOptions, Analysis, Occurrence, ParamHint, analyze } from './analyzer';
 import { Loc, Sym } from './symbols';
 import { implementations } from './hierarchy';
 import { Highlight, highlightsAcross } from './highlights';
@@ -41,10 +41,10 @@ export class SectionFeatures {
   private readonly cache = new Map<string, CachedAnalysis>();
   private cacheVersion = -1;
 
-  /** `ignore`: identifiers never reported as unknown (upper case), read on every analysis. */
-  constructor(readonly index: LanguageIndex, private readonly ignore: () => Set<string> = () => new Set()) {}
+  /** `options`: the identifiers never reported as unknown and the levels of the problems, read on every analysis. */
+  constructor(readonly index: LanguageIndex, private readonly options: () => AnalyzeOptions = () => ({})) {}
 
-  /** Drops cached analyses, e.g. after the identifiers to ignore changed. */
+  /** Drops cached analyses, e.g. after the options changed. */
   clear(): void {
     this.cache.clear();
   }
@@ -58,7 +58,7 @@ export class SectionFeatures {
     const key = `${ctx.fileKey}|${ctx.sectionKey}`;
     const cached = this.cache.get(key);
     if (cached?.text === text) return cached.analysis;
-    const analysis = analyze(this.index, ctx, text, { ignore: this.ignore() });
+    const analysis = analyze(this.index, ctx, text, this.options());
     this.cache.set(key, { text, analysis });
     return analysis;
   }

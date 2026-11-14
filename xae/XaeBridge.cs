@@ -396,6 +396,20 @@ namespace TwinCatXaeBridge {
             return found;
         }
 
+        [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+        [DllImport("kernel32.dll")] static extern bool IsWow64Process(IntPtr process, out bool wow64);
+        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+
+        // A 32-bit process on 64-bit Windows, as a 32-bit TcXaeShell (TcXaeShell.DTE.15.0). Its COM
+        // proxies, IVsRunningDocumentTable's among them, are registered for 32-bit processes only: a 64-bit bridge
+        // gets REGDB_E_CLASSNOTREG asking for its running document table, so the 32-bit bridge drives it instead.
+        static bool Is32Bit(int pid) {
+            if (!Environment.Is64BitOperatingSystem) return false;
+            IntPtr h = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+            if (h == IntPtr.Zero) return false;
+            try { bool wow64; return IsWow64Process(h, out wow64) && wow64; } finally { CloseHandle(h); }
+        }
+
         static object ListInstances() {
             List<object> list = new List<object>();
             Instances.Clear();
@@ -406,6 +420,7 @@ namespace TwinCatXaeBridge {
                 Dictionary<string, object> info = new Dictionary<string, object>();
                 info["pid"] = kv.Key;
                 info["progId"] = kv.Value.Key;
+                if (Is32Bit(kv.Key)) info["x86"] = true;
                 List<string> projects = new List<string>();
                 try {
                     info["solution"] = dte.Solution.IsOpen ? dte.Solution.FullName : "";

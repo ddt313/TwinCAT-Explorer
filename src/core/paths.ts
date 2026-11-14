@@ -62,3 +62,14 @@ export function findOnPath(name: string, pathValue = process.env.PATH ?? ''): st
   }
   return undefined;
 }
+
+/**
+ * A workspace-relative path (`vscode.workspace.asRelativePath`, which joins with `/`) with the separator that VS
+ * Code's Explorer uses in Copy Relative Path: `explorer.copyRelativePathSeparator`, `auto` being the platform's.
+ * A path outside the workspace, which asRelativePath returns whole, stays as it is.
+ */
+export function relativePathText(relative: string, separator: string | undefined, platformSep: string = path.sep): string {
+  if (/^([a-z]:[\\/]|[\\/])/i.test(relative)) return relative;
+  const sep = separator === '/' || separator === '\\' ? separator : platformSep;
+  return relative.split(/[\\/]/).join(sep);
+}

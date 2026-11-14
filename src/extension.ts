@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { TcWorkspace, fileKey } from './core/workspace';
 import { objectAtOffset } from './core/tcfile';
-import { isInHiddenFolder } from './core/paths';
+import { isInHiddenFolder, relativePathText } from './core/paths';
 import { debugLog } from './core/debugLog';
 import { LanguageIndex, SectionContext, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
@@ -14,7 +14,7 @@ import { referencedLibrarySymbols } from './core/libraries';
 import { ObjectFileSystem } from './vscode/objectFs';
 import { Xae } from './core/xae';
 import { XaeSaveHost, saveThroughXae } from './core/xaeSave';
-import { parseObjectText, positionIn, viewSections } from './core/objectText';
+import { Accessor, parseObjectText, positionIn, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
@@ -919,6 +919,28 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }
   };
 
+  /**
+   * What the Copy commands copy from: a node of the TwinCAT tree, the URI of an editor tab (its context menu), or the
+   * active editor (the Command Palette).
+   */
+  const copyTarget = (arg: unknown): { fsPath: string; objectId?: string; accessor?: Accessor } | undefined => {
+    if (arg instanceof TreeNode) return arg.fsPath ? { fsPath: arg.fsPath, objectId: arg.objectId, accessor: arg.accessor } : undefined;
+    const uri = arg instanceof vscode.Uri ? arg : activeUri();
+    if (!uri) return undefined;
+    if (uri.scheme === OBJECT_SCHEME) return parseObjectUri(uri);
+    return isFileUri(uri) ? { fsPath: uri.fsPath } : undefined;
+  };
+  const copyFilePath = async (arg: unknown) => {
+    const t = copyTarget(arg);
+    if (t) await vscode.env.clipboard.writeText(t.fsPath);
+  };
+  // As VS Code's Explorer: relative to the workspace folder, without its name, in the separator it is set to.
+  const copyRelativeFilePath = async (arg: unknown) => {
+    const t = copyTarget(arg);
+    if (!t) return;
+    const separator = vscode.workspace.getConfiguration('explorer').get<string>('copyRelativePathSeparator');
+    await vscode.env.clipboard.writeText(relativePathText(vscode.workspace.asRelativePath(fileUri(t.fsPath), false), separator));
+  };
   const activeUri = (): vscode.Uri | undefined => {
     const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
     if (input instanceof vscode.TabInputCustom) return input.uri;
@@ -1422,6 +1444,17 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.copyName', async (node?: TreeNode) => {
       if (node?.name) await vscode.env.clipboard.writeText(node.name);
+    }),
+    // A method, property or accessor has the file of its POU, as the POU's own node has.
+    vscode.commands.registerCommand('twincatExplorer.copyPath', (node?: unknown) => copyFilePath(node)),
+    vscode.commands.registerCommand('twincatExplorer.copyRelativePath', (node?: unknown) => copyRelativeFilePath(node)),
+    // The same, in the menu of an object's editor tab, whose own Copy Path and Copy Relative Path copy its label.
+    vscode.commands.registerCommand('twincatExplorer.copyFilePath', (arg?: unknown) => copyFilePath(arg)),
+    vscode.commands.registerCommand('twincatExplorer.copyRelativeFilePath', (arg?: unknown) => copyRelativeFilePath(arg)),
+    vscode.commands.registerCommand('twincatExplorer.copyQualifiedName', async (arg?: unknown) => {
+      const ref = copyTarget(arg);
+      const name = ref?.objectId ? ws.qualifiedName(ref.fsPath, ref.objectId, ref.accessor) : undefined;
+      if (name) await vscode.env.clipboard.writeText(name);
     }),
     vscode.commands.registerCommand('twincatExplorer.setUpMcpServer', () => setUpMcpServer(context)),
     vscode.commands.registerCommand('twincatExplorer.showLicenses', () => license?.show()),

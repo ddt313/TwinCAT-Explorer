@@ -59,3 +59,63 @@ test('copy path: the relative path takes the separator of explorer.copyRelativeP
   // A file outside the workspace: asRelativePath returns its path, which keeps its own separators.
   assert.equal(relativePathText('C:\\Other\\MAIN.TcPOU', '/', '\\'), 'C:\\Other\\MAIN.TcPOU');
 });
+
+// The menu of an editor tab of a TwinCAT object: VS Code's own Copy Path and Copy Relative Path copy the tab's label
+// there (`FB_Valve.Open`, the `twincat:` scheme's resourceLabelFormatters), so the extension adds its own.
+test('copy path: an object\'s editor tab has Copy File Path, Copy Relative File Path and Copy Qualified Name', () => {
+  const titles = new Map<string, string>(manifest.contributes.commands.map((c: { command: string; title: string }) => [c.command, c.title]));
+  assert.equal(titles.get('twincatExplorer.copyFilePath'), 'Copy File Path');
+  assert.equal(titles.get('twincatExplorer.copyRelativeFilePath'), 'Copy Relative File Path');
+  assert.equal(titles.get('twincatExplorer.copyQualifiedName'), 'Copy Qualified Name');
+  const tab: MenuItem[] = manifest.contributes.menus['editor/title/context'] ?? [];
+  for (const command of ['twincatExplorer.copyFilePath', 'twincatExplorer.copyRelativeFilePath', 'twincatExplorer.copyQualifiedName']) {
+    const item = tab.find(m => m.command === command);
+    assert.ok(item, command);
+    assert.equal(item.when, 'resourceScheme == twincat', command);
+    // In the Command Palette while such an editor is active.
+    assert.equal(palette.find(m => m.command === command)?.when, 'resourceScheme == twincat', command);
+  }
+});
+
+test('copy path: the tree has Copy Qualified Name after Copy Relative Path, on the nodes of an object', () => {
+  const item = treeMenu.find(m => m.command === 'twincatExplorer.copyQualifiedName' && m.when?.includes('view == twincatExplorer.tree'));
+  assert.ok(item);
+  assert.equal(item.group, '9_copy@4');
+  const re = new RegExp(/viewItem =~ \/(.*?)\//.exec(item.when!)![1]);
+  assert.ok(re.test('object openable hasFile hasObject named'), 'method');
+  assert.ok(re.test('file openable hasFile hasObject stFile named objectFile'), 'POU');
+  assert.ok(!re.test('plcproj hasFile addObject expandable'), 'PLC project');
+  assert.ok(!re.test('file hasFile named'), 'a file without an object (a task)');
+});
+
+test('copy path: the qualified name is the one the MCP server takes, with the PLC project, for a POU, method and accessor', async () => {
+  const { TcWorkspace } = await import('../../src/core/workspace');
+  const { Session } = await import('../../src/mcp/session');
+  const { findFiles } = await import('./helpers');
+  const sample = path.join(__dirname, '..', '..', '..', 'samples', 'Demo');
+  const ws = new TcWorkspace();
+  ws.load(findFiles(sample, '.tsproj'));
+  const session = new Session(sample);
+  session.refresh();
+  const find = (name: string) => {
+    for (const e of ws.sourceEntries) {
+      for (const o of ws.getFile(e.path)?.ordered ?? []) if (o.qualifiedName === name) return { fsPath: e.path, id: o.id };
+    }
+    throw new Error(name);
+  };
+  const cases: [string, 'Get' | 'Set' | undefined, string][] = [
+    ['FB_Valve', undefined, 'Machine:FB_Valve'],
+    ['FB_Valve.Open', undefined, 'Machine:FB_Valve.Open'],
+    ['FB_Conveyor.Speed', 'Set', 'Machine:FB_Conveyor.Speed.Set'],
+    ['I_Valve.State', 'Get', 'DemoLib:I_Valve.State.Get'],
+  ];
+  for (const [name, accessor, expected] of cases) {
+    const o = find(name);
+    const qualified = ws.qualifiedName(o.fsPath, o.id, accessor);
+    assert.equal(qualified, expected);
+    const view = session.resolve(qualified!);
+    assert.equal(view.obj.id, o.id, expected);
+    assert.equal(view.accessor, accessor, expected);
+  }
+  assert.equal(ws.qualifiedName(find('FB_Valve').fsPath, 'no such id'), undefined);
+});

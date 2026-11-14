@@ -979,6 +979,10 @@ Commit SHA and Copy Name. Beside Copy Name, the TwinCAT tree has Copy Path and C
 file holds (projects, POUs, DUTs, GVLs, interfaces, and the methods, properties and actions, which copy their POU's
 file), as VS Code's Explorer has them: the relative path is that of the workspace folder, in the separator
 `explorer.copyRelativePathSeparator` sets.
+Copy Qualified Name copies the name of a POU, DUT, GVL, interface, method, property, action or accessor with its
+PLC project, `Machine:FB_Valve.Open`, as the MCP server's tools take it. An object's editor tab has them too, as
+Copy File Path, Copy Relative File Path and Copy Qualified Name: VS Code's own Copy Path and Copy Relative Path copy
+the tab's name there (`FB_Valve.Open`), since the tab shows the object, not its file.
 
 | Command | What it does |
 |---|---|

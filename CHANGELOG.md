@@ -47,6 +47,11 @@ All notable changes to Explorer for TwinCAT. The format follows
 - The highlights of a symbol in a pane tell written from read as the analysis does: also a variable passed to a
   `VAR_IN_OUT` is written.
 
+### Fixed
+- `TwinCAT: Search...` (Ctrl+Shift+Alt+F) in the split editor searches the text selected there, as in a text
+  editor; it started with the last search text. A line selected whole searches that line, without its
+  indentation and line break, in both.
+
 ## 0.23.0 - 2026-11-11
 
 ### Added
@@ -88,9 +93,6 @@ All notable changes to Explorer for TwinCAT. The format follows
   object's PLC project.
 
 ### Fixed
-- `TwinCAT: Search...` (Ctrl+Shift+Alt+F) in the split editor searches the text selected there, as in a text
-  editor; it started with the last search text. A line selected whole searches that line, without its
-  indentation and line break, in both.
 - Screen readers read the TwinCAT projects, PLC projects, POUs, DUTs, GVLs and tasks of the tree by their label
   (`FB_Valve (FB)`), not by the path of their file, and folders without a trailing space.
 - Screen readers read the files and objects of TwinCAT Changes, TwinCAT Commits and History by their label,

@@ -459,6 +459,21 @@ function registerProviders(): void {
       post({ type: 'typeHierarchy', key: pane.section.key, text: model.getValue(), offset: model.getOffsetAt(position) });
     },
   });
+  // Find All References cannot tell writes from reads: the host shows the places of the name at the cursor by how each uses it.
+  monaco.editor.addEditorAction({
+    id: 'twincat.showReferencesByAccess',
+    label: 'Show References by Access',
+    precondition: '!inReferenceSearchEditor',
+    contextMenuGroupId: 'navigation',
+    contextMenuOrder: 1.6,
+    run(editor) {
+      const model = editor.getModel();
+      const position = editor.getPosition();
+      const pane = model ? ownPane(model) : undefined;
+      if (!model || !pane || !position) return;
+      post({ type: 'accessReferences', key: pane.section.key, text: model.getValue(), offset: model.getOffsetAt(position) });
+    },
+  });
   monaco.languages.registerHoverProvider(LANG, {
     async provideHover(model, position) {
       const pane = ownPane(model);

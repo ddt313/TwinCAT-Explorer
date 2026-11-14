@@ -24,6 +24,7 @@ import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { SymbolRename } from './vscode/rename';
 import { TypeHierarchy } from './vscode/typeHierarchy';
+import { AccessReferences } from './vscode/accessReferences';
 import { ShownTab } from './vscode/tabs';
 import { itemOrder } from './core/project';
 import { NavStack } from './core/navStack';
@@ -1124,6 +1125,18 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.goToImplementation', (arg?: unknown) => hierarchy.goToImplementation(target(arg))),
   );
+  // Show References by Access: the places of a name grouped by written, read, called... (Find All References has no kinds).
+  const accessReferences = new AccessReferences(index, features);
+  objectEditors.accessReferences = (fk, key, text, offset) => accessReferences.showAt(fk, key, text, offset);
+  context.subscriptions.push(vscode.commands.registerCommand('twincatExplorer.showReferencesByAccess', async (arg?: unknown) => {
+    // From a notebook cell (its context menu, the Command Palette): at its cursor.
+    const editor = vscode.window.activeTextEditor;
+    if ((arg === undefined || arg instanceof vscode.Uri) && editor && cellInfo(editor.document)) {
+      await accessReferences.showInCell(editor.document, editor.selection.active);
+    } else {
+      await accessReferences.showObject(target(arg));
+    }
+  }));
   /**
    * Where a new object goes: the PLC project or folder of a tree node; else the folder of the active editor's
    * object, or a PLC project picked.

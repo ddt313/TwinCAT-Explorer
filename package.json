@@ -544,6 +544,11 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.showReferencesByAccess",
+        "title": "Show References by Access",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.checkWorkspace",
         "title": "Check All Structured Text",
         "category": "TwinCAT"
@@ -882,6 +887,10 @@
         },
         {
           "command": "twincatExplorer.showTypeHierarchy",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.showReferencesByAccess",
           "when": "twincatExplorer.hasProjects"
         },
         {
@@ -1299,6 +1308,11 @@
           "group": "2_navigate@2"
         },
         {
+          "command": "twincatExplorer.showReferencesByAccess",
+          "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
+          "group": "2_navigate@3"
+        },
+        {
           "command": "twincatExplorer.addPou",
           "when": "view == twincatExplorer.tree && viewItem =~ /addObject/",
           "group": "1_add@1"
@@ -1593,6 +1607,11 @@
           "command": "twincatExplorer.autoDeclare",
           "when": "editorLangId == twincat-st && resourceScheme == vscode-notebook-cell",
           "group": "1_modification@90"
+        },
+        {
+          "command": "twincatExplorer.showReferencesByAccess",
+          "when": "editorLangId == twincat-st && resourceScheme == vscode-notebook-cell",
+          "group": "navigation@90"
         }
       ],
       "explorer/context": [

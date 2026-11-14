@@ -191,6 +191,7 @@ export type WebviewMessage =
   | { type: 'autoDeclare'; key: string; text: string; offset: number }
   /** Show Type Hierarchy at an offset of a pane (context menu): the host shows it in VS Code's References view. */
   | { type: 'typeHierarchy'; key: string; text: string; offset: number }
+  | { type: 'accessReferences'; key: string; text: string; offset: number }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 

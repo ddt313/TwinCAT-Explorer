@@ -199,6 +199,10 @@ export class Analyzer {
       case 'Paren':
         this.use(e.expr, access, path);
         break;
+      case 'Deref':
+        // SUPER^() calls the body of the base; of pData^.n := 0 pData is only read.
+        if (access === 'call' && !path) this.use(e.object, 'call');
+        break;
       default:
         break;
     }

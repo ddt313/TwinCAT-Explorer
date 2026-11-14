@@ -11,6 +11,7 @@ import { Session, ToolError } from './session';
 import { UndoLog, defaultUndoFile } from './undo';
 import { Xae } from '../core/xae';
 import * as T from './tools';
+import { ACCESS_KINDS } from '../lang/features';
 
 const INSTRUCTIONS = `TwinCAT 3 PLC code under this folder. .TcPOU, .TcDUT, .TcGVL and .TcIO files are XML: never read or edit them as text; use these tools.
 - Objects are named like TwinCAT XAE's tabs: FB_Valve, FB_Valve.Open (method), FB_Valve.Speed.Get (property accessor). With several PLC projects: Machine:FB_Valve.
@@ -128,7 +129,7 @@ register('references', {
     + 'Who writes a variable: access ["write", "readwrite", "address"].',
   inputSchema: {
     ...symbolRef, limit: z.number().int().positive().optional(),
-    access: z.array(z.enum(T.ACCESS_KINDS)).optional().describe('Only the places used so'),
+    access: z.array(z.enum(ACCESS_KINDS)).optional().describe('Only the places used so'),
   }, annotations: readOnly,
 }, run(T.references));
 

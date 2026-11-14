@@ -25,6 +25,11 @@ All notable changes to Explorer for TwinCAT. The format follows
   index a variable is used through (`write .eState` for `stStatus.eState := ...`), and a count per kind. Its new
   `access` filter answers who writes a variable: `access: ["write", "readwrite", "address"]`.
 
+- `TwinCAT: Show References by Access` (context menu of the panes, of notebook cells and of the TwinCAT tree):
+  the places of a name in the References view, grouped by how each uses it (`Write`, `Read and write
+  (VAR_IN_OUT)`, `Address taken`, `Call`, `Read`, `Declaration`, `Type`) and by object, each with its line and the
+  member or index a variable is used through. Find All References cannot tell writes from reads.
+
 ### Changed
 - The highlights of a symbol in a pane tell written from read as the analysis does: also a variable passed to a
   `VAR_IN_OUT` is written.

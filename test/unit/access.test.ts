@@ -146,6 +146,11 @@ test('how code uses each name: written, read, called, its address taken, through
     // FOR, S=, R=.
     assert.deepEqual(uses('FOR i := 1 TO n DO\nEND_FOR'), ['i write', 'n read']);
     assert.deepEqual(uses('b S= fbValve.bOut;'), ['b write', 'fbValve read .bOut', 'bOut read']);
+    // The body of a function block called through a dereference: SUPER^() in a function block that extends one.
+    const valve = index.context(fileKey(file('POUs/FB_Valve.TcPOU')), `${guid(10).replace(/[{}]/g, '')}:impl`)!;
+    const inValve = (st: string) => analyze(index, valve, st).occurrences.map(o => [st.slice(o.start, o.end), o.access, o.path].filter(x => x).join(' '));
+    assert.deepEqual(inValve('THIS^();'), ['THIS call']);
+    assert.deepEqual(inValve('THIS^.Open();'), ['THIS read', 'Open call']);
     // A qualified name: the GVL is no variable written.
     assert.deepEqual(uses('GVL_IO.bStart := TRUE;'), ['GVL_IO read', 'bStart write']);
 

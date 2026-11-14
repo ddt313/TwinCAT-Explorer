@@ -14,6 +14,8 @@ import { decodeBytes, encodeText, parseTcText } from '../../src/core/tcfile';
 import { applySectionEdits } from '../../src/core/splice';
 import { LanguageIndex } from '../../src/lang/index';
 import { analyze } from '../../src/lang/analyzer';
+import { SectionFeatures, accessGroups } from '../../src/lang/features';
+import { PouSym } from '../../src/lang/symbols';
 import { parseBody, parseDeclaration } from '../../src/lang/parser';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 import { findFiles } from './helpers';
@@ -135,7 +137,7 @@ test('samples/Demo: the MCP tool references tells who writes a variable, through
     t.session.refresh();
     // stStatus of FB_ValveBase, written in its methods and in FB_Valve, which extends it.
     assert.equal(T.references(t, { symbol: 'FB_ValveBase.stStatus', access: ['write', 'readwrite', 'address'] }), [
-      'stStatus: 9 of 18 place(s) (write, readwrite, address); all: 1 declaration, 9 write, 8 read',
+      'stStatus: 9 of 18 place(s) (write, readwrite, address); all: 9 write, 8 read, 1 declaration',
       'FB_Valve impl:4  write .eState  stStatus.eState := E_ValveState.Open;',
       'FB_Valve impl:6  write .eState  stStatus.eState := E_ValveState.Closed;',
       'FB_Valve.A_Reset impl:1  write .eState  stStatus.eState := E_ValveState.Closed;',
@@ -148,7 +150,7 @@ test('samples/Demo: the MCP tool references tells who writes a variable, through
     ].join('\n'));
     // A function block instance: called, a property set, a method called, an output read.
     assert.equal(T.references(t, { symbol: 'MAIN.fbConveyor' }), [
-      'fbConveyor: 6 place(s): 1 declaration, 1 write, 2 call, 2 read',
+      'fbConveyor: 6 place(s): 1 write, 2 call, 2 read, 1 declaration',
       'MAIN decl:4  declaration  fbConveyor\t: FB_Conveyor;',
       'MAIN impl:6  call  fbConveyor(bEnable := fbFill.bDone);',
       'MAIN impl:7  read .bRunning  IF fbFill.bDone AND NOT fbConveyor.bRunning THEN',
@@ -159,6 +161,25 @@ test('samples/Demo: the MCP tool references tells who writes a variable, through
   } finally {
     fs.rmSync(undo, { recursive: true, force: true });
   }
+});
+
+test('samples/Demo: Show References by Access groups the places of stStatus, writes first, each with its line', () => {
+  const index = new LanguageIndex(load());
+  index.setStubs(BUNDLED_STUBS);
+  const features = new SectionFeatures(index);
+  const base = index.allGlobals().find((g): g is PouSym => g.kind === 'pou' && g.name === 'FB_ValveBase')!;
+  const stStatus = base.vars.find(v => v.name === 'stStatus')!;
+  const groups = accessGroups(index, features.references(stStatus, true));
+  assert.deepEqual(groups.map(g => `${g.kind} ${g.places.length}`), ['write 9', 'read 8', 'declaration 1']);
+  const write = groups[0].places[3];
+  assert.equal(write.line, 'stStatus.nCycles := 0;');
+  assert.equal(write.where, '.nCycles  FB_Valve.A_Reset · Implementation:2');
+  assert.equal(write.line.slice(...write.highlight), 'stStatus');
+  // The name's range in the line as shown, its indentation left out.
+  const indented = groups[0].places[0];
+  assert.equal(indented.where, '.eState  FB_Valve · Implementation:4');
+  assert.equal(indented.line.slice(...indented.highlight), 'stStatus');
+  assert.equal(groups[2].places[0].where, 'FB_ValveBase · Declaration:6');
 });
 
 test('samples/Demo: its files have the bytes XAE wrote, and a section edited and edited back gives them again', () => {

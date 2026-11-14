@@ -14,8 +14,7 @@ import { NewObjectKind } from '../core/newObjects';
 import { objectTreeLabel } from '../core/treeLabels';
 import { PlcProject, sameName } from '../core/project';
 import { fileKey } from '../core/workspace';
-import { Occurrence } from '../lang/analyzer';
-import { describeOwner } from '../lang/features';
+import { ACCESS_KINDS, AccessKind, accessKind, describeOwner } from '../lang/features';
 import { implementations, typeTree, TypeTree } from '../lang/hierarchy';
 import { newObjectStubs, objectNameProblem } from '../lang/objects';
 import { Matcher, QueryError, SearchCount, SearchScope, compileQuery, matchLines, searchSections } from '../lang/search';
@@ -237,14 +236,6 @@ export function definition(t: Tools, r: SymbolRef): string {
   if (sym.doc) out.push(`// ${sym.doc.replace(/\n/g, '\n// ')}`);
   out.push(sym.loc ? `Declared at ${t.session.describeLoc(sym.loc)}` : 'Declared in a library (no source)');
   return out.join('\n');
-}
-
-/** How a place uses a name, as references shows and filters it. */
-export const ACCESS_KINDS = ['declaration', 'write', 'readwrite', 'address', 'call', 'read', 'type'] as const;
-export type AccessKind = typeof ACCESS_KINDS[number];
-
-function accessKind(o: Occurrence): AccessKind {
-  return o.decl ? 'declaration' : o.role === 'type' ? 'type' : o.access ?? 'read';
 }
 
 /**

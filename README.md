@@ -518,6 +518,16 @@ These work in both panes and in notebook cells. They come from a parser of the T
   for; and the `{region}`s of both.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
   double-click a result to open it. The highlights of a symbol in a pane tell written from read.
+- **Show References by Access** (context menu of a pane or a notebook cell, at the name under the
+  cursor; or of an object in the TwinCAT tree): the places of a variable, POU, method, property or type
+  in VS Code's References view, grouped by how each uses it, then by object: `Write`, `Read and write
+  (VAR_IN_OUT)`, `Address taken`, `Call`, `Read`, `Declaration`, `Type`. Each place shows its line, and
+  the member or index a variable is used through (`.eState` for `stStatus.eState := ...`) with its line
+  number; a click opens the split editor there, and F4 / Shift+F4 go to the next and previous place.
+  Find All References cannot tell them apart: VS Code gives its places no kind. What counts as a
+  write is what the MCP server's `references` tells (see [MCP server for AI agents](#mcp-server-for-ai-agents)): a method called
+  on an instance is a call, what a pointer points to is not followed, and only the code of the
+  workspace counts (not the I/O mapping, ADS or an HMI).
 - **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that
   implement it, directly, through an interface that extends it or by extending one that implements it;
   on a function block, those that extend it, at any depth; on a method or property, also at a call
@@ -1001,6 +1011,7 @@ Commit SHA and Copy Name.
 | `TwinCAT: Add Library...` | Add a reference to a library of the TwinCAT library repository to a PLC project (see [Adding libraries](#adding-libraries)). |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
+| `TwinCAT: Show References by Access` | The places of a name grouped by how each uses it (written, read, called...) in the References view: at the cursor of a pane (context menu) or notebook cell, or of a tree node's object. |
 | `TwinCAT: Show Type Hierarchy` | The supertypes and subtypes of a function block or interface in the References view: of a tree node, of the split editor's object, or at the cursor of a pane (context menu) or notebook cell. |
 | `Go to Implementation` | In the TwinCAT tree: open what implements or overrides the function block, interface, method or property (Ctrl+F12 in the editors). |
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |

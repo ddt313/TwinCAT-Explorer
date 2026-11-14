@@ -204,6 +204,11 @@ export class CommitDiffPanel implements vscode.Disposable {
         if (live) void this.provider.typeHierarchy?.(fileKey(live), m.key, m.text, m.offset);
         return;
       }
+      case 'accessReferences': {
+        const live = this.content?.livePath;
+        if (live) void this.provider.accessReferences?.(fileKey(live), m.key, m.text, m.offset);
+        return;
+      }
       case 'error':
         this.provider.log?.(`Commit diff webview: ${m.message}`);
         return;

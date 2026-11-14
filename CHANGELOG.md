@@ -21,6 +21,12 @@ All notable changes to Explorer for TwinCAT. The format follows
   property, action, DUT or GVL turns those kinds of problems off there (a POU's in its members too); without a
   value, all of them.
 
+### Fixed
+- The MCP server's `build`, and its tools that add or delete objects, with a 32-bit TwinCAT XAE Shell
+  (`TcXaeShell.DTE.15.0`) on 64-bit Windows: they stopped with `TwinCAT XAE gave no running document table`, as
+  the XAE bridge ran as a 64-bit process, which XAE's COM proxies are not registered for. A 32-bit XAE is now driven
+  by a 32-bit bridge, compiled beside the other on first use.
+
 ## 0.23.0 - 2026-11-11
 
 ### Added

@@ -517,7 +517,26 @@ These work in both panes and in notebook cells. They come from a parser of the T
   of a state machine) with the comment on their line, as `20 — Wait for the axis`, which can be searched
   for; and the `{region}`s of both.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
-  double-click a result to open it.
+  double-click a result to open it. The highlights of a symbol in a pane tell written from read.
+- **Show References by Access** (context menu of a pane or a notebook cell, at the name under the
+  cursor; or of an object in the TwinCAT tree): the places of a variable, POU, method, property or type
+  in VS Code's References view, grouped by how each uses it, then by object: `Write`, `Read and write
+  (VAR_IN_OUT)`, `Address taken`, `Call`, `Read`, `Declaration`, `Type`. Each place shows its line, and
+  the member or index a variable is used through (`.eState` for `stStatus.eState := ...`) with its line
+  number; a click opens the split editor there, and F4 / Shift+F4 go to the next and previous place.
+  Find All References cannot tell them apart: VS Code gives its places no kind. What counts as a
+  write is what the MCP server's `references` tells (see [MCP server for AI agents](#mcp-server-for-ai-agents)): a method called
+  on an instance is a call, what a pointer points to is not followed, and only the code of the
+  workspace counts (not the I/O mapping, ADS or an HMI).
+- **Show Call Hierarchy** (context menu of a pane or a notebook cell; of a POU, method, action or
+  property in the TwinCAT tree): the function, program, function block, method, action or property at
+  the cursor (in its code, its own) in the References view, with its `Incoming Calls` and `Outgoing
+  Calls`, expanded level by level. A function block instance called (`fbValve()`, `aValves[i]()`,
+  `SUPER^()`) calls the function block's body. Incoming calls go up to the task that calls a program
+  (`PlcTask (task)`); those of a method include the calls through the interface method or base method
+  it implements or overrides (`FB_FillSequence (via I_Valve.Open)`), but not those through `SUPER^`,
+  which call the base's own. A library's POU ends the hierarchy; built-in functions are left out. A
+  caller or callee shows its call's line (or how many calls), and opens the split editor there.
 - **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that
   implement it, directly, through an interface that extends it or by extending one that implements it;
   on a function block, those that extend it, at any depth; on a method or property, also at a call
@@ -879,7 +898,20 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
 - **Tools:**
   - Reading: `status`, `objects` (the tree), `read`, `locate` (the object and line of code at lines of
     a file as `git diff` and `git blame` number them), `search_text` (a text or regular expression in the code,
-    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler; it names the objects excluded from the build and leaves them unchecked).
+    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `calls`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler; it names the objects excluded from the build and leaves them unchecked).
+  - `calls`: the call hierarchy of a function, program, function block, method or action, `incoming`
+    (what calls it, up to the tasks) or `outgoing` (what it calls), to `depth` levels (1 to 5), each
+    caller or callee with its calls (`·`), as Show Call Hierarchy finds them.
+  - `references` tells how each place uses the name, and filters by it (`access`):
+    `declaration`, `write` (the target of `:=`, `S=`, `R=`, `REF=` or `=>`, the variable of a `FOR`, an
+    input passed in a call), `readwrite` (passed to a `VAR_IN_OUT`), `address` (`ADR`, `BITADR`, `REF=`),
+    `call`, `read` or `type`. A variable used through a member or index shows it:
+    `FB_ValveBase impl:3  write .eState  stStatus.eState := E_ValveState.Error;`. A method called on
+    an instance (`fbValve.Open()`) is a call, not a write. Of `pData^.n := 0`, `pData` is read: what a
+    pointer points to is not followed. Who writes a variable: `access: ["write", "readwrite",
+    "address"]`. The references of a variable are those of that variable; those of a field of a
+    structure (`ST_ValveStatus.eState`) are those of every variable of that type. Only the code of the
+    workspace counts: not the I/O mapping, ADS or an HMI.
   - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
     `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
     the edited section, or the elements XAE writes for a new member or object (in the `.plcproj`, its
@@ -998,6 +1030,8 @@ the tab's name there (`FB_Valve.Open`), since the tab shows the object, not its 
 | `TwinCAT: Add Library...` | Add a reference to a library of the TwinCAT library repository to a PLC project (see [Adding libraries](#adding-libraries)). |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
+| `TwinCAT: Show Call Hierarchy` | What calls the function, program, function block, method or action at the cursor of a pane (context menu) or notebook cell, or of a tree node, and what it calls, in the References view. |
+| `TwinCAT: Show References by Access` | The places of a name grouped by how each uses it (written, read, called...) in the References view: at the cursor of a pane (context menu) or notebook cell, or of a tree node's object. |
 | `TwinCAT: Show Type Hierarchy` | The supertypes and subtypes of a function block or interface in the References view: of a tree node, of the split editor's object, or at the cursor of a pane (context menu) or notebook cell. |
 | `Go to Implementation` | In the TwinCAT tree: open what implements or overrides the function block, interface, method or property (Ctrl+F12 in the editors). |
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |

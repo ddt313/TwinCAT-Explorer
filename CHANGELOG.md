@@ -29,6 +29,23 @@ All notable changes to Explorer for TwinCAT. The format follows
 - `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU, method,
   property, action, DUT or GVL turns those kinds of problems off there (a POU's in its members too); without a
   value, all of them.
+- The MCP server's `references` tells how each place uses the name: `declaration`, `write`, `readwrite`
+  (passed to a `VAR_IN_OUT`), `address` (`ADR`, `BITADR`, `REF=`), `call`, `read` or `type`, with the member or
+  index a variable is used through (`write .eState` for `stStatus.eState := ...`), and a count per kind. Its new
+  `access` filter answers who writes a variable: `access: ["write", "readwrite", "address"]`.
+
+- `TwinCAT: Show References by Access` (context menu of the panes, of notebook cells and of the TwinCAT tree):
+  the places of a name in the References view, grouped by how each uses it (`Write`, `Read and write
+  (VAR_IN_OUT)`, `Address taken`, `Call`, `Read`, `Declaration`, `Type`) and by object, each with its line and the
+  member or index a variable is used through. Find All References cannot tell writes from reads.
+- `TwinCAT: Show Call Hierarchy` (context menu of the panes, of notebook cells and of the TwinCAT tree): what calls a
+  function, program, function block, method or action, up to the task that calls a program, and what it calls, in
+  the References view, level by level. A method's callers include those through the interface or base method it
+  implements or overrides (`via I_Valve.Open`). The MCP server's new `calls` gives the same, to a depth of 5.
+
+### Changed
+- The highlights of a symbol in a pane tell written from read as the analysis does: also a variable passed to a
+  `VAR_IN_OUT` is written.
 
 ## 0.23.0 - 2026-11-11
 

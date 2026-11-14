@@ -301,6 +301,12 @@ export class EditorSession implements vscode.Disposable {
       case 'typeHierarchy':
         void this.provider.typeHierarchy?.(this.fileKey, m.key, m.text, m.offset);
         return Promise.resolve();
+      case 'accessReferences':
+        void this.provider.accessReferences?.(this.fileKey, m.key, m.text, m.offset);
+        return Promise.resolve();
+      case 'callHierarchy':
+        void this.provider.callHierarchy?.(this.fileKey, m.key, m.text, m.offset);
+        return Promise.resolve();
       case 'error':
         this.provider.log?.(`Split editor webview: ${m.message}`);
         return Promise.resolve();
@@ -711,6 +717,10 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
   };
   /** Show Type Hierarchy in the context menu of a pane: of the type at an offset of a section of a file (see typeHierarchy.ts). */
   typeHierarchy?: (fk: string, key: string, text: string, offset: number) => Promise<void>;
+  /** Show References by Access in the context menu of a pane: of the name at an offset of a section of a file (see accessReferences.ts). */
+  accessReferences?: (fk: string, key: string, text: string, offset: number) => Promise<void>;
+  /** Show Call Hierarchy in the context menu of a pane: of the callable at an offset of a section of a file (see callHierarchy.ts). */
+  callHierarchy?: (fk: string, key: string, text: string, offset: number) => Promise<void>;
   log?: (message: string) => void;
   private readonly disposables: vscode.Disposable[] = [];
   private changesContext: boolean | undefined;

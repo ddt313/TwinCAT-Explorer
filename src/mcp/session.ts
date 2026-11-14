@@ -179,14 +179,15 @@ export class Session {
   }
 
   /** Where a location is, for tool output: `FB_Valve.Open impl:12  nCount := nCount + 1;`. */
-  describeLoc(loc: Loc): string {
+  /** `MAIN impl:12  <note>  <the line>`: where a place is, with a note (how a name is used there) before its line. */
+  describeLoc(loc: Loc, note?: string): string {
     const ctx = this.index.context(loc.fileKey, loc.sectionKey);
     const text = this.index.sectionText(loc.fileKey, loc.sectionKey);
     if (!ctx || text === undefined) return '(unknown place)';
     const { line } = positionIn(text, loc.start);
     const lineText = text.split('\n')[line]?.trim() ?? '';
     const label = ctx.accessor ? `${ctx.object.qualifiedName}.${ctx.accessor}` : ctx.object.qualifiedName;
-    return `${label} ${ctx.role}:${line + 1}  ${lineText}`;
+    return `${label} ${ctx.role}:${line + 1}  ${note ? `${note}  ` : ''}${lineText}`;
   }
 }
 

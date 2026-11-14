@@ -58,6 +58,8 @@ export class TreeNode {
   implementsInterfaces = false;
   /** A function block or interface: Show Type Hierarchy. */
   typeHierarchy = false;
+  /** A function, program, function block, method, action or property: Show Call Hierarchy. */
+  callHierarchy = false;
   /** A function block or interface, or a method or property of one: Go to Implementation. */
   goToImplementation = false;
   /** The file of a POU, DUT, GVL or interface: it can be renamed, moved and deleted. */
@@ -79,6 +81,7 @@ export class TreeNode {
     if (this.libraryTarget) parts.push('addLibrary');
     if (this.implementsInterfaces) parts.push('implements');
     if (this.typeHierarchy) parts.push('typeHierarchy');
+    if (this.callHierarchy) parts.push('callHierarchy');
     if (this.goToImplementation) parts.push('goToImplementation');
     if (this.objectFile) parts.push('objectFile');
     if (this.kind === 'folder' && this.children.length === 0) parts.push('emptyFolder');
@@ -319,6 +322,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     const type = root.kind === 'itf' || root.pouKind === 'FB';
     node.typeHierarchy = type;
     node.goToImplementation = type;
+    node.callHierarchy = root.kind === 'pou';
     this.indexObject(file, root, node);
     if (root.members.length === 0 && root.innerFolders.length === 0) return;
     const inner = new Map<string, TreeNode>();
@@ -357,6 +361,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       mn.tooltip = `${m.qualifiedName} (${m.kind})`;
       mn.resourceUri = objectUri(fsPath, m);
       mn.goToImplementation = type && (m.kind === 'method' || m.kind === 'property');
+      mn.callHierarchy = m.kind === 'method' || m.kind === 'action' || m.kind === 'property';
       this.indexObject(file, m, mn);
       for (const acc of m.accessors) {
         const an = this.add(new TreeNode(`acc:${prefix}|${fk}|${m.id}|${acc.kind}`, 'accessor', acc.kind, mn));

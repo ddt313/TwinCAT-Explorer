@@ -14,7 +14,8 @@ import { NewObjectKind } from '../core/newObjects';
 import { objectTreeLabel } from '../core/treeLabels';
 import { PlcProject, sameName } from '../core/project';
 import { fileKey } from '../core/workspace';
-import { describeOwner } from '../lang/features';
+import { ACCESS_KINDS, AccessKind, accessKind, describeOwner } from '../lang/features';
+import { Callable, callGraphOf, callGroups, isCallable } from '../lang/callGraph';
 import { implementations, typeTree, TypeTree } from '../lang/hierarchy';
 import { newObjectStubs, objectNameProblem } from '../lang/objects';
 import { Matcher, QueryError, SearchCount, SearchScope, compileQuery, matchLines, searchSections } from '../lang/search';
@@ -238,14 +239,59 @@ export function definition(t: Tools, r: SymbolRef): string {
   return out.join('\n');
 }
 
-export function references(t: Tools, r: SymbolRef & { limit?: number }): string {
+/**
+ * Every place a symbol is declared or used, each with how it is used there (`write .eState`: through that member)
+ * and its line; with `access`, those used so only. A count per kind first.
+ */
+export function references(t: Tools, r: SymbolRef & { limit?: number; access?: AccessKind[] }): string {
   const s = t.session;
   const sym = findSym(t, r);
-  const locs = s.features.referenceLocs(sym, true);
+  const all = s.features.references(sym, true);
+  const counts = ACCESS_KINDS.map(k => [k, all.filter(x => accessKind(x.occ) === k).length] as const).filter(([, n]) => n > 0);
+  const summary = counts.map(([k, n]) => `${n} ${k}`).join(', ');
+  const wanted = r.access?.length ? new Set(r.access) : undefined;
+  const places = wanted ? all.filter(x => wanted.has(accessKind(x.occ))) : all;
   const limit = r.limit ?? 200;
-  const out = [`${symbolName(sym)}: ${locs.length} place(s)`, ...locs.slice(0, limit).map(l => s.describeLoc(l))];
-  if (locs.length > limit) out.push(`-- ${limit} of ${locs.length}`);
+  const head = wanted
+    ? `${symbolName(sym)}: ${places.length} of ${all.length} place(s) (${[...wanted].join(', ')})${all.length ? `; all: ${summary}` : ''}`
+    : `${symbolName(sym)}: ${all.length} place(s)${all.length ? `: ${summary}` : ''}`;
+  const out = [head, ...places.slice(0, limit).map(x => s.describeLoc(x.loc, accessKind(x.occ) + (x.occ.path ? ` ${x.occ.path}` : '')))];
+  if (places.length > limit) out.push(`-- ${limit} of ${places.length}`);
   return out.join('\n');
+}
+
+/**
+ * The call hierarchy of a function, program, function block (its body), method or action: what calls it (with the
+ * tasks that call a program; a method also through what it implements or overrides, `via`), or what it calls, to
+ * `depth` levels. Each caller or callee, then its calls (`·`), then its own callers or callees one level deeper.
+ */
+export function calls(t: Tools, r: SymbolRef & { direction?: 'incoming' | 'outgoing'; depth?: number; limit?: number }): string {
+  const s = t.session;
+  const sym = findSym(t, r);
+  if (!isCallable(sym)) {
+    const hint = sym.kind === 'var' ? `: the places it is called are in references with access ["call"]; for its function block's calls, ask for the function block` : '';
+    throw new ToolError(`${symbolName(sym)} is not a function, program, function block, method, action or property${hint}`);
+  }
+  const graph = callGraphOf(s.index, s.features);
+  const incoming = (r.direction ?? 'incoming') === 'incoming';
+  const depth = Math.min(Math.max(r.depth ?? 1, 1), 5);
+  const limit = r.limit ?? 200;
+  const lines: string[] = [];
+  const walk = (c: Callable, level: number, seen: Set<string>) => {
+    const groups = callGroups(graph, c, incoming ? 'incoming' : 'outgoing');
+    const indent = '  '.repeat(level);
+    for (const g of groups) {
+      const nextKey = g.next?.id;
+      const recursive = nextKey !== undefined && seen.has(nextKey);
+      lines.push(`${indent}${g.label}${recursive ? ' (recursive)' : ''}`);
+      for (const site of g.sites) if (site.loc) lines.push(`${indent}  · ${s.describeLoc(site.loc)}`);
+      if (g.next && !recursive && level < depth) walk(g.next, level + 1, new Set([...seen, g.next.id]));
+    }
+  };
+  walk(sym, 1, new Set([sym.id]));
+  const head = `${symbolName(sym)}: ${incoming ? 'called by' : 'calls'}${depth > 1 ? ` (${depth} levels)` : ''}`;
+  if (lines.length === 0) return `${head}\n  nothing in the workspace`;
+  return [head, ...lines.slice(0, limit), ...(lines.length > limit ? [`-- ${limit} of ${lines.length} lines`] : [])].join('\n');
 }
 
 export function hierarchy(t: Tools, r: SymbolRef): string {

@@ -12,48 +12,9 @@ import { Loc, MemberSym, PouSym, isLibrarySym } from '../lang/symbols';
 import { TcObject } from '../core/tcfile';
 import { fileKey } from '../core/workspace';
 import { LanguageFeatures, describeOwner } from './language';
+import { SymbolTreeInput, SymbolTreeModel, referencesView } from './referencesView';
 import { ShowPlaces } from './rename';
 import { objectIcon } from './tree';
-
-/** The part of the API of the references-view extension used here (see its references-view.d.ts). */
-interface SymbolTree {
-  setInput(input: SymbolTreeInput<unknown>): void;
-}
-
-/** What the References view shows: anchored at a word of a document, resolved to a tree once shown. */
-interface SymbolTreeInput<T> {
-  /** The value of the `reference-list.source` context key. */
-  readonly contextValue: string;
-  readonly title: string;
-  readonly location: vscode.Location;
-  resolve(): vscode.ProviderResult<SymbolTreeModel<T>>;
-  /** The same at another place: re-run from the view's history. */
-  with(location: vscode.Location): SymbolTreeInput<T>;
-}
-
-interface SymbolTreeModel<T> {
-  provider: vscode.TreeDataProvider<T>;
-  /** Shown above the tree. */
-  message: string | undefined;
-  /** For Go to Next and Go to Previous (F4, Shift+F4) of the view. */
-  navigation?: {
-    nearest(uri: vscode.Uri, position: vscode.Position): T | undefined;
-    next(from: T): T;
-    previous(from: T): T;
-    location(item: T): vscode.Location | undefined;
-  };
-}
-
-/** The API of the References view; undefined when its extension is disabled. */
-async function referencesView(): Promise<SymbolTree | undefined> {
-  const ext = vscode.extensions.getExtension<SymbolTree>('vscode.references-view');
-  try {
-    const api = ext && (ext.isActive ? ext.exports : await ext.activate());
-    return typeof api?.setInput === 'function' ? api : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 type Direction = 'supertypes' | 'subtypes';
 

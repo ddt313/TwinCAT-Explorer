@@ -1,5 +1,6 @@
 // A small test harness for the integration tests: they run inside VS Code's extension host, one after another,
 // on the copy of samples/Demo that scripts/test-integration.js opens. No test framework is needed for that.
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import type { TwinCatExplorerApi } from '../../src/extension';
 import type { TreeNode } from '../../src/vscode/tree';
@@ -16,12 +17,22 @@ export function test(name: string, fn: () => unknown | Promise<unknown>): void {
   cases.push({ name, fn });
 }
 
-/** Runs the tests whose name matches TWINCAT_TEST_GREP (all of them without it), and fails when one fails. */
+/** One test's result, written to TWINCAT_TEST_RESULTS for the summary (scripts/test-summary.js). */
+interface Result {
+  name: string;
+  ok: boolean;
+  ms: number;
+  error?: string;
+}
+
+/**
+ * Runs the tests whose name matches TWINCAT_TEST_GREP (all of them without it), and fails when one fails. The results
+ * go to the JSON file TWINCAT_TEST_RESULTS names, when it is set.
+ */
 export async function runAll(): Promise<void> {
   const grep = process.env.TWINCAT_TEST_GREP ? new RegExp(process.env.TWINCAT_TEST_GREP, 'i') : undefined;
   const timeout = Number(process.env.TWINCAT_TEST_TIMEOUT ?? 30000);
-  let passed = 0;
-  const failed: string[] = [];
+  const results: Result[] = [];
   for (const c of cases) {
     if (grep && !grep.test(c.name)) continue;
     const start = Date.now();
@@ -31,18 +42,21 @@ export async function runAll(): Promise<void> {
         Promise.resolve().then(c.fn),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${timeout} ms`)), timeout); }),
       ]);
-      passed++;
+      results.push({ name: c.name, ok: true, ms: Date.now() - start });
       console.log(`✔ ${c.name} (${Date.now() - start} ms)`);
     } catch (e) {
-      failed.push(c.name);
+      const error = (e as Error)?.stack ?? String(e);
+      results.push({ name: c.name, ok: false, ms: Date.now() - start, error });
       console.log(`✖ ${c.name} (${Date.now() - start} ms)`);
-      console.log(`  ${((e as Error)?.stack ?? String(e)).split('\n').join('\n  ')}`);
+      console.log(`  ${error.split('\n').join('\n  ')}`);
     } finally {
       clearTimeout(timer);
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     }
   }
-  console.log(`ℹ tests ${passed + failed.length}, pass ${passed}, fail ${failed.length}`);
+  if (process.env.TWINCAT_TEST_RESULTS) fs.writeFileSync(process.env.TWINCAT_TEST_RESULTS, JSON.stringify(results, null, 1));
+  const failed = results.filter(r => !r.ok).map(r => r.name);
+  console.log(`ℹ tests ${results.length}, pass ${results.length - failed.length}, fail ${failed.length}`);
   if (failed.length) throw new Error(`${failed.length} integration test(s) failed: ${failed.join('; ')}`);
 }
 

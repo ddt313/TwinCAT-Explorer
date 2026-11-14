@@ -14,6 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { downloadAndUnzipVSCode, runTests } = require('@vscode/test-electron');
+const { appendSummary, summaryMarkdown } = require('./test-summary');
 
 const repo = path.resolve(__dirname, '..');
 const tests = path.join(repo, 'out', 'test', 'integration', 'index.js');
@@ -54,6 +55,9 @@ async function waitForDownload() {
   if (!fs.existsSync(tests)) throw new Error(`${path.relative(repo, tests)} is missing: run npm run compile first`);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'explorer-for-twincat-it-'));
   const workspace = path.join(root, 'Demo');
+  const resultsFile = path.join(root, 'results.json');
+  const start = Date.now();
+  let problem;
   try {
     fs.cpSync(path.join(repo, 'samples', 'Demo'), workspace, { recursive: true });
     const git = (...args) => execFileSync('git', args, { cwd: workspace, stdio: 'pipe' });
@@ -72,13 +76,28 @@ async function waitForDownload() {
       extensionTestsEnv: {
         TWINCAT_TEST_GREP: process.env.TWINCAT_TEST_GREP ?? '',
         TWINCAT_TEST_TIMEOUT: process.env.TWINCAT_TEST_TIMEOUT ?? '',
+        TWINCAT_TEST_RESULTS: resultsFile,
       },
       launchArgs: [
         workspace, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
         '--disable-gpu', `--user-data-dir=${path.join(root, 'user-data')}`, `--extensions-dir=${path.join(root, 'extensions')}`,
       ],
     });
+  } catch (e) {
+    problem = String(e);
+    throw e;
   } finally {
+    // The Summary of the GitHub Actions step: the tests that ran, or why none did (VS Code did not start).
+    const results = (fs.existsSync(resultsFile) ? JSON.parse(fs.readFileSync(resultsFile, 'utf8')) : []).map(r => ({
+      ...r,
+      // Shorter traces: the repository's own paths, without Node's frames.
+      error: r.error?.split('\n').filter(line => !/^\s+at .*\(?node:/.test(line)).join('\n').split(repo + path.sep).join(''),
+    }));
+    const failedTests = results.some(r => !r.ok);
+    appendSummary(summaryMarkdown('Integration tests (VS Code)', results, {
+      ms: Date.now() - start,
+      problem: problem && (!failedTests || results.length === 0) ? problem : undefined,
+    }));
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 5 });
   }
 })().catch(e => {

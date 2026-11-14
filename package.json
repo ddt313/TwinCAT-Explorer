@@ -1952,7 +1952,7 @@
   "scripts": {
     "compile": "tsc -p . && node scripts/build-vendor.js && tsc -p src/webview && node scripts/build-webview.js && node scripts/build-mcp.js && node scripts/build-web.js",
     "watch": "tsc -w -p .",
-    "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
+    "test:unit": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-summary-reporter.js --test-reporter-destination=stdout \"out/test/unit/*.test.js\"",
     "test:integration": "node scripts/test-integration.js",
     "test": "npm run compile && npm run test:unit",
     "package": "node scripts/marketplace-readme.js && vsce package --no-dependencies --readme-path out/README.marketplace.md",

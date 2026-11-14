@@ -1290,6 +1290,9 @@ npm run package
   copy of `samples/Demo` under git: activation, the TwinCAT tree, the split editor and the notebook, the
   language features as VS Code asks for them, saving, changes on disk, the TwinCAT Changes view, rename.
   `TWINCAT_TEST_GREP=<regex>` runs some of them. On Linux without a display: `xvfb-run -a npm run test:integration`.
+- In GitHub Actions both `npm run test:unit` and `npm run test:integration` write their results to the Summary tab of
+  the run (`scripts/test-summary.js`, with `scripts/test-summary-reporter.js` for node:test): the counts, each failure
+  with its message, the tests. `TWINCAT_TEST_SUMMARY=<file.md>` writes the same Markdown locally.
 
 - `npm run compile` also type-checks `src/webview` and bundles it (Monaco, vscode-textmate,
   oniguruma) with esbuild into `out/webview`.

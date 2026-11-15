@@ -10,6 +10,7 @@ import {
 } from './symbols';
 import { ELEMENTARY, TIME_LITERAL_TYPES } from './builtins';
 import { implementingBases, unimplementedMembers } from './hierarchy';
+import { unlinkedIoMessage } from './ioHover';
 
 /**
  * How code uses a name: `write` (the target of `:=`, `S=`, `R=`, `REF=` or `=>`, the variable of a FOR, an input
@@ -54,18 +55,19 @@ export const PROBLEM_CODES = {
   'unknown-parameter': 'A parameter that the function, function block or method does not have.',
   'excluded-from-build': 'A use of a name declared in code excluded from the build.',
   'unimplemented-interface': 'A method or property of an interface that a function block (not ABSTRACT) lacks.',
+  'unlinked-io': 'A variable AT %I* / %Q* that the TwinCAT project links to no I/O (an information).',
 } as const;
 
 export type ProblemCode = keyof typeof PROBLEM_CODES;
 
-export type ProblemLevel = 'error' | 'warning' | 'off';
+export type ProblemLevel = 'error' | 'warning' | 'info' | 'off';
 
 /** The levels of the setting twincatExplorer.diagnostics.rules (`{ "unknown-member": "warning" }`), those valid. */
 export function problemLevels(setting: unknown): Partial<Record<ProblemCode, ProblemLevel>> {
   const out: Partial<Record<ProblemCode, ProblemLevel>> = {};
   if (!setting || typeof setting !== 'object' || Array.isArray(setting)) return out;
   for (const [code, level] of Object.entries(setting)) {
-    if (code in PROBLEM_CODES && (level === 'error' || level === 'warning' || level === 'off')) out[code as ProblemCode] = level;
+    if (code in PROBLEM_CODES && (level === 'error' || level === 'warning' || level === 'info' || level === 'off')) out[code as ProblemCode] = level;
   }
   return out;
 }
@@ -74,7 +76,7 @@ export interface Problem {
   start: number;
   end: number;
   message: string;
-  severity: 'error' | 'warning';
+  severity: 'error' | 'warning' | 'info';
   code: ProblemCode;
 }
 
@@ -98,6 +100,11 @@ export interface AnalyzeOptions {
   ignore?: Set<string>;
   /** The level of the problems of a code, instead of its own (twincatExplorer.diagnostics.rules). */
   levels?: Partial<Record<ProblemCode, ProblemLevel>>;
+  /**
+   * Also tell the variables declared `AT %I*` / `AT %Q*` that the TwinCAT project links to no I/O (unlinked-io), from
+   * its links as XAE last saved them: in the editors, not in the MCP server's check of the code.
+   */
+  io?: boolean;
 }
 
 interface Resolved {
@@ -131,6 +138,7 @@ export class Analyzer {
       const r = this.index.parseDecl(this.text);
       for (const e of r.errors) this.problem(e, 'syntax', e.message);
       for (const unit of r.units) this.declUnit(unit);
+      if (this.options.io) this.unlinkedIo();
     } else {
       const r = this.index.parseBody(this.text);
       for (const e of r.errors) this.problem(e, 'syntax', e.message);
@@ -139,6 +147,15 @@ export class Analyzer {
     this.occurrences.sort((a, b) => a.start - b.start);
     this.excludedUses();
     return { ctx: this.ctx, text: this.text, occurrences: this.occurrences, problems: this.problems, paramHints: this.paramHints };
+  }
+
+  /** The variables declared here `AT %I*` / `AT %Q*` that the TwinCAT project links to no I/O: an information at each. */
+  private unlinkedIo(): void {
+    for (const o of this.occurrences) {
+      if (!o.decl || o.sym.kind !== 'var' || !o.sym.at) continue;
+      const message = unlinkedIoMessage(this.index.ws, this.index, o.sym);
+      if (message) this.problem(o, 'unlinked-io', message, 'info');
+    }
   }
 
   /**

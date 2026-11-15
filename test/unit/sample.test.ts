@@ -13,7 +13,7 @@ import { TcWorkspace } from '../../src/core/workspace';
 import { decodeBytes, encodeText, parseTcText } from '../../src/core/tcfile';
 import { applySectionEdits } from '../../src/core/splice';
 import { LanguageIndex } from '../../src/lang/index';
-import { analyze } from '../../src/lang/analyzer';
+import { analyze, problemLevels } from '../../src/lang/analyzer';
 import { SectionFeatures, accessGroups } from '../../src/lang/features';
 import { GvlSym, PouSym } from '../../src/lang/symbols';
 import { ioLinkHover } from '../../src/lang/ioHover';
@@ -328,4 +328,24 @@ test('samples/Demo: instances of a function block in an array of a GVL and in a 
   } finally {
     fs.rmSync(copy, { recursive: true, force: true });
   }
+});
+
+test('samples/Demo: an information at each variable AT %I* / %Q* linked to no I/O, in the editors only', () => {
+  const ws = load();
+  const index = new LanguageIndex(ws);
+  index.setStubs(BUNDLED_STUBS);
+  const infos = (options: Parameters<typeof analyze>[3]) => index.allContexts().flatMap(ctx => {
+    const text = index.sectionText(ctx.fileKey, ctx.sectionKey)!;
+    return analyze(index, ctx, text, options).problems
+      .map(p => `${ctx.object.qualifiedName} [${ctx.label}] ${text.slice(p.start, p.end)} ${p.severity} ${p.code}: ${p.message}`);
+  });
+  // stDrive and aLamps are linked in part (nVelocity, [3] not): no information, the hover tells which.
+  assert.deepEqual(infos({ io: true }).sort(), [
+    'FB_Sensor [Declaration] bSignal info unlinked-io: FB_Sensor.bSignal is not linked to any I/O in 1 of its 2 instances: MAIN.fbSensorRight (Demo.tsproj).',
+    'GVL_IO [Declaration] bSpareOut info unlinked-io: GVL_IO.bSpareOut is not linked to any I/O (Demo.tsproj).',
+  ]);
+  assert.deepEqual(infos({ io: true, levels: problemLevels({ 'unlinked-io': 'warning' }) }).map(p => p.split(' ').slice(3, 5).join(' ')), ['warning unlinked-io:', 'warning unlinked-io:']);
+  assert.deepEqual(infos({ io: true, levels: problemLevels({ 'unlinked-io': 'off' }) }), []);
+  // Without io (the MCP server's check, the tests of the code above): none.
+  assert.deepEqual(infos({}), []);
 });

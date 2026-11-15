@@ -15,6 +15,10 @@ All notable changes to Explorer for TwinCAT. The format follows
 - The same for a variable `AT %I*` / `AT %Q*` of a function block: one line per instance, by its path
   (`MAIN.fbSensorLeft.bSignal`), with what it is linked to or `not linked`. The instances are those of the last
   build in XAE, in programs, GVLs, struct members and array elements, and of function blocks that extend it.
+- An information (`unlinked-io`) at the declaration of a variable `AT %I*` / `AT %Q*` that the TwinCAT project
+  links to no I/O, not even in part, or, of a function block, in some of its instances. Not told in a project
+  without links. `twincatExplorer.diagnostics.rules` can make it a warning or an error, or turn it off; the
+  attribute `explorer.disable` turns it off in one GVL or POU.
 
 ## 0.24.0 - 2026-11-15
 

@@ -482,6 +482,11 @@ These work in both panes and in notebook cells. They come from a parser of the T
   inheritance. `fbValve.Open()` opens the `Open` method of `FB_Valve`, or of the function block it
   extends, at the method name; a local variable moves the cursor to the declaration pane.
 - **Hover** with the declaration, its comments and where it is declared.
+  - A variable declared `AT %I*` / `AT %Q*` (of a GVL, a program or a function block) also tells what it is
+    linked to, from the `<Mappings>` of the `.tsproj` as XAE last saved it:
+    `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 1 › Input`; a struct or an array the
+    links of its members and elements; a function block's variable one line per instance
+    (`MAIN.fbSensorLeft.bSignal`). A project without `<Mappings>` shows nothing.
 - **Completion** after `.` (members, inherited members, enum values) and of the names in scope.
   - **Calls with their arguments**, like `Insert with arguments` in XAE's Input Assistant: next to a
     function block instance, function, program, method or action, a second item inserts the call with
@@ -562,7 +567,13 @@ These work in both panes and in notebook cells. They come from a parser of the T
     `twincatExplorer.diagnostics.rules` makes a kind a warning or turns it off:
     `{ "unknown-member": "warning", "unknown-type": "off" }`. The kinds: `syntax`,
     `unknown-identifier`, `unknown-type`, `unknown-member`, `unknown-value`, `unknown-parameter`,
-    `excluded-from-build`, `unimplemented-interface`.
+    `excluded-from-build`, `unimplemented-interface`, `unlinked-io`.
+  - `unlinked-io` is an information, not an error: a variable `AT %I*` / `AT %Q*` that the TwinCAT
+    project links to no I/O (`GVL_IO.bSpareOut is not linked to any I/O (Demo.tsproj).`), not even in part;
+    for a function block, the instances of the last build in XAE that are not
+    (`... in 1 of its 2 instances: MAIN.fbSensorRight`). Nothing is told in a project without links (a
+    library, I/O not committed). Set it to `off` for spare channels left unlinked on purpose, or turn it
+    off in one GVL with `{attribute 'explorer.disable' := 'unlinked-io'}`.
   - `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU,
     method, property, action, DUT or GVL turns those kinds off there (a POU's in its members too);
     without a value, all of them. XAE ignores attributes it does not know.

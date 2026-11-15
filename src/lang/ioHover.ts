@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import * as A from './ast';
-import { TcWorkspace } from '../core/workspace';
+import { IoLinksIn, TcWorkspace } from '../core/workspace';
 import { PlcProject } from '../core/project';
 import { IoLink, IoLinkIndex, describeTarget } from '../core/ioLinks';
 import { LanguageIndex } from './index';
@@ -23,6 +23,66 @@ function code(s: string): string {
  * project links anything of.
  */
 export function ioLinkHover(ws: TcWorkspace, index: LanguageIndex, s: Sym): string | undefined {
+  const io = ioOf(ws, s);
+  if (!io) return undefined;
+  const blocks = io.links.map(({ tsProject, plc, index: links }) => {
+    const title = `**I/O** · ${path.basename(tsProject.path)}`;
+    const lines = io.fb
+      ? instanceLines(index, io.project, links, plc, io.fb, io.v)
+      : variableLines(links, plc, io.variable);
+    return `${title}\n\n${lines.join('\n')}`;
+  });
+  return blocks.join('\n\n');
+}
+
+/**
+ * What a variable `AT %I*` / `AT %Q*` that no TwinCAT project links to any I/O is told, for an information at its
+ * declaration: one of a GVL or program linked to nothing, not even in part (a member, an element); one of a
+ * function block that some instance of the last build has linked to nothing. Undefined when it is linked, and when
+ * that is not known (a project without links, a function block with no instance in the last build).
+ */
+export function unlinkedIoMessage(ws: TcWorkspace, index: LanguageIndex, s: Sym): string | undefined {
+  const io = ioOf(ws, s);
+  if (!io) return undefined;
+  const where: string[] = [];
+  let instancesOff = '';
+  for (const { tsProject, plc, index: links } of io.links) {
+    const file = path.basename(tsProject.path);
+    if (!io.fb) {
+      const { own, parts } = links.linksOf(plc, io.variable);
+      if (!own.length && !parts.length) where.push(file);
+      continue;
+    }
+    const scope = index.projectScope(io.project);
+    const instances = scope ? instancesOf(index, scope, io.fb, io.v.name, links.variables(plc)) : [];
+    const off = instances.filter(inst => {
+      const { own, parts } = links.linksOf(plc, `${inst}.${io.v.name}`);
+      return !own.length && !parts.length;
+    });
+    if (!off.length) continue;
+    where.push(file);
+    const shown = off.slice(0, 3).join(', ') + (off.length > 3 ? ` and ${off.length - 3} more` : '');
+    instancesOff = off.length === instances.length
+      ? `in ${instances.length === 1 ? 'its instance' : `any of its ${instances.length} instances`} (${shown})`
+      : `in ${off.length} of its ${instances.length} instances: ${shown}`;
+  }
+  if (!where.length) return undefined;
+  const name = io.fb ? `${io.fb.name}.${io.v.name}` : io.variable;
+  return `${name} is not linked to any I/O${io.fb ? ` ${instancesOff}` : ''} (${where.join(', ')}).`;
+}
+
+/** A variable `AT %I*` / `AT %Q*` of a GVL, program or function block, and the links of its PLC project. */
+interface VarIo {
+  v: VarSym;
+  project: PlcProject;
+  links: IoLinksIn[];
+  /** Of a GVL or program: the variable of the process image (`GVL_IO.bStartButton`). */
+  variable: string;
+  /** Of a function block: the function block, one variable per instance. */
+  fb?: PouSym;
+}
+
+function ioOf(ws: TcWorkspace, s: Sym): VarIo | undefined {
   if (s.kind !== 'var' || !s.at?.includes('*') || !s.loc) return undefined;
   const owner = s.owner;
   const global = owner.kind === 'gvl' || (owner.kind === 'pou' && owner.pouKind === 'PRG');
@@ -30,16 +90,9 @@ export function ioLinkHover(ws: TcWorkspace, index: LanguageIndex, s: Sym): stri
   if (!global && !fb) return undefined;
   const project = ws.entry(s.loc.fileKey)?.project;
   if (!project) return undefined;
-  const all = ws.ioLinks(project.path).filter(l => l.index.hasLinks(l.plc));
-  if (!all.length) return undefined;
-  const blocks = all.map(({ tsProject, plc, index: links }) => {
-    const title = `**I/O** · ${path.basename(tsProject.path)}`;
-    const lines = fb
-      ? instanceLines(index, project, links, plc, fb, s)
-      : variableLines(links, plc, `${owner.name}.${s.name}`);
-    return `${title}\n\n${lines.join('\n')}`;
-  });
-  return blocks.join('\n\n');
+  const links = ws.ioLinks(project.path).filter(l => l.index.hasLinks(l.plc));
+  if (!links.length) return undefined;
+  return { v: s, project, links, variable: `${owner.name}.${s.name}`, fb };
 }
 
 /** The links of one variable of the process image, and of its members and elements. */

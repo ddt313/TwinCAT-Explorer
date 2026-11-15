@@ -11,6 +11,8 @@ import { ObjectKind, TcSourceFile, encodeText, parseTcFile } from '../core/tcfil
 import { fileKey } from '../core/workspace';
 import { LanguageIndex, SectionContext } from '../lang/index';
 import { relatedMembers } from '../lang/hierarchy';
+import { ioLinksThrough } from '../lang/ioHover';
+import { describeTarget } from '../core/ioLinks';
 import {
   Analyse, RenameConflict, RenamePlan, changesElsewhere, planFiles, planObjects, planRename, renameConflicts, renameTargetAt,
   renameTexts, symbolHome, symbolLabel, symbolNameProblem,
@@ -112,13 +114,33 @@ export async function acceptConflicts(index: LanguageIndex, conflicts: RenameCon
 }
 
 /**
- * The questions of a rename once its plan is made: the objects that keep the old name, the files with unsaved
- * edits, what the new name would change the meaning of. The objects left out, or undefined when the rename is
+ * Asks whether to rename what I/O links go through (see ioLinksThrough): the links of the .tsproj name the variable
+ * by its old name, which the PLC no longer has after the next build in XAE. True when no link goes through it.
+ */
+export async function acceptIoLinks(index: LanguageIndex, plan: RenamePlan, title: string): Promise<boolean> {
+  const found = plan.symbols.flatMap(s => ioLinksThrough(index.ws, index, s));
+  const all = found.flatMap(f => f.links.map(l => `${l.variable} → ${describeTarget(l)} (${path.basename(f.tsProject.path)})`));
+  if (!all.length) return true;
+  const lines = all.slice(0, 8);
+  const more = all.length > lines.length ? `\n... and ${all.length - lines.length} more` : '';
+  const links = all.length === 1 ? '1 I/O link goes' : `${all.length} I/O links go`;
+  const choice = await vscode.window.showWarningMessage(`${title}: ${links} through ${plan.oldName}.`, {
+    modal: true,
+    detail: `${lines.join('\n')}${more}\n\nThe .tsproj names the variable by its old name: after the next build in TwinCAT XAE `
+      + 'the link finds no such variable. Link the new name again in XAE (or rename it back).',
+  }, 'Rename Anyway');
+  return choice === 'Rename Anyway';
+}
+
+/**
+ * The questions of a rename once its plan is made: the I/O links that go through the old name, the objects that
+ * keep the old name, the files with unsaved edits, what the new name would change the meaning of. The objects left out, or undefined when the rename is
  * cancelled or refused (with a message).
  */
 export async function askRename(index: LanguageIndex, plan: RenamePlan, title: string, analyse: Analyse, show: ShowPlaces):
   Promise<ReadonlySet<string> | undefined> {
   if (refuseUnsavedFiles(planFiles(plan))) return undefined;
+  if (!(await acceptIoLinks(index, plan, title))) return undefined;
   const leaveOut = await confirmUses(plan, title);
   // An editor may have been edited while the question was asked.
   if (!leaveOut || refuseUnsavedFiles(planFiles(plan, leaveOut))) return undefined;

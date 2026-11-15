@@ -458,6 +458,11 @@ Rename (F2) changes the uses too, in every PLC project of the workspace.
 - **When the new name would change what other code means** (a variable renamed to the name of another
   one that its uses would then mean, or that a local variable would hide), a warning names the places
   first: Rename Anyway, or Show Places.
+- **When I/O links go through the old name** (a variable `AT %I*` / `AT %Q*`, a struct or a function
+  block instance that holds one, a member of such a struct, the GVL or program itself), a warning lists
+  them first (`GVL_IO.bStartButton → ... › Channel 1 › Input (Demo.tsproj)`): the `.tsproj` names them by
+  the old name, so after the next build in XAE they find no such variable. Rename Anyway, then link the
+  new name again in XAE.
 - **What is written:** only the CDATA of the sections that change. Every other byte of each file stays
   as it was, its BOM and line breaks too. Comments and strings keep the old name.
 - **After it**, the message says how many places changed, and what keeps the old name: places the

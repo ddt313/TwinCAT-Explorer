@@ -6,11 +6,11 @@
 import * as path from 'path';
 import * as A from './ast';
 import { IoLinksIn, TcWorkspace } from '../core/workspace';
-import { PlcProject } from '../core/project';
+import { PlcProject, TsProject } from '../core/project';
 import { IoLink, IoLinkIndex, describeTarget } from '../core/ioLinks';
 import { LanguageIndex } from './index';
 import { ancestors } from './hierarchy';
-import { GlobalSym, PouSym, Scope, Sym, VarSym } from './symbols';
+import { GlobalSym, PouSym, Scope, Sym, TypeSym, VarSym } from './symbols';
 
 /** Backticks a name, as Markdown code. */
 function code(s: string): string {
@@ -164,12 +164,12 @@ function nameAndIndexes(segment: string): { upper: string; indexes: number } {
 }
 
 /**
- * The paths of the instances of a function block (or of one that extends it) that have a variable, as the process
+ * The paths of the instances of a function block or struct (or of one that extends it) that have a variable or member, as the process
  * image and the links of the PLC project name it: `MAIN.fbSensorLeft` of `MAIN.fbSensorLeft.bSignal`. Each path is
  * checked against the declarations: from a program or a GVL, through variables, struct members and array elements,
  * to an instance of the function block.
  */
-export function instancesOf(index: LanguageIndex, scope: Scope, fb: PouSym, name: string, variables: string[]): string[] {
+export function instancesOf(index: LanguageIndex, scope: Scope, fb: PouSym | TypeSym, name: string, variables: string[]): string[] {
   const upper = name.toUpperCase();
   const seen = new Set<string>();
   const out: string[] = [];
@@ -181,11 +181,62 @@ export function instancesOf(index: LanguageIndex, scope: Scope, fb: PouSym, name
       const k = prefix.join('.').replace(/\s+/g, '').toUpperCase();
       if (seen.has(k)) continue;
       const g = walk(index, scope, prefix);
-      if (g?.kind === 'pou' && g.pouKind === 'FB' && (g === fb || ancestors(index, g).has(fb))) {
+      if (g && isA(index, g, fb)) {
         seen.add(k);
         out.push(prefix.join('.'));
       }
     }
+  }
+  return out;
+}
+
+/** Whether a function block is one or extends one, or a struct is one or extends one. */
+function isA(index: LanguageIndex, g: GlobalSym, owner: PouSym | TypeSym): boolean {
+  if (g.kind === 'pou') return owner.kind === 'pou' && g.pouKind === 'FB' && (g === owner || ancestors(index, g).has(owner));
+  let t: GlobalSym | undefined = g;
+  for (let depth = 0; t?.kind === 'type' && depth < 20; depth++) {
+    if (t === owner) return true;
+    t = t.extendsName ? index.resolveGlobal(t.extendsName.parts, t.scope) : undefined;
+  }
+  return false;
+}
+
+/** The I/O links in one TwinCAT project that go through a name. */
+export interface LinksThrough {
+  tsProject: TsProject;
+  links: IoLink[];
+}
+
+/**
+ * The I/O links that go through what a symbol names, by the name it has: those a rename would leave naming a
+ * variable the PLC no longer has. A variable of a GVL or program (`GVL_IO.stDrive`: its own links and those of
+ * its members and elements), a variable of a function block or a member of a struct in each instance of the last
+ * build (`MAIN.fbSensorLeft.bSignal`, `GVL_IO.stDrive.bReady`), a GVL or program (`GVL_IO.*`). None for anything
+ * else (a type, a function block, a method's variable): their names are not in the process image.
+ */
+export function ioLinksThrough(ws: TcWorkspace, index: LanguageIndex, s: Sym): LinksThrough[] {
+  if (!s.loc) return [];
+  const project = ws.entry(s.loc.fileKey)?.project;
+  if (!project) return [];
+  const out: LinksThrough[] = [];
+  for (const { tsProject, plc, index: links } of ws.ioLinks(project.path)) {
+    if (!links.hasLinks(plc)) continue;
+    let paths: string[] = [];
+    if (s.kind === 'gvl' || (s.kind === 'pou' && s.pouKind === 'PRG')) paths = [s.name];
+    else if (s.kind === 'var') {
+      const owner = s.owner;
+      if (owner.kind === 'gvl' || (owner.kind === 'pou' && owner.pouKind === 'PRG')) paths = [`${owner.name}.${s.name}`];
+      else if ((owner.kind === 'pou' && owner.pouKind === 'FB') || (owner.kind === 'type' && owner.dutKind === 'struct')) {
+        const scope = index.projectScope(project);
+        paths = scope ? instancesOf(index, scope, owner, s.name, links.variables(plc)).map(i => `${i}.${s.name}`) : [];
+      }
+    }
+    const found: IoLink[] = [];
+    for (const p of paths) {
+      const { own, parts } = links.linksOf(plc, p);
+      for (const l of [...own, ...parts]) if (!found.includes(l)) found.push(l);
+    }
+    if (found.length) out.push({ tsProject, links: found });
   }
   return out;
 }

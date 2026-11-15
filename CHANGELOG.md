@@ -19,6 +19,10 @@ All notable changes to Explorer for TwinCAT. The format follows
   links to no I/O, not even in part, or, of a function block, in some of its instances. Not told in a project
   without links. `twincatExplorer.diagnostics.rules` can make it a warning or an error, or turn it off; the
   attribute `explorer.disable` turns it off in one GVL or POU.
+- Renaming what I/O links go through asks first, listing the links: a variable `AT %I*` / `AT %Q*`, a struct,
+  array or function block instance that holds one, a member of such a struct, or the GVL or program itself.
+  The `.tsproj` names the linked variable by its old name, so after the next build in XAE the link finds no such
+  variable and has to be made again there.
 
 ## 0.24.0 - 2026-11-15
 

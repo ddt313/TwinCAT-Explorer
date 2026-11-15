@@ -15,8 +15,8 @@ import { applySectionEdits } from '../../src/core/splice';
 import { LanguageIndex } from '../../src/lang/index';
 import { analyze, problemLevels } from '../../src/lang/analyzer';
 import { SectionFeatures, accessGroups } from '../../src/lang/features';
-import { GvlSym, PouSym } from '../../src/lang/symbols';
-import { ioLinkHover } from '../../src/lang/ioHover';
+import { GlobalSym, GvlSym, PouSym, Sym, TypeSym } from '../../src/lang/symbols';
+import { ioLinkHover, ioLinksThrough } from '../../src/lang/ioHover';
 import { parseBody, parseDeclaration } from '../../src/lang/parser';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 import { findFiles } from './helpers';
@@ -348,4 +348,32 @@ test('samples/Demo: an information at each variable AT %I* / %Q* linked to no I/
   assert.deepEqual(infos({ io: true, levels: problemLevels({ 'unlinked-io': 'off' }) }), []);
   // Without io (the MCP server's check, the tests of the code above): none.
   assert.deepEqual(infos({}), []);
+});
+
+test('samples/Demo: the I/O links a rename would leave naming a variable the PLC no longer has', () => {
+  const ws = load();
+  const index = new LanguageIndex(ws);
+  const global = (name: string) => index.allGlobals().find((g: GlobalSym) => g.name === name)!;
+  const varOf = (owner: string, name: string): Sym => {
+    const g = global(owner);
+    const vars = g.kind === 'type' ? (g as TypeSym).fields : (g as GvlSym | PouSym).vars;
+    return vars.find(v => v.name === name)!;
+  };
+  const through = (s: Sym) => ioLinksThrough(ws, index, s).flatMap(f => f.links.map(l => `${path.basename(f.tsProject.path)} ${l.variable}`));
+  assert.deepEqual(through(varOf('GVL_IO', 'bStartButton')), ['Demo.tsproj GVL_IO.bStartButton']);
+  // A struct or an array: the links of its members and elements.
+  assert.deepEqual(through(varOf('GVL_IO', 'stDrive')), ['Demo.tsproj GVL_IO.stDrive.bFault', 'Demo.tsproj GVL_IO.stDrive.bReady']);
+  // A member of a struct, a variable of a function block: in each instance.
+  assert.deepEqual(through(varOf('ST_DriveIn', 'bReady')), ['Demo.tsproj GVL_IO.stDrive.bReady']);
+  assert.deepEqual(through(varOf('FB_Sensor', 'bSignal')), ['Demo.tsproj MAIN.fbSensorLeft.bSignal']);
+  // An instance in a program; the other one is linked to nothing.
+  assert.deepEqual(through(varOf('MAIN', 'fbSensorLeft')), ['Demo.tsproj MAIN.fbSensorLeft.bSignal']);
+  assert.deepEqual(through(varOf('MAIN', 'fbSensorRight')), []);
+  // A GVL or a program: every link of its variables.
+  assert.equal(through(global('GVL_IO')).length, 8);
+  assert.deepEqual(through(global('MAIN')), ['Demo.tsproj MAIN.fbSensorLeft.bSignal']);
+  // A type's name and a variable without I/O are not in the process image.
+  assert.deepEqual(through(global('FB_Sensor')), []);
+  assert.deepEqual(through(global('ST_DriveIn')), []);
+  assert.deepEqual(through(varOf('GVL_Parameters', 'fMaxSpeed')), []);
 });

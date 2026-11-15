@@ -16,7 +16,7 @@ import { LanguageIndex } from '../../src/lang/index';
 import { analyze, problemLevels } from '../../src/lang/analyzer';
 import { SectionFeatures, accessGroups } from '../../src/lang/features';
 import { GlobalSym, GvlSym, PouSym, Sym, TypeSym } from '../../src/lang/symbols';
-import { ioLinkHover, ioLinksThrough } from '../../src/lang/ioHover';
+import { ioLinkHover, ioLinksThrough, staleIoLinks } from '../../src/lang/ioHover';
 import { parseBody, parseDeclaration } from '../../src/lang/parser';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 import { findFiles } from './helpers';
@@ -376,4 +376,35 @@ test('samples/Demo: the I/O links a rename would leave naming a variable the PLC
   assert.deepEqual(through(global('FB_Sensor')), []);
   assert.deepEqual(through(global('ST_DriveIn')), []);
   assert.deepEqual(through(varOf('GVL_Parameters', 'fMaxSpeed')), []);
+});
+
+test('samples/Demo: links of the .tsproj to variables the code no longer declares are stale, at their VarA', () => {
+  assert.deepEqual(staleIoLinks(load(), new LanguageIndex(load())), []);
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-copy-'));
+  try {
+    fs.cpSync(SAMPLE, copy, { recursive: true });
+    const edit = (rel: string, from: string, to: string) => {
+      const file = path.join(copy, 'Demo', ...rel.split('/'));
+      const { text, bom } = decodeBytes(fs.readFileSync(file));
+      assert.ok(text.includes(from), `${rel}: ${from}`);
+      fs.writeFileSync(file, encodeText(text.replace(from, to), bom));
+    };
+    // Renamed in the code since XAE saved Demo.tsproj: a GVL variable, a struct member, an instance in MAIN.
+    edit('Machine/GVLs/GVL_IO.TcGVL', 'bStartButton', 'bStart');
+    edit('Machine/DUTs/ST_DriveIn.TcDUT', 'bReady', 'bIsReady');
+    edit('Machine/POUs/MAIN.TcPOU', 'fbSensorLeft\t', 'fbLeft\t');
+    const ws = new TcWorkspace();
+    ws.load(findFiles(copy, '.tsproj'));
+    const stale = staleIoLinks(ws, new LanguageIndex(ws));
+    assert.deepEqual(stale.map(s => `${s.link.variable}: ${s.reason}`), [
+      'GVL_IO.bStartButton: GVL_IO has no variable bStartButton',
+      'GVL_IO.stDrive.bReady: ST_DriveIn has no member bReady',
+      'MAIN.fbSensorLeft.bSignal: MAIN has no variable fbSensorLeft',
+    ]);
+    const text = fs.readFileSync(path.join(copy, 'Demo', 'Demo.tsproj'), 'utf8');
+    assert.deepEqual(stale.map(s => text.slice(s.link.range!.start, s.link.range!.end)),
+      ['PlcTask Inputs^GVL_IO.bStartButton', 'PlcTask Inputs^GVL_IO.stDrive^bReady', 'PlcTask Inputs^MAIN.fbSensorLeft.bSignal']);
+  } finally {
+    fs.rmSync(copy, { recursive: true, force: true });
+  }
 });

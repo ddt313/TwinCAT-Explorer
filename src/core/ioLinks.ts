@@ -13,7 +13,7 @@
 // Either owner can be the PLC: the other end is read from whichever side is not, and a link between two PLC
 // instances counts for both.
 
-import { XmlElement, child, children, elementText, findAll, parseXml } from './xml';
+import { XmlElement, attributeRange, child, children, elementText, findAll, parseXml } from './xml';
 
 /** What the other end of a link is, by the root of its tree path. */
 export type IoTargetKind = 'io' | 'nc' | 'plc' | 'tccom' | 'other';
@@ -37,6 +37,8 @@ export interface IoLink {
   size?: number;
   offset?: number;
   targetOffset?: number;
+  /** Where the PLC's side of the link is in the text of the .tsproj: the value of its VarA or VarB. */
+  range?: { start: number; end: number };
 }
 
 export type IoDirection = 'input' | 'output';
@@ -83,7 +85,7 @@ function num(el: XmlElement, name: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function linkOf(plcSide: string, plcVar: string, other: string, otherVar: string, l: XmlElement, plcIsA: boolean): IoLink | undefined {
+function linkOf(text: string, plcSide: string, plcVar: string, other: string, otherVar: string, l: XmlElement, plcIsA: boolean): IoLink | undefined {
   const owner = plcOwner(plcSide);
   const v = splitPlcVar(plcVar);
   if (!owner || !v) return undefined;
@@ -96,6 +98,8 @@ function linkOf(plcSide: string, plcVar: string, other: string, otherVar: string
     link.offset = plcIsA ? offA : offB;
     link.targetOffset = plcIsA ? offB : offA;
   }
+  const range = attributeRange(text, l, plcIsA ? 'VarA' : 'VarB');
+  if (range) link.range = { start: range.start, end: range.end };
   return link;
 }
 
@@ -110,8 +114,8 @@ export function parseIoLinks(text: string): IoLink[] {
         for (const l of children(b, 'Link')) {
           const varA = l.attrs.get('VarA') ?? '';
           const varB = l.attrs.get('VarB') ?? '';
-          const fromA = linkOf(ownerA, varA, ownerB, varB, l, true);
-          const fromB = linkOf(ownerB, varB, ownerA, varA, l, false);
+          const fromA = linkOf(text, ownerA, varA, ownerB, varB, l, true);
+          const fromB = linkOf(text, ownerB, varB, ownerA, varA, l, false);
           if (fromA) out.push(fromA);
           if (fromB) out.push(fromB);
         }
@@ -195,6 +199,11 @@ export class IoLinkIndex {
       else if (isPartOf(lk, k)) parts.push(l);
     }
     return { own, parts };
+  }
+
+  /** The links of the PLC project's variables, in the order of the .tsproj. */
+  links(plc: string): IoLink[] {
+    return this.byPlc.get(key(plc)) ?? [];
   }
 
   /**

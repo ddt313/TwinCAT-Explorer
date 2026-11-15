@@ -3,6 +3,7 @@
 // disk, the TwinCAT Changes view and rename. The tests run in order: the last ones change files.
 import * as assert from 'assert';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   EXTENSION_ID, api, childLabels, demoPath, objectId, openSplit, positionOf, test, treeNode, waitFor,
@@ -161,11 +162,17 @@ test('workspace symbols (Ctrl+T): a POU by part of its name', async () => {
   assert.ok(symbols.some(s => s.name === 'FB_Conveyor' && s.kind === vscode.SymbolKind.Class), symbols.map(s => s.name).join(', '));
 });
 
-test('Check Workspace: no problems in samples/Demo, not even in its code excluded from the build', async () => {
+test('Check Workspace: no problems in samples/Demo, not even in its code excluded from the build; its I/O left unlinked on purpose told', async () => {
   await api();
   await vscode.commands.executeCommand('twincatExplorer.checkWorkspace');
-  const problems = vscode.languages.getDiagnostics().filter(([, d]) => d.length > 0);
-  assert.deepStrictEqual(problems.map(([u, d]) => `${u.toString()}: ${d.map(x => x.message).join('; ')}`), []);
+  const all = vscode.languages.getDiagnostics().flatMap(([u, d]) => d.map(x => ({ file: path.basename(u.fsPath), d: x })));
+  const problems = all.filter(p => p.d.severity !== vscode.DiagnosticSeverity.Information);
+  assert.deepStrictEqual(problems.map(p => `${p.file}: ${p.d.message}`), []);
+  // The variables AT %I* / %Q* that samples/Demo leaves unlinked (unlinked-io), once each: no stale link.
+  assert.deepStrictEqual([...new Set(all.map(p => `${p.file} ${p.d.code}: ${p.d.message}`))].sort(), [
+    'FB_Sensor.TcPOU unlinked-io: FB_Sensor (Declaration): FB_Sensor.bSignal is not linked to any I/O in 1 of its 2 instances: MAIN.fbSensorRight (Demo.tsproj).',
+    'GVL_IO.TcGVL unlinked-io: GVL_IO (Declaration): GVL_IO.bSpareOut is not linked to any I/O (Demo.tsproj).',
+  ]);
 });
 
 test('diagnostics: an unknown name typed in a cell is reported there, and goes when it is removed', async () => {

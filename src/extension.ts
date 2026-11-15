@@ -32,6 +32,7 @@ import { NavStack } from './core/navStack';
 import { isInFolder } from './lang/objects';
 import { Loc } from './lang/symbols';
 import { CellDiagnostics, LanguageFeatures, cellInfo, editorMode } from './vscode/language';
+import { IoLinkDiagnostics } from './vscode/ioDiagnostics';
 import { DiffFileSystem, GitDirWatcher, firstParent, openNotebookDiff, verifyRef, watchRepositories } from './vscode/git';
 import { GitChanges } from './vscode/gitChanges';
 import { BASE_SCHEME, ChangeNode, ChangesView } from './vscode/changesView';
@@ -194,6 +195,8 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   const treeView = vscode.window.createTreeView('twincatExplorer.tree', { treeDataProvider: tree, showCollapseAll: true, dragAndDropController });
   const features = new LanguageFeatures(index, ws);
   const diagnostics = new CellDiagnostics(features);
+  /** The links of the .tsproj files to PLC variables the code no longer declares. */
+  const ioDiagnostics = new IoLinkDiagnostics(index);
   const locations = new LocationService(ws, index);
   features.splitLocator = (ctx, loc) => locations.locate(ctx, loc);
   const objectEditors = new ObjectEditorProvider(context.extensionUri, index, features, ws, locations);
@@ -243,6 +246,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   const scheduleAllDiagnostics = (delay?: number) => {
     diagnostics.scheduleAll(delay);
     objectEditors.scheduleAll(delay);
+    ioDiagnostics.schedule();
   };
   /**
    * The names of the installed libraries the PLC projects reference, from their browsercache, for the language
@@ -266,7 +270,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   };
 
   context.subscriptions.push(
-    treeView, diagnostics, checkCollection, log, diffFs, gitChanges, gitDirs, objectEditors, locations,
+    treeView, diagnostics, ioDiagnostics, checkCollection, log, diffFs, gitChanges, gitDirs, objectEditors, locations,
     // M/A badges of changed objects in the TwinCAT tree and on object tabs.
     vscode.window.registerFileDecorationProvider(gitChanges),
     gitChanges.onDidChangeHead(() => {

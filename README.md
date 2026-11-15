@@ -572,13 +572,17 @@ These work in both panes and in notebook cells. They come from a parser of the T
     `twincatExplorer.diagnostics.rules` makes a kind a warning or turns it off:
     `{ "unknown-member": "warning", "unknown-type": "off" }`. The kinds: `syntax`,
     `unknown-identifier`, `unknown-type`, `unknown-member`, `unknown-value`, `unknown-parameter`,
-    `excluded-from-build`, `unimplemented-interface`, `unlinked-io`.
+    `excluded-from-build`, `unimplemented-interface`, `unlinked-io`, `stale-io-link`.
   - `unlinked-io` is an information, not an error: a variable `AT %I*` / `AT %Q*` that the TwinCAT
     project links to no I/O (`GVL_IO.bSpareOut is not linked to any I/O (Demo.tsproj).`), not even in part;
     for a function block, the instances of the last build in XAE that are not
     (`... in 1 of its 2 instances: MAIN.fbSensorRight`). Nothing is told in a project without links (a
     library, I/O not committed). Set it to `off` for spare channels left unlinked on purpose, or turn it
     off in one GVL with `{attribute 'explorer.disable' := 'unlinked-io'}`.
+  - `stale-io-link` is a warning in the `.tsproj`, at the variable of a link that the code no longer
+    declares (`GVL_IO.bStartButton, linked to ... › Channel 1 › Input: GVL_IO has no variable
+    bStartButton`): renamed or deleted since XAE saved the project, so the link finds nothing after the next
+    build. Link it again in XAE. A path through a library's objects is not checked.
   - `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU,
     method, property, action, DUT or GVL turns those kinds off there (a POU's in its members too);
     without a value, all of them. XAE ignores attributes it does not know.

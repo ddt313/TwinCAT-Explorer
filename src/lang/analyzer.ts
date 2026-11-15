@@ -56,6 +56,7 @@ export const PROBLEM_CODES = {
   'excluded-from-build': 'A use of a name declared in code excluded from the build.',
   'unimplemented-interface': 'A method or property of an interface that a function block (not ABSTRACT) lacks.',
   'unlinked-io': 'A variable AT %I* / %Q* that the TwinCAT project links to no I/O (an information).',
+  'stale-io-link': 'A link of the .tsproj to a PLC variable that the code no longer declares (a warning, in the .tsproj).',
 } as const;
 
 export type ProblemCode = keyof typeof PROBLEM_CODES;

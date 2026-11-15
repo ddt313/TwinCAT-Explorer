@@ -290,3 +290,61 @@ function typeOf(index: LanguageIndex, spec: A.TypeSpec | undefined, scope: Scope
   }
   return undefined;
 }
+
+/** A link of the .tsproj to a PLC variable that the code does not declare (any more). */
+export interface StaleLink {
+  tsProject: TsProject;
+  link: IoLink;
+  /** What the code lacks: `GVL_IO has no variable bOldName`. */
+  reason: string;
+}
+
+/**
+ * The links of the TwinCAT projects to PLC variables that the code of the workspace does not declare, as it is now:
+ * a variable renamed or deleted since XAE last saved the .tsproj, which the link then names by a name the PLC no
+ * longer has. Each path is checked against the declarations as instancesOf walks them; a path through what the
+ * language index does not know all of (a library's objects, a type it does not resolve) counts as declared.
+ */
+export function staleIoLinks(ws: TcWorkspace, index: LanguageIndex): StaleLink[] {
+  const out: StaleLink[] = [];
+  for (const ts of ws.tsProjects) {
+    for (const ref of ts.plcProjects) {
+      const project = ref.plcprojPath ? ws.plcProject(ref.plcprojPath) : undefined;
+      const scope = project && index.projectScope(project);
+      if (!scope) continue;
+      for (const { tsProject, plc, index: links } of ws.ioLinks(ref.plcprojPath)) {
+        if (tsProject !== ts) continue;
+        for (const link of links.links(plc)) {
+          const reason = missingIn(index, scope, link.variable, project.name);
+          if (reason) out.push({ tsProject, link, reason });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** What the code lacks of a path of the process image (`GVL_IO.stDrive.bReady`), or undefined when it has it or that is not known. */
+function missingIn(index: LanguageIndex, scope: Scope, variable: string, plc: string): string | undefined {
+  const segs = segments(variable);
+  if (segs.length < 2) return undefined;
+  const first = nameAndIndexes(segs[0]);
+  const g = index.lookupGlobal(scope, first.upper);
+  if (!g) return `${plc} has no GVL or program ${segs[0]}`;
+  if (g.namesOnly || g.scope.isLibrary || index.excludedFromBuild(g)) return undefined;
+  if (g.kind !== 'gvl' && !(g.kind === 'pou' && g.pouKind === 'PRG')) return `${g.name} is not a GVL or program`;
+  let cur: GlobalSym = g;
+  for (let i = 1; i < segs.length; i++) {
+    const { upper, indexes } = nameAndIndexes(segs[i]);
+    const name = segs[i].replace(/\[.*$/, '').trim();
+    const v = membersOf(index, cur).find(m => m.name.toUpperCase() === upper);
+    if (!v) return `${cur.name} has no ${cur.kind === 'type' ? 'member' : 'variable'} ${name}`;
+    if (i === segs.length - 1) return undefined;
+    const next = typeOf(index, v.typeSpec, v.scope, indexes);
+    // An elementary type, an array indexed as it is not, a type the index does not resolve: not known further.
+    if (!next || next.namesOnly || next.scope.isLibrary || next.kind === 'gvl') return undefined;
+    if (next.kind === 'pou' ? next.pouKind !== 'FB' : next.dutKind !== 'struct') return undefined;
+    cur = next;
+  }
+  return undefined;
+}

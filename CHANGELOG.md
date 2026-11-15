@@ -23,6 +23,9 @@ All notable changes to Explorer for TwinCAT. The format follows
   array or function block instance that holds one, a member of such a struct, or the GVL or program itself.
   The `.tsproj` names the linked variable by its old name, so after the next build in XAE the link finds no such
   variable and has to be made again there.
+- A warning (`stale-io-link`) in the Problems panel, at the variable of each link of a `.tsproj` that the code no
+  longer declares, as it is now (saved or not): a variable, struct member or instance renamed or deleted since
+  XAE saved the project. `twincatExplorer.diagnostics.rules` can change its level or turn it off.
 
 ## 0.24.0 - 2026-11-15
 

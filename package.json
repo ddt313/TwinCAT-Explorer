@@ -1875,6 +1875,11 @@
               "type": "string",
               "enum": ["error", "warning", "info", "off"],
               "description": "A variable AT %I* / %Q* that the TwinCAT project links to no I/O, as XAE last saved the .tsproj (an information). Not told in a project without links."
+            },
+            "stale-io-link": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "description": "A link of the .tsproj to a PLC variable that the code no longer declares: renamed or deleted since XAE saved the project (a warning, shown in the .tsproj)."
             }
           },
           "additionalProperties": false

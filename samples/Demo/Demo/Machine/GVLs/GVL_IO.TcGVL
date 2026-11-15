@@ -6,6 +6,9 @@
 	bConveyorRun	AT %Q*	: BOOL;
 	nLevelRaw		AT %I*	: INT;
 	bStartButton	AT %I*	: BOOL;
+	stDrive			AT %I*	: ST_DriveIn;
+	aLamps			AT %Q*	: ARRAY[1..3] OF BOOL;
+	bSpareOut		AT %Q*	: BOOL;	// spare: not linked
 END_VAR
 ]]></Declaration>
   </GVL>

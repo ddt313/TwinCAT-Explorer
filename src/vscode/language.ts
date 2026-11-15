@@ -14,6 +14,7 @@ import { completionContext, expressionBeforeDot } from '../lang/completion';
 import { CallParam, Callable, callArguments, callSnippet, callableOfSymbol, returnsValue, signatureAt } from '../lang/calls';
 import { snippetsAt } from '../lang/snippets';
 import { foldingRanges } from '../lang/folding';
+import { ioLinkHover } from '../lang/ioHover';
 import { OutlineSymbol, symbolKindOf } from '../lang/outline';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { positionIn } from '../core/objectText';
@@ -215,7 +216,8 @@ export class LanguageFeatures implements
     const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
     if (!o) return undefined;
     const s = o.sym;
-    return { markdown: codeblock(s.signature || s.name) + symbolDoc(s), start: o.start, end: o.end };
+    const io = ioLinkHover(this.ws, s);
+    return { markdown: codeblock(s.signature || s.name) + symbolDoc(s) + (io ? `\n\n---\n\n${io}` : ''), start: o.start, end: o.end };
   }
 
   completionsAt(ctx: SectionContext, text: string, offset: number): CompletionResult[] {

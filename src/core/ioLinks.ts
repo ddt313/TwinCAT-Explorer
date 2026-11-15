@@ -3,8 +3,7 @@
 // process image of each PLC instance (<Vars> of its <Instance>, in the .tsproj or in the Independent Project File
 // of the PLC project), for those that are linked to nothing.
 //
-// The format, as the files of TwinCAT 3.1.4026 have it (to be checked against samples/Demo once XAE has saved it
-// with I/O):
+// The format, as TwinCAT XAE 3.1.4026 saves it (samples/Demo/Demo/Demo.tsproj):
 //
 //   <Mappings>
 //     <OwnerA Name="TIPC^Machine^Machine Instance">

@@ -15,7 +15,8 @@ import { applySectionEdits } from '../../src/core/splice';
 import { LanguageIndex } from '../../src/lang/index';
 import { analyze } from '../../src/lang/analyzer';
 import { SectionFeatures, accessGroups } from '../../src/lang/features';
-import { PouSym } from '../../src/lang/symbols';
+import { GvlSym, PouSym } from '../../src/lang/symbols';
+import { ioLinkHover } from '../../src/lang/ioHover';
 import { parseBody, parseDeclaration } from '../../src/lang/parser';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 import { findFiles } from './helpers';
@@ -234,3 +235,47 @@ test('samples/Demo: its files have the bytes XAE wrote, and a section edited and
 });
 
 const normalize = (s: string) => s.replace(/\r\n?/g, '\n');
+
+test('samples/Demo: the hover of a GVL variable AT %I* / %Q* tells what it is linked to, as XAE saved Demo.tsproj', () => {
+  const ws = load();
+  const index = new LanguageIndex(ws);
+  const gvl = (owner: string) => index.allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === owner)!;
+  const hover = (owner: string, name: string) => ioLinkHover(ws, gvl(owner).vars.find(v => v.name === name)!);
+  const term = 'Device 1 (EtherCAT) › Term 1 (EK1100) › ';
+  assert.equal(hover('GVL_IO', 'bStartButton'), `**I/O** · Demo.tsproj\n\n- \`${term}Term 2 (EL1008) › Channel 1 › Input\``);
+  assert.equal(hover('GVL_IO', 'bConveyorRun'), `**I/O** · Demo.tsproj\n\n- \`${term}Term 3 (EL2008) › Channel 2 › Output\``);
+  // A struct and an array: the links of their members and elements.
+  assert.equal(hover('GVL_IO', 'stDrive'), [
+    '**I/O** · Demo.tsproj', '',
+    `- \`.bFault\` → \`${term}Term 2 (EL1008) › Channel 4 › Input\``,
+    `- \`.bReady\` → \`${term}Term 2 (EL1008) › Channel 3 › Input\``,
+  ].join('\n'));
+  assert.match(hover('GVL_IO', 'aLamps')!, /^- `\[1\]` → `.*Channel 3 › Output`\n- `\[2\]` → `.*Channel 4 › Output`$/m);
+  // Left unlinked on purpose; the process image of the last build has it.
+  assert.equal(hover('GVL_IO', 'bSpareOut'), '**I/O** · Demo.tsproj\n\nNot linked.');
+  // No address, or in a GVL of DemoLib, which no task runs and nothing links: no I/O to tell.
+  assert.equal(hover('GVL_Parameters', 'fMaxSpeed'), undefined);
+  assert.equal(hover('GVL_DemoLib', gvl('GVL_DemoLib').vars[0].name), undefined);
+});
+
+test('samples/Demo: a GVL variable AT %I* added since the last build is not linked yet, and says so', () => {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-copy-'));
+  try {
+    fs.cpSync(SAMPLE, copy, { recursive: true });
+    const file = path.join(copy, 'Demo', 'Machine', 'GVLs', 'GVL_IO.TcGVL');
+    const { text, bom } = decodeBytes(fs.readFileSync(file));
+    fs.writeFileSync(file, encodeText(text.replace('VAR_GLOBAL', 'VAR_GLOBAL\r\n\tbNewSensor\tAT %I*\t: BOOL;'), bom));
+    const ws = new TcWorkspace();
+    ws.load(findFiles(copy, '.tsproj'));
+    const gvl = new LanguageIndex(ws).allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === 'GVL_IO')!;
+    assert.match(ioLinkHover(ws, gvl.vars.find(v => v.name === 'bNewSensor')!)!, /^\*\*I\/O\*\* · Demo\.tsproj\n\nNot linked\. The last build in TwinCAT XAE did not have this variable/);
+    // Without <Mappings> the project's I/O is not known: nothing is said, not even "not linked".
+    const tsproj = path.join(copy, 'Demo', 'Demo.tsproj');
+    fs.writeFileSync(tsproj, fs.readFileSync(tsproj, 'utf8').replace(/<Mappings>[\s\S]*<\/Mappings>/, ''));
+    ws.load(findFiles(copy, '.tsproj'));
+    const bare = new LanguageIndex(ws).allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === 'GVL_IO')!;
+    assert.equal(ioLinkHover(ws, bare.vars.find(v => v.name === 'bStartButton')!), undefined);
+  } finally {
+    fs.rmSync(copy, { recursive: true, force: true });
+  }
+});

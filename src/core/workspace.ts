@@ -6,6 +6,7 @@ import * as path from 'path';
 import { PlcProject, PlcProjectRef, TsProject, parsePlcProject, parseTsProject, parseXtiProject } from './project';
 import { TcSourceFile, parseTcFile, parseTcText } from './tcfile';
 import { Accessor, viewLabel } from './objectText';
+import { IoLinkIndex, IoVar, parseIoLinks, parseProcessImage } from './ioLinks';
 
 export function fileKey(p: string): string {
   const resolved = path.resolve(p);
@@ -18,6 +19,14 @@ export interface SourceEntry {
   /** Path relative to the .plcproj folder, backslash separated as in the .plcproj. */
   include: string;
   project: PlcProject;
+}
+
+/** The I/O links of a PLC project in one TwinCAT project that holds it. */
+export interface IoLinksIn {
+  tsProject: TsProject;
+  /** The PLC project's name in the .tsproj, as its links name it (`TIPC^Machine^...`). */
+  plc: string;
+  index: IoLinkIndex;
 }
 
 interface CachedFile {
@@ -37,6 +46,8 @@ export class TcWorkspace {
   private readonly entries = new Map<string, SourceEntry>();
   private readonly plcByKey = new Map<string, PlcProject>();
   private readonly cache = new Map<string, CachedFile>();
+  /** The I/O links of each .tsproj (fileKey) that has any. */
+  private readonly ioLinksByTs = new Map<string, IoLinkIndex>();
 
   load(tsprojPaths: string[]): void {
     this.tsProjects = [];
@@ -45,22 +56,29 @@ export class TcWorkspace {
     this.failedPlc.clear();
     this.entries.clear();
     this.plcByKey.clear();
+    this.ioLinksByTs.clear();
     const seen = new Set<string>();
     for (const p of tsprojPaths) {
       const key = fileKey(p);
       if (seen.has(key)) continue;
       seen.add(key);
       let ts: TsProject;
+      let text: string;
       try {
-        ts = parseTsProject(p, fs.readFileSync(p, 'utf8'));
+        text = fs.readFileSync(p, 'utf8');
+        ts = parseTsProject(p, text);
       } catch (e) {
         this.loadErrors.push(`${p}: ${(e as Error).message}`);
         continue;
       }
       this.tsProjects.push(ts);
+      // A project without <Mappings> links nothing: no I/O to show, and no variable said to be linked to nothing.
+      const hasLinks = text.includes('<Mappings>');
+      const image: IoVar[] = [];
+      if (hasLinks) image.push(...this.processImage(text));
       for (const ref of ts.plcProjects) {
         // A PLC project saved as an Independent Project File: its .plcproj is in the .xti.
-        if (ref.xtiPath && !this.readXti(ref, ref.xtiPath)) continue;
+        if (ref.xtiPath && !this.readXti(ref, ref.xtiPath, hasLinks ? image : undefined)) continue;
         const plcKey = fileKey(ref.plcprojPath);
         // The same PLC project can belong to several TwinCAT projects (a simulation reuses the machine's).
         if (this.plcByKey.has(plcKey)) continue;
@@ -80,6 +98,13 @@ export class TcWorkspace {
           if (!this.entries.has(k)) this.entries.set(k, { path: full, key: k, include, project: plc });
         }
       }
+      if (hasLinks) {
+        try {
+          this.ioLinksByTs.set(key, new IoLinkIndex(parseIoLinks(text), image));
+        } catch (e) {
+          this.loadErrors.push(`${p}: I/O links: ${(e as Error).message}`);
+        }
+      }
     }
     this.tsProjects.sort((a, b) => a.name.localeCompare(b.name));
     this.version++;
@@ -89,9 +114,12 @@ export class TcWorkspace {
    * Fills in the .plcproj of a PLC project from its .xti; false when the .xti cannot be read: the reference then
    * points at the .xti, and failedPlc says what went wrong, as for a .plcproj that does not load.
    */
-  private readXti(ref: PlcProjectRef, xtiPath: string): boolean {
+  private readXti(ref: PlcProjectRef, xtiPath: string, image?: IoVar[]): boolean {
     try {
-      Object.assign(ref, parseXtiProject(xtiPath, fs.readFileSync(xtiPath, 'utf8')));
+      const text = fs.readFileSync(xtiPath, 'utf8');
+      Object.assign(ref, parseXtiProject(xtiPath, text));
+      // The process image of its instance is in the .xti too.
+      if (image) image.push(...this.processImage(text));
       return true;
     } catch (e) {
       const message = (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'The Independent Project File (.xti) is not there' : (e as Error).message;
@@ -100,6 +128,32 @@ export class TcWorkspace {
       this.failedPlc.set(fileKey(xtiPath), message);
       return false;
     }
+  }
+
+  /** The process image in the text of a .tsproj or .xti; none when it cannot be read (the links still show). */
+  private processImage(text: string): IoVar[] {
+    try {
+      return parseProcessImage(text);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * The I/O links of a PLC project (its .plcproj) in each TwinCAT project that holds it and links any variable, as
+   * the .tsproj was last saved by XAE.
+   */
+  ioLinks(plcprojPath: string): IoLinksIn[] {
+    const k = fileKey(plcprojPath);
+    const out: IoLinksIn[] = [];
+    for (const ts of this.tsProjects) {
+      const index = this.ioLinksByTs.get(fileKey(ts.path));
+      if (!index) continue;
+      for (const ref of ts.plcProjects) {
+        if (ref.plcprojPath && fileKey(ref.plcprojPath) === k) out.push({ tsProject: ts, plc: ref.name, index });
+      }
+    }
+    return out;
   }
 
   plcProject(plcprojPath: string): PlcProject | undefined {

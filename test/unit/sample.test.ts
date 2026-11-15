@@ -240,7 +240,7 @@ test('samples/Demo: the hover of a GVL variable AT %I* / %Q* tells what it is li
   const ws = load();
   const index = new LanguageIndex(ws);
   const gvl = (owner: string) => index.allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === owner)!;
-  const hover = (owner: string, name: string) => ioLinkHover(ws, gvl(owner).vars.find(v => v.name === name)!);
+  const hover = (owner: string, name: string) => ioLinkHover(ws, index, gvl(owner).vars.find(v => v.name === name)!);
   const term = 'Device 1 (EtherCAT) › Term 1 (EK1100) › ';
   assert.equal(hover('GVL_IO', 'bStartButton'), `**I/O** · Demo.tsproj\n\n- \`${term}Term 2 (EL1008) › Channel 1 › Input\``);
   assert.equal(hover('GVL_IO', 'bConveyorRun'), `**I/O** · Demo.tsproj\n\n- \`${term}Term 3 (EL2008) › Channel 2 › Output\``);
@@ -267,14 +267,64 @@ test('samples/Demo: a GVL variable AT %I* added since the last build is not link
     fs.writeFileSync(file, encodeText(text.replace('VAR_GLOBAL', 'VAR_GLOBAL\r\n\tbNewSensor\tAT %I*\t: BOOL;'), bom));
     const ws = new TcWorkspace();
     ws.load(findFiles(copy, '.tsproj'));
-    const gvl = new LanguageIndex(ws).allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === 'GVL_IO')!;
-    assert.match(ioLinkHover(ws, gvl.vars.find(v => v.name === 'bNewSensor')!)!, /^\*\*I\/O\*\* · Demo\.tsproj\n\nNot linked\. The last build in TwinCAT XAE did not have this variable/);
+    const index = new LanguageIndex(ws);
+    const gvl = index.allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === 'GVL_IO')!;
+    assert.match(ioLinkHover(ws, index, gvl.vars.find(v => v.name === 'bNewSensor')!)!, /^\*\*I\/O\*\* · Demo\.tsproj\n\nNot linked\. The last build in TwinCAT XAE did not have this variable/);
     // Without <Mappings> the project's I/O is not known: nothing is said, not even "not linked".
     const tsproj = path.join(copy, 'Demo', 'Demo.tsproj');
     fs.writeFileSync(tsproj, fs.readFileSync(tsproj, 'utf8').replace(/<Mappings>[\s\S]*<\/Mappings>/, ''));
     ws.load(findFiles(copy, '.tsproj'));
-    const bare = new LanguageIndex(ws).allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === 'GVL_IO')!;
-    assert.equal(ioLinkHover(ws, bare.vars.find(v => v.name === 'bStartButton')!), undefined);
+    const bareIndex = new LanguageIndex(ws);
+    const bare = bareIndex.allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === 'GVL_IO')!;
+    assert.equal(ioLinkHover(ws, bareIndex, bare.vars.find(v => v.name === 'bStartButton')!), undefined);
+  } finally {
+    fs.rmSync(copy, { recursive: true, force: true });
+  }
+});
+
+test('samples/Demo: the hover of a variable AT %I* of a function block tells the links of each of its instances', () => {
+  const ws = load();
+  const index = new LanguageIndex(ws);
+  const fb = index.allGlobals().find((g): g is PouSym => g.kind === 'pou' && g.name === 'FB_Sensor')!;
+  assert.equal(ioLinkHover(ws, index, fb.vars.find(v => v.name === 'bSignal')!), [
+    '**I/O** · Demo.tsproj', '',
+    '- `MAIN.fbSensorLeft.bSignal` → `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 2 › Input`',
+    '- `MAIN.fbSensorRight.bSignal`: not linked',
+  ].join('\n'));
+  // A variable of the function block without an address has no I/O.
+  assert.equal(ioLinkHover(ws, index, fb.vars.find(v => v.name === 'bActive')!), undefined);
+});
+
+test('samples/Demo: instances of a function block in an array of a GVL and in a program, each path checked against the declarations', () => {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-copy-'));
+  try {
+    fs.cpSync(SAMPLE, copy, { recursive: true });
+    const edit = (rel: string, change: (t: string) => string) => {
+      const file = path.join(copy, 'Demo', ...rel.split('/'));
+      const { text, bom } = decodeBytes(fs.readFileSync(file));
+      fs.writeFileSync(file, encodeText(change(text), bom));
+    };
+    edit('Machine/GVLs/GVL_IO.TcGVL', t => t.replace('VAR_GLOBAL', 'VAR_GLOBAL\r\n\taSensors\t: ARRAY[1..2] OF FB_Sensor;'));
+    edit('Machine/POUs/MAIN.TcPOU', t => t.replace('VAR', 'VAR\r\n\tbLocal\tAT %I*\t: BOOL;'));
+    // As a build would list them, with a path that ends in bSignal but is no FB_Sensor (FB_Conveyor has none).
+    const vars = ['GVL_IO.aSensors[1].bSignal', 'GVL_IO.aSensors[2].bSignal', 'MAIN.fbConveyor.bSignal', 'MAIN.bLocal']
+      .map(n => `\t\t\t\t\t\t<Var>\r\n\t\t\t\t\t\t\t<Name>${n}</Name>\r\n\t\t\t\t\t\t\t<Type>BOOL</Type>\r\n\t\t\t\t\t\t</Var>\r\n`).join('');
+    edit('Demo.tsproj', t => t
+      .replace(/(<Name>PlcTask Inputs<\/Name>\r\n)/, `$1${vars}`)
+      .replace('<Link VarA="PlcTask Inputs^GVL_IO.bStartButton"', '<Link VarA="PlcTask Inputs^GVL_IO.aSensors[2].bSignal" VarB="Channel 5^Input"/>\r\n\t\t\t\t<Link VarA="PlcTask Inputs^GVL_IO.bStartButton"'));
+    const ws = new TcWorkspace();
+    ws.load(findFiles(copy, '.tsproj'));
+    const index = new LanguageIndex(ws);
+    const pou = (name: string) => index.allGlobals().find((g): g is PouSym => g.kind === 'pou' && g.name === name)!;
+    assert.equal(ioLinkHover(ws, index, pou('FB_Sensor').vars.find(v => v.name === 'bSignal')!), [
+      '**I/O** · Demo.tsproj', '',
+      '- `GVL_IO.aSensors[1].bSignal`: not linked',
+      '- `GVL_IO.aSensors[2].bSignal` → `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 5 › Input`',
+      '- `MAIN.fbSensorLeft.bSignal` → `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 2 › Input`',
+      '- `MAIN.fbSensorRight.bSignal`: not linked',
+    ].join('\n'));
+    // A variable of a program is one variable of the process image, as one of a GVL.
+    assert.equal(ioLinkHover(ws, index, pou('MAIN').vars.find(v => v.name === 'bLocal')!), '**I/O** · Demo.tsproj\n\nNot linked.');
   } finally {
     fs.rmSync(copy, { recursive: true, force: true });
   }

@@ -197,6 +197,25 @@ export class IoLinkIndex {
     return { own, parts };
   }
 
+  /**
+   * The variables the PLC project has I/O of: those of its process image, then those linked that it does not have,
+   * once each (case aside).
+   */
+  variables(plc: string): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const add = (v: string) => {
+      const k = key(v);
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(v);
+      }
+    };
+    for (const v of this.imageByPlc.get(key(plc)) ?? []) add(v.variable);
+    for (const l of this.byPlc.get(key(plc)) ?? []) add(l.variable);
+    return out;
+  }
+
   /** The variable in the process image of the PLC project, as its last build had it. */
   imageVar(plc: string, variable: string): IoVar | undefined {
     const k = key(variable);

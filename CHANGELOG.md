@@ -6,12 +6,15 @@ All notable changes to Explorer for TwinCAT. The format follows
 ## Unreleased
 
 ### Added
-- The hover of a GVL variable declared `AT %I*` or `AT %Q*` tells what it is linked to, without opening XAE's
+- The hover of a GVL or program variable declared `AT %I*` or `AT %Q*` tells what it is linked to, without opening XAE's
   Mapping: `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 1 › Input`, read from the
   `<Mappings>` of the `.tsproj` as XAE last saved it. A struct or an array lists the links of its members and
   elements (`.bReady`, `[1]`). A variable linked to nothing says so, and one that the last build did not have yet
   says to build and save the project in XAE first. A project without `<Mappings>` (a library, I/O not committed)
   shows nothing. `samples/Demo` now has I/O, added in XAE by `samples/Add-DemoIo.ps1`.
+- The same for a variable `AT %I*` / `AT %Q*` of a function block: one line per instance, by its path
+  (`MAIN.fbSensorLeft.bSignal`), with what it is linked to or `not linked`. The instances are those of the last
+  build in XAE, in programs, GVLs, struct members and array elements, and of function blocks that extend it.
 
 ## 0.24.0 - 2026-11-15
 

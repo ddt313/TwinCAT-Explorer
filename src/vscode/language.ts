@@ -216,7 +216,7 @@ export class LanguageFeatures implements
     const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
     if (!o) return undefined;
     const s = o.sym;
-    const io = ioLinkHover(this.ws, s);
+    const io = ioLinkHover(this.ws, this.index, s);
     return { markdown: codeblock(s.signature || s.name) + symbolDoc(s) + (io ? `\n\n---\n\n${io}` : ''), start: o.start, end: o.end };
   }
 

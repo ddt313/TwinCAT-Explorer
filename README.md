@@ -1329,11 +1329,14 @@ npm run package
   bundled packages.
 - `node scripts/icons.js` writes the icons of the views (`media/icons`) again after a change of an
   icon or a colour.
-- A release is a tag: update the version in `package.json` and the changelog, commit, then push a
-  tag with that version (`git tag v0.12.0` and `git push origin v0.12.0`). The Release workflow
-  (`.github/workflows/release.yml`) builds and tests it, attaches the `.vsix` to a GitHub release
-  with the changelog's notes, and publishes it to the Marketplace once the repository variable
-  `MARKETPLACE_PUBLISH` is `true`.
+- A release is a merge into `master` with a new version: on `develop` (or a `release/x.y.z` branch
+  merged into it), update the version in `package.json` (`npm version 0.12.0 --no-git-tag-version`)
+  and rename the changelog's `## Unreleased` to `## 0.12.0 - <date>`, then merge `develop` into
+  `master`. The Tag release workflow (`.github/workflows/tag-release.yml`) pushes the tag `v0.12.0`
+  on `master`, and the Release workflow (`.github/workflows/release.yml`) builds and tests it,
+  attaches the `.vsix` to a GitHub release with the changelog's notes, and publishes it to the
+  Marketplace once the repository variable `MARKETPLACE_PUBLISH` is `true`. A merge into `master`
+  whose version is tagged already releases nothing.
 - A version with a `-` is a pre-release, for example `1.0.0-pre.1` of a feature developed on its own
   branch. It is released the same way, from its own section of the changelog (`## 1.0.0-pre.1`), but
   its GitHub release is marked as a pre-release, so the latest release stays the last version without

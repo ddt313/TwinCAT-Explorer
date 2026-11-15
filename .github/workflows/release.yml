@@ -2,6 +2,9 @@
 # GitHub release whose notes come from CHANGELOG.md, and publishes it to the Visual Studio
 # Marketplace once the repository variable MARKETPLACE_PUBLISH is `true`.
 #
+# A merge into master with a new version in package.json releases it without a tag pushed by hand:
+# the Tag release workflow (tag-release.yml) pushes the tag and calls this workflow with it.
+#
 # A version with a `-` (v1.0.0-pre.1) is a pre-release: its GitHub release is marked as one, so the
 # latest release stays the last version without a `-`, its notes do not point to the Marketplace,
 # and it is never published there (the Marketplace takes only major.minor.patch).
@@ -25,6 +28,12 @@ on:
         description: Tag to release, for example v0.12.0 or v1.0.0-pre.1 (empty to only check the Marketplace sign-in)
         type: string
         default: ''
+  workflow_call:
+    inputs:
+      tag:
+        description: Tag to release, pushed by the calling workflow
+        type: string
+        required: true
 
 permissions:
   contents: read

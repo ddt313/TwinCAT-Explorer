@@ -248,9 +248,9 @@ it.
     after the last one.
 - **Then:** the tree shows the new member and it opens in the split editor, or the notebook if
   `twincatExplorer.editor` says so. A new property opens at its `Get` (or `Set`).
-- **Implement Interfaces...** on a function block with `IMPLEMENTS`: picks from the methods and
-  properties of its interfaces, and of the interfaces these extend, that neither the function block
-  nor one it extends has yet. Each gets the declaration it has in the interface and an empty
+- **Implement Interfaces...** on a function block with `IMPLEMENTS`, or that extends one: picks from
+  the methods and properties of its interfaces and of those of the function blocks it extends, and of
+  the interfaces these extend, that neither the function block nor one it extends has yet. Each gets the declaration it has in the interface and an empty
   implementation.
 - A file with unsaved changes in an editor is refused: save or revert them first. To take back a new
   member, use Discard Changes in the TwinCAT Changes view.
@@ -517,7 +517,26 @@ These work in both panes and in notebook cells. They come from a parser of the T
   of a state machine) with the comment on their line, as `20 — Wait for the axis`, which can be searched
   for; and the `{region}`s of both.
 - **Find All References**: Shift+F12 opens a peek view. Other objects are shown read-only there;
-  double-click a result to open it.
+  double-click a result to open it. The highlights of a symbol in a pane tell written from read.
+- **Show References by Access** (context menu of a pane or a notebook cell, at the name under the
+  cursor; or of an object in the TwinCAT tree): the places of a variable, POU, method, property or type
+  in VS Code's References view, grouped by how each uses it, then by object: `Write`, `Read and write
+  (VAR_IN_OUT)`, `Address taken`, `Call`, `Read`, `Declaration`, `Type`. Each place shows its line, and
+  the member or index a variable is used through (`.eState` for `stStatus.eState := ...`) with its line
+  number; a click opens the split editor there, and F4 / Shift+F4 go to the next and previous place.
+  Find All References cannot tell them apart: VS Code gives its places no kind. What counts as a
+  write is what the MCP server's `references` tells (see [MCP server for AI agents](#mcp-server-for-ai-agents)): a method called
+  on an instance is a call, what a pointer points to is not followed, and only the code of the
+  workspace counts (not the I/O mapping, ADS or an HMI).
+- **Show Call Hierarchy** (context menu of a pane or a notebook cell; of a POU, method, action or
+  property in the TwinCAT tree): the function, program, function block, method, action or property at
+  the cursor (in its code, its own) in the References view, with its `Incoming Calls` and `Outgoing
+  Calls`, expanded level by level. A function block instance called (`fbValve()`, `aValves[i]()`,
+  `SUPER^()`) calls the function block's body. Incoming calls go up to the task that calls a program
+  (`PlcTask (task)`); those of a method include the calls through the interface method or base method
+  it implements or overrides (`FB_FillSequence (via I_Valve.Open)`), but not those through `SUPER^`,
+  which call the base's own. A library's POU ends the hierarchy; built-in functions are left out. A
+  caller or callee shows its call's line (or how many calls), and opens the split editor there.
 - **Go to Implementation** (Ctrl+F12; Ctrl+Shift+F12 peeks): on an interface, the function blocks that
   implement it, directly, through an interface that extends it or by extending one that implements it;
   on a function block, those that extend it, at any depth; on a method or property, also at a call
@@ -533,8 +552,20 @@ These work in both panes and in notebook cells. They come from a parser of the T
 - **Rename Symbol** (F2): the name under the cursor and its uses (see
   [Renaming with the uses](#renaming-with-the-uses)).
 - **Problems**, reported while you type in the editor and in the Problems panel: syntax errors,
-  unknown identifiers, unknown members and unknown named parameters. A click in the Problems panel
-  opens the split editor at the problem.
+  unknown identifiers, unknown members and unknown named parameters, and a function block that lacks
+  methods or properties of its interfaces (`FB_Valve does not implement method Close of I_Valve`, at
+  the name after `IMPLEMENTS`; not a `FUNCTION_BLOCK ABSTRACT`). The interfaces of the function blocks
+  it extends count too, as an `ABSTRACT` base leaves them to it: `... of I_Valve (through
+  FB_ValveBase)`, at the name after `EXTENDS`. A click in the Problems panel opens the split editor at
+  the problem.
+  - Each problem shows its kind as its code (`unknown-member`). The setting
+    `twincatExplorer.diagnostics.rules` makes a kind a warning or turns it off:
+    `{ "unknown-member": "warning", "unknown-type": "off" }`. The kinds: `syntax`,
+    `unknown-identifier`, `unknown-type`, `unknown-member`, `unknown-value`, `unknown-parameter`,
+    `excluded-from-build`, `unimplemented-interface`.
+  - `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU,
+    method, property, action, DUT or GVL turns those kinds off there (a POU's in its members too);
+    without a value, all of them. XAE ignores attributes it does not know.
   - Code excluded from the build (*Exclude from build* in XAE, on a folder or an object) is not
     checked, as XAE does not compile it; the TwinCAT tree marks it `excluded from build`. Built code
     that uses a name declared there gets an error: `'FB_Old' is excluded from the build`.
@@ -550,6 +581,8 @@ These work in both panes and in notebook cells. They come from a parser of the T
   - A member that a function block, program or interface of the workspace lacks (`fbValve.M_Reset()`):
     `Add method M_Reset to FB_Valve` or `Add property ...`, the one the use asks for first. It gets the
     type of the use and opens.
+  - A function block that lacks methods or properties of its interfaces: `Implement Interfaces in
+    FB_Valve...`, which runs `TwinCAT: Implement Interfaces...`.
 - **Auto Declare...** (`Shift+F2`, as in XAE, or the context menu) asks for the scope (`CONSTANT`,
   `RETAIN` and `PERSISTENT` blocks too), name, type, initial value and comment. It starts with the
   unknown name at the cursor and the type of its use.
@@ -570,7 +603,7 @@ PLC projects or in one project or folder of the tree (`Find in Folder...`), unsa
 <summary>Details</summary>
 
 - **`TwinCAT: Search...`** (Ctrl+Shift+Alt+F, or the search icon of the Solution view or of the **TwinCAT
-  Search** view in the Panel, beside Problems and Output) asks for the text and lists the matches as you type: per POU, DUT, GVL or interface, then per
+  Search** view in the Panel, beside Problems and Output) asks for the text (the one selected in the editor or split editor, on one line, searched at once) and lists the matches as you type: per POU, DUT, GVL or interface, then per
   section (`FB_Valve` Declaration, `M_Open` Implementation, `P_Speed.Get` Implementation), then the line
   with the match highlighted. A click opens the split editor at the match as a preview, keeping the focus
   in the list; a double click keeps the tab open.
@@ -865,7 +898,20 @@ the TwinCAT projects of a folder the way the split editor shows them, so that it
 - **Tools:**
   - Reading: `status`, `objects` (the tree), `read`, `locate` (the object and line of code at lines of
     a file as `git diff` and `git blame` number them), `search_text` (a text or regular expression in the code,
-    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler; it names the objects excluded from the build and leaves them unchecked).
+    as the TwinCAT Search finds it), `find_symbol`, `definition`, `references`, `calls`, `hierarchy`, `check` (the extension's syntax and name check, not the TwinCAT compiler; it names the objects excluded from the build and leaves them unchecked).
+  - `calls`: the call hierarchy of a function, program, function block, method or action, `incoming`
+    (what calls it, up to the tasks) or `outgoing` (what it calls), to `depth` levels (1 to 5), each
+    caller or callee with its calls (`·`), as Show Call Hierarchy finds them.
+  - `references` tells how each place uses the name, and filters by it (`access`):
+    `declaration`, `write` (the target of `:=`, `S=`, `R=`, `REF=` or `=>`, the variable of a `FOR`, an
+    input passed in a call), `readwrite` (passed to a `VAR_IN_OUT`), `address` (`ADR`, `BITADR`, `REF=`),
+    `call`, `read` or `type`. A variable used through a member or index shows it:
+    `FB_ValveBase impl:3  write .eState  stStatus.eState := E_ValveState.Error;`. A method called on
+    an instance (`fbValve.Open()`) is a call, not a write. Of `pData^.n := 0`, `pData` is read: what a
+    pointer points to is not followed. Who writes a variable: `access: ["write", "readwrite",
+    "address"]`. The references of a variable are those of that variable; those of a field of a
+    structure (`ST_ValveStatus.eState`) are those of every variable of that type. Only the code of the
+    workspace counts: not the I/O mapping, ADS or an HMI.
   - Writing: `edit_section` (replace a text that occurs once), `write_section` (a whole section),
     `add_member`, `add_object`, `delete_member`. They write as the split editor saves: only the CDATA of
     the edited section, or the elements XAE writes for a new member or object (in the `.plcproj`, its
@@ -961,7 +1007,14 @@ code --uninstall-extension thanhdang.explorer-for-twincat --profile <profile>
 
 All commands are in the Command Palette under the `TwinCAT` categories. The views add more in their
 title bars and context menus, for example Rename..., Move to Folder..., Delete, Discard Changes, Copy
-Commit SHA and Copy Name.
+Commit SHA and Copy Name. Beside Copy Name, the TwinCAT tree has Copy Path and Copy Relative Path on the nodes a
+file holds (projects, POUs, DUTs, GVLs, interfaces, and the methods, properties and actions, which copy their POU's
+file), as VS Code's Explorer has them: the relative path is that of the workspace folder, in the separator
+`explorer.copyRelativePathSeparator` sets.
+Copy Qualified Name copies the name of a POU, DUT, GVL, interface, method, property, action or accessor with its
+PLC project, `Machine:FB_Valve.Open`, as the MCP server's tools take it. An object's editor tab has them too, as
+Copy File Path, Copy Relative File Path and Copy Qualified Name: VS Code's own Copy Path and Copy Relative Path copy
+the tab's name there (`FB_Valve.Open`), since the tab shows the object, not its file.
 
 | Command | What it does |
 |---|---|
@@ -977,6 +1030,8 @@ Commit SHA and Copy Name.
 | `TwinCAT: Add Library...` | Add a reference to a library of the TwinCAT library repository to a PLC project (see [Adding libraries](#adding-libraries)). |
 | `TwinCAT: Add Method...` / `TwinCAT: Add Property...` / `TwinCAT: Add Action...` | Add a member to the POU or interface (see [Adding methods, properties and actions](#adding-methods-properties-and-actions)). |
 | `TwinCAT: Implement Interfaces...` | Add to a function block the methods and properties of its interfaces that it lacks. |
+| `TwinCAT: Show Call Hierarchy` | What calls the function, program, function block, method or action at the cursor of a pane (context menu) or notebook cell, or of a tree node, and what it calls, in the References view. |
+| `TwinCAT: Show References by Access` | The places of a name grouped by how each uses it (written, read, called...) in the References view: at the cursor of a pane (context menu) or notebook cell, or of a tree node's object. |
 | `TwinCAT: Show Type Hierarchy` | The supertypes and subtypes of a function block or interface in the References view: of a tree node, of the split editor's object, or at the cursor of a pane (context menu) or notebook cell. |
 | `Go to Implementation` | In the TwinCAT tree: open what implements or overrides the function block, interface, method or property (Ctrl+F12 in the editors). |
 | `Rename Symbol` (F2) | In the split editor or a notebook cell: rename the name under the cursor and its uses (see [Renaming with the uses](#renaming-with-the-uses)). |
@@ -1015,7 +1070,7 @@ Commit SHA and Copy Name.
 | Ctrl+F12 / Ctrl+Shift+F12 | split editor, notebook cells | Go to / Peek Implementations: what implements or overrides the interface, function block, method or property at the cursor |
 | Ctrl+Shift+Space | split editor, notebook cells | The parameters of the call at the cursor (signature help) |
 | F2 | split editor, notebook cells | Rename Symbol: the name under the cursor and its uses |
-| Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property |
+| Ctrl+. | split editor, notebook cells | Quick fixes of the problem at the cursor: Declare, Add method, Add property, Implement Interfaces |
 | Shift+F2 | split editor, notebook cells | Auto Declare... |
 | Alt+F5 / Shift+Alt+F5 | split editor | Next / previous change vs `HEAD` |
 | Alt+Left / Alt+Right (macOS: Ctrl+- / Ctrl+Shift+-) | split editor, object notebooks, TwinCAT tree | TwinCAT: Go Back / Go Forward through the objects shown |
@@ -1031,6 +1086,7 @@ Commit SHA and Copy Name.
 | `twincatExplorer.foldersFirst` | `true` | Sort folders before objects in the TwinCAT tree. |
 | `twincatExplorer.diagnostics.enabled` | `true` | Report Structured Text problems in open TwinCAT editors and notebooks. |
 | `twincatExplorer.diagnostics.ignore` | `[]` | Identifiers that are never reported as unknown, for example symbols of a library without a stub. |
+| `twincatExplorer.diagnostics.rules` | `{}` | The level of each kind of problem instead of its own: `error`, `warning` or `off` (`{ "unknown-member": "warning" }`). |
 | `twincatExplorer.saveThroughXae` | `false` | When TwinCAT XAE has the project open, save edits of objects through XAE, which shows them at once and saves the object itself (see [Saving through TwinCAT XAE](#saving-through-twincat-xae)). |
 | `twincatExplorer.blame.currentLine` | `false` | Show at the end of the split editor's current line who last changed it, when, and the commit message. |
 | `twincatExplorer.licenseStatusBar` | `true` | Show in the status bar how long the TwinCAT license that ends first has left (see [TwinCAT licenses](#twincat-licenses)). |
@@ -1225,8 +1281,18 @@ See the [changelog](CHANGELOG.md).
 npm install
 npm run compile
 npm run test:unit
+npm run test:integration
 npm run package
 ```
+
+- `npm run test:integration` runs `test/integration` in a real VS Code (`scripts/test-integration.js`
+  downloads the latest stable one into `.vscode-test`, or takes `VSCODE_VERSION`, or `VSCODE_EXECUTABLE`) on a
+  copy of `samples/Demo` under git: activation, the TwinCAT tree, the split editor and the notebook, the
+  language features as VS Code asks for them, saving, changes on disk, the TwinCAT Changes view, rename.
+  `TWINCAT_TEST_GREP=<regex>` runs some of them. On Linux without a display: `xvfb-run -a npm run test:integration`.
+- In GitHub Actions both `npm run test:unit` and `npm run test:integration` write their results to the Summary tab of
+  the run (`scripts/test-summary.js`, with `scripts/test-summary-reporter.js` for node:test): the counts, each failure
+  with its message, the tests. `TWINCAT_TEST_SUMMARY=<file.md>` writes the same Markdown locally.
 
 - `npm run compile` also type-checks `src/webview` and bundles it (Monaco, vscode-textmate,
   oniguruma) with esbuild into `out/webview`.
@@ -1257,16 +1323,20 @@ npm run package
 - `node scripts/mcp-call.js <folder> <tool> '<json arguments>'` calls the MCP server's tools as an MCP client does,
   without XAE (`--copy`: on a copy of the folder in the temp folder).
 - For AI agents: the skill `.claude/skills/reproduce-issue` reproduces a reported issue before fixing it, and
-  `.claude/hooks/session-start.sh` installs the packages and compiles when a Claude Code cloud session starts.
+  `.claude/hooks/session-start.sh` installs the packages and compiles when a Claude Code cloud session starts,
+  and downloads VS Code in the background for `npm run test:integration` (which waits for it while it runs).
 - `node scripts/third-party-notices.js` writes `ThirdPartyNotices.txt` again after an update of the
   bundled packages.
 - `node scripts/icons.js` writes the icons of the views (`media/icons`) again after a change of an
   icon or a colour.
-- A release is a tag: update the version in `package.json` and the changelog, commit, then push a
-  tag with that version (`git tag v0.12.0` and `git push origin v0.12.0`). The Release workflow
-  (`.github/workflows/release.yml`) builds and tests it, attaches the `.vsix` to a GitHub release
-  with the changelog's notes, and publishes it to the Marketplace once the repository variable
-  `MARKETPLACE_PUBLISH` is `true`.
+- A release is a merge into `master` with a new version: on `develop` (or a `release/x.y.z` branch
+  merged into it), update the version in `package.json` (`npm version 0.12.0 --no-git-tag-version`)
+  and rename the changelog's `## Unreleased` to `## 0.12.0 - <date>`, then merge `develop` into
+  `master`. The Tag release workflow (`.github/workflows/tag-release.yml`) pushes the tag `v0.12.0`
+  on `master`, and the Release workflow (`.github/workflows/release.yml`) builds and tests it,
+  attaches the `.vsix` to a GitHub release with the changelog's notes, and publishes it to the
+  Marketplace once the repository variable `MARKETPLACE_PUBLISH` is `true`. A merge into `master`
+  whose version is tagged already releases nothing.
 - A version with a `-` is a pre-release, for example `1.0.0-pre.1` of a feature developed on its own
   branch. It is released the same way, from its own section of the changelog (`## 1.0.0-pre.1`), but
   its GitHub release is marked as a pre-release, so the latest release stays the last version without

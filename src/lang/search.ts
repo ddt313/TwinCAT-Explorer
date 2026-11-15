@@ -124,6 +124,15 @@ function outsideComments(text: string): (start: number) => boolean {
   };
 }
 
+/**
+ * The search text a selection gives: one line, without the spaces and line breaks around it (a line selected
+ * whole, with its indentation or line break, searches that line). Undefined for none, several lines or a long text.
+ */
+export function searchTextOf(selection: string): string | undefined {
+  const text = selection.trim();
+  return text && !/[\r\n]/.test(text) && text.length <= 200 ? text : undefined;
+}
+
 /** Makes a query ready to run; a QueryError when it cannot. */
 export function compileQuery(q: SearchQuery): Matcher {
   if (!q.text) throw new QueryError('Type the text to search for');

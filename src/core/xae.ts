@@ -16,6 +16,8 @@ export interface XaeInstance {
   solution: string;
   /** The .tsproj files of its solution. */
   projects: string[];
+  /** A 32-bit process on 64-bit Windows (TcXaeShell.DTE.15.0): the 32-bit bridge drives it. */
+  x86?: boolean;
 }
 
 export class XaeError extends Error {
@@ -161,15 +163,24 @@ export interface TrialLicensePage {
 
 export class Xae {
   private exe: string | undefined;
+  /** The 32-bit bridge; null where it did not compile, and the AnyCPU one asks 32-bit XAEs too. */
+  private exe32: string | null | undefined;
+  /** Whether each XAE listed is a 32-bit process. */
+  private readonly x86 = new Map<number, boolean>();
   private progId: string | undefined;
   private unavailable: string | undefined;
   private cache: { at: number; list: XaeInstance[] } | undefined;
 
-  constructor(private readonly options: { enabled?: boolean; cacheDir?: string } = {}) {}
+  /**
+   * `bridges`, for tests: the command lines to run instead of the bridges compiled from XaeBridge.cs, the AnyCPU one
+   * and the 32-bit one.
+   */
+  constructor(private readonly options: { enabled?: boolean; cacheDir?: string; bridges?: { anycpu: string[]; x86?: string[] } } = {}) {}
 
   /** The bridge, compiled once per version of its source and of the XAE assemblies; undefined where it cannot be. */
   private bridge(): string | undefined {
     if (this.exe || this.unavailable) return this.exe;
+    if (this.options.bridges) return this.exe = this.options.bridges.anycpu[0];
     if (process.platform !== 'win32' || this.options.enabled === false) {
       this.unavailable = 'not Windows';
       return undefined;
@@ -188,37 +199,96 @@ export class Xae {
     const hash = crypto.createHash('sha1').update(fs.readFileSync(source)).update(refs.join('|')).digest('hex').slice(0, 12);
     const base = this.options.cacheDir ?? path.join(process.env.LOCALAPPDATA ?? path.dirname(source), 'twincat-explorer');
     const dir = path.join(base, `xae-bridge-${hash}`);
-    const exe = path.join(dir, 'XaeBridge.exe');
-    if (!fs.existsSync(exe)) {
+    this.compile = platform => {
+      const exe = path.join(dir, platform === 'x86' ? 'XaeBridge32.exe' : 'XaeBridge.exe');
+      if (fs.existsSync(exe)) return exe;
       fs.mkdirSync(dir, { recursive: true });
-      for (const r of refs) fs.copyFileSync(r, path.join(dir, path.basename(r)));
-      const res = cp.spawnSync(csc, ['/nologo', '/optimize', '/platform:anycpu', `/out:${exe}`,
+      for (const r of refs) if (!fs.existsSync(path.join(dir, path.basename(r)))) fs.copyFileSync(r, path.join(dir, path.basename(r)));
+      const res = cp.spawnSync(csc, ['/nologo', '/optimize', `/platform:${platform}`, `/out:${exe}`,
         ...refs.map(r => `/r:${path.join(dir, path.basename(r))}`), '/r:System.Web.Extensions.dll', source], { encoding: 'utf8', windowsHide: true });
-      if (res.status !== 0) {
-        this.unavailable = `the XAE bridge did not compile: ${(res.stdout || res.stderr || '').trim().split('\n').slice(0, 3).join(' ')}`;
-        return undefined;
+      if (res.status === 0) return exe;
+      throw new Error((res.stdout || res.stderr || '').trim().split('\n').slice(0, 3).join(' '));
+    };
+    try {
+      this.exe = this.compile('anycpu');
+    } catch (e) {
+      this.unavailable = `the XAE bridge did not compile: ${(e as Error).message}`;
+    }
+    return this.exe;
+  }
+
+  /** Compiles the bridge for a platform (once per version), after `bridge`; throws with csc's first lines. */
+  private compile: ((platform: 'anycpu' | 'x86') => string) | undefined;
+
+  /**
+   * The bridge that drives a 32-bit XAE: AnyCPU runs as a 64-bit process on 64-bit Windows, whose COM gives it no
+   * proxies of the interfaces XAE 32-bit registers for 32-bit processes only (IVsRunningDocumentTable). Where it does
+   * not compile, the AnyCPU one, as before.
+   */
+  private bridge32(): string[] | undefined {
+    if (this.options.bridges) return this.options.bridges.x86;
+    if (this.exe32 === undefined) {
+      try {
+        this.exe32 = this.compile?.('x86') ?? null;
+      } catch {
+        this.exe32 = null;
       }
     }
-    this.exe = exe;
-    return exe;
+    return this.exe32 ? [this.exe32] : undefined;
+  }
+
+  /** Whether a 32-bit XAE can be told from a 64-bit one and driven by a bridge of its own. */
+  private get drives32(): boolean {
+    return this.options.bridges ? !!this.options.bridges.x86 : process.platform === 'win32';
+  }
+
+  private remember(list: XaeInstance[]): XaeInstance[] {
+    for (const i of list) this.x86.set(i.pid, !!i.x86);
+    return list;
+  }
+
+  /** The XAE a request is for, when its architecture is not known yet: it is looked up in the instances first. */
+  private unknownPid(req: Record<string, unknown>): number | undefined {
+    const pid = req.pid;
+    return typeof pid === 'number' && req.cmd !== 'instances' && this.drives32 && !this.x86.has(pid) ? pid : undefined;
+  }
+
+  /** The bridge's command line for a request: the 32-bit bridge for a 32-bit XAE. */
+  private commandFor(req: Record<string, unknown>): string[] | undefined {
+    const exe = this.bridge();
+    if (!exe) return undefined;
+    const pid = req.pid;
+    return (typeof pid === 'number' && this.x86.get(pid) ? this.bridge32() : undefined) ?? this.options.bridges?.anycpu ?? [exe];
   }
 
   /** One request to a new bridge process; its result, or an XaeError (with XAE's dialogs on a timeout). */
   request<R>(req: Record<string, unknown>, timeoutMs = 30_000): R {
-    const exe = this.bridge();
-    if (!exe) throw new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`);
-    const res = cp.spawnSync(exe, [], {
+    const pid = this.unknownPid(req);
+    if (pid !== undefined) {
+      this.cache = undefined;
+      this.instances();
+      if (!this.x86.has(pid)) this.x86.set(pid, false);
+    }
+    const cmd = this.commandFor(req);
+    if (!cmd) throw new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`);
+    const res = cp.spawnSync(cmd[0], cmd.slice(1), {
       input: JSON.stringify({ id: 1, timeoutMs, ...req }) + '\n', encoding: 'utf8', windowsHide: true, timeout: timeoutMs + 10_000,
     });
     return answerOf<R>(res.stdout ?? '', res.stderr ?? '', res.error);
   }
 
   /** `request` without blocking: the bridge process runs while the caller's event loop goes on. */
-  requestAsync<R>(req: Record<string, unknown>, timeoutMs = 30_000): Promise<R> {
-    const exe = this.bridge();
-    if (!exe) return Promise.reject(new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`));
+  async requestAsync<R>(req: Record<string, unknown>, timeoutMs = 30_000): Promise<R> {
+    const pid = this.unknownPid(req);
+    if (pid !== undefined) {
+      this.cache = undefined;
+      await this.instancesAsync();
+      if (!this.x86.has(pid)) this.x86.set(pid, false);
+    }
+    const cmd = this.commandFor(req);
+    if (!cmd) return Promise.reject(new XaeError(`TwinCAT XAE cannot be driven: ${this.unavailable}`));
     return new Promise<R>((resolve, reject) => {
-      const child = cp.spawn(exe, [], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = cp.spawn(cmd[0], cmd.slice(1), { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
       let error: Error | undefined;
@@ -244,14 +314,14 @@ export class Xae {
   /** The running XAEs, looked up again after two seconds. */
   instances(): XaeInstance[] {
     if (this.cache && Date.now() - this.cache.at < 2000) return this.cache.list;
-    const list = this.bridge() ? this.request<XaeInstance[]>({ cmd: 'instances' }, 15_000) : this.noBridge();
+    const list = this.bridge() ? this.remember(this.request<XaeInstance[]>({ cmd: 'instances' }, 15_000)) : this.noBridge();
     this.cache = { at: Date.now(), list };
     return list;
   }
 
   async instancesAsync(): Promise<XaeInstance[]> {
     if (this.cache && Date.now() - this.cache.at < 2000) return this.cache.list;
-    const list = this.bridge() ? await this.requestAsync<XaeInstance[]>({ cmd: 'instances' }, 15_000) : this.noBridge();
+    const list = this.bridge() ? this.remember(await this.requestAsync<XaeInstance[]>({ cmd: 'instances' }, 15_000)) : this.noBridge();
     this.cache = { at: Date.now(), list };
     return list;
   }

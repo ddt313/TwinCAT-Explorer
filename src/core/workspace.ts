@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PlcProject, PlcProjectRef, TsProject, parsePlcProject, parseTsProject, parseXtiProject } from './project';
 import { TcSourceFile, parseTcFile, parseTcText } from './tcfile';
+import { Accessor, viewLabel } from './objectText';
 
 export function fileKey(p: string): string {
   const resolved = path.resolve(p);
@@ -107,6 +108,16 @@ export class TcWorkspace {
 
   entry(p: string): SourceEntry | undefined {
     return this.entries.get(fileKey(p));
+  }
+
+  /**
+   * The name of an object, method, property, action or accessor with its PLC project, as the MCP server's tools take
+   * it and as XAE's tabs show it after the project: `Machine:FB_Valve.Open`, `Machine:FB_Valve.Speed.Get`.
+   */
+  qualifiedName(fsPath: string, objectId: string, accessor?: Accessor): string | undefined {
+    const entry = this.entry(fsPath);
+    const obj = entry && this.getFile(fsPath)?.objects.get(objectId);
+    return obj ? `${entry.project.name}:${viewLabel(obj, accessor)}` : undefined;
   }
 
   get sourceEntries(): SourceEntry[] {

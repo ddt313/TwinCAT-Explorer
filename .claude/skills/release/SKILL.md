@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release a version of Explorer for TwinCAT, the VS Code extension (tag v0.16.1, a .vsix) or the browser extension (tag browser-v0.1.4, a zip for Chrome and Edge, and Firefox's build submitted to its addons.mozilla.org listing). Turns the changelog's Unreleased section into the version's, bumps the version, merges release/x.y.z into develop and develop into master, tags master's merge commit, then builds, tests, packages (submits Firefox's build to addons.mozilla.org) and creates the GitHub release by hand when GitHub Actions does not run. Use whenever the user wants to release, ship, tag or publish a version, bump the version, or fix a release that went out wrong.
+description: Release a version of Explorer for TwinCAT, the VS Code extension (tag v0.16.1, a .vsix) or the browser extension (tag browser-v0.1.4, a zip for Chrome and Edge, and Firefox's build submitted to its addons.mozilla.org listing). Turns the changelog's Unreleased section into the version's, bumps the version, merges release/x.y.z into develop and develop into master; GitHub Actions then tags and releases the VS Code extension (tag-release.yml, release.yml), and the browser extension once its tag is pushed (release-browser.yml). Use whenever the user wants to release, ship, tag or publish a version, bump the version, or fix a release that went out wrong.
 ---
 
 # Release
@@ -12,7 +12,7 @@ Two products, released apart from the same repository (`browser/SPIKE.md`, *Rele
 | Version | `package.json` (and `package-lock.json`) | `browser/static/manifest.json`: `version`, and `version_name` for a pre-release |
 | Changes | `CHANGELOG.md` | `browser/CHANGELOG.md` |
 | Tag | `v0.16.1` | `browser-v0.1.4` |
-| Workflow | `.github/workflows/release.yml` | `.github/workflows/release-browser.yml` |
+| Workflow | `.github/workflows/tag-release.yml` on the merge into master, then `release.yml` | `.github/workflows/release-browser.yml` on its tag |
 | Asset | `explorer-for-twincat-<version>.vsix` | `explorer-for-twincat-browser-<version>.zip` (Chrome, Edge); Firefox's on addons.mozilla.org (`browser/amo/`) |
 | GitHub release | title `v0.16.1`, the latest release | title `Browser extension 0.1.4`, `--latest=false` |
 
@@ -84,119 +84,46 @@ gh pr merge <number> --merge
 PR bodies end with the attribution line this project uses. The user has said to do the whole release (merge, tag,
 release) without asking each time.
 
-## 6. Tag
+## 6. Tag and release: GitHub Actions
 
-Tag master's merge commit, a lightweight tag as the earlier ones:
+**VS Code extension**: nothing to do by hand. The merge into master starts *Tag release* (`tag-release.yml`): it pushes
+`v<version>` on master's commit when that tag does not exist yet and CHANGELOG.md has the version's section, then
+calls *Release* (`release.yml`), which builds, tests, creates the GitHub release with the changelog's notes and
+publishes to the Marketplace (when `MARKETPLACE_PUBLISH` is `true`). Do not push the tag yourself.
+
+**Browser extension**: tag master's merge commit, a lightweight tag as the earlier ones; the tag starts
+`release-browser.yml`, which also submits Firefox's build to AMO when the repository has the AMO secrets.
 
 ```bash
 git fetch -q origin
-git tag v<version> origin/master            # browser-v<version> for the browser extension
-git push origin v<version>
+git tag browser-v<version> origin/master
+git push origin browser-v<version>
 ```
 
 **Never move or re-push a tag that is already pushed.** A release that went out wrong gets a new patch release
 (as 0.16.1 fixed 0.16.0's changelog); its GitHub release notes may be edited with `gh release edit`.
 
-## 7. GitHub release
-
-Check whether the workflow ran for the tag:
+## 7. Check the runs
 
 ```bash
-gh run list -L 3
+gh run list -L 5
+gh run watch <id>
+gh release view v<version>        # browser-v<version>
 ```
 
-GitHub Actions on this repository has been locked for billing since 2026-10-21: no run starts. When no run started
-for the tag (or it failed in seconds on billing), do the workflow's steps by hand **at the tag**:
+- *Tag release* failed on "no section" (the changelog was not renamed): fix the changelog on develop, merge develop
+  into master again. No tag was pushed.
+- A run failed after the tag was pushed: fix the cause, then run *Release* by hand on that tag (Actions > Release >
+  Run workflow, the tag as input; `release-browser.yml` likewise). It updates a GitHub release that exists already.
 
-```bash
-git switch --detach v<version>
-test "v$(node -p "require('./package.json').version")" = "v<version>"
-npm run compile && npm run test:unit
-npm run package -- --out explorer-for-twincat-<version>.vsix
-unzip -p explorer-for-twincat-<version>.vsix extension/changelog.md | grep -n '^## ' | head -3   # no Unreleased
-```
-
-Release notes: the changelog's section, then how to install (as `release.yml` writes them). The awk writes the
-whole line as `$(0)`: in a skill, a dollar sign followed by a digit is an argument placeholder, so with arguments
-the usual spelling reaches you as the first argument and the notes come out empty.
-
-When the changelog's section credits reporters (see 2.), a thanks line goes between the section and the install
-line, with an `@` mention, which notifies them: `Thanks to @<login> for reporting #<n>.`, saying what of the report
-helped when something did (as 0.20.0's: "and for the settings, folder tree and screenshots that showed where it
-went wrong"). Leave `thanks` empty when there is none.
-
-```bash
-version=<version>
-thanks=''   # or 'Thanks to @<login> for reporting #<n>.'
-notes="$(awk -v head="## $version" '
-  index($(0), head " ") == 1 || $(0) == head { found = 1; next }
-  found && /^## / { exit }
-  found { print }
-' CHANGELOG.md | sed '/./,$!d')"
-{ printf '%s\n\n' "$notes"; test -n "$thanks" && printf '%s\n\n' "$thanks"
-  printf '%s, or from the Marketplace.\n' "Install the attached file with \`code --install-extension explorer-for-twincat-$version.vsix\`"
-} > <scratchpad>/notes.md
-gh release create v$version explorer-for-twincat-$version.vsix --verify-tag --title v$version \
-  --notes-file <scratchpad>/notes.md --prerelease=false     # true for a version with a -
-git switch develop
-```
-
-A pre-release's notes end instead with how to go back (see `release.yml`).
-
-### Browser extension by hand
-
-One release for both browsers, the tag `browser-v<version>`: the zip for Chrome and Edge on GitHub, and Firefox's
-build submitted to its listing on addons.mozilla.org (AMO), as `release-browser.yml` does.
-
-```bash
-git switch --detach browser-v<version>
-test "$(node -p "const m = require('./browser/static/manifest.json'); m.version_name || m.version")" = "<version>"
-npm run compile && npm run test:unit
-npm run build:browser
-npx --yes web-ext@10.8.0 lint --source-dir browser/dist-firefox
-```
-
-1. **Zip** `browser/dist` as the one folder `explorer-for-twincat-browser`: `cp -r browser/dist
-   out/release/explorer-for-twincat-browser`, then Windows' own `/c/Windows/System32/tar.exe -a -c -f
-   explorer-for-twincat-browser-<version>.zip -C out/release explorer-for-twincat-browser` (on Linux:
-   `cd out/release && zip -qr ../../explorer-for-twincat-browser-<version>.zip explorer-for-twincat-browser`).
-2. **Notes**: the section of `browser/CHANGELOG.md` (the same `awk`, on that file), the thanks line to the issues'
-   reporters when there is one (as above), then the *Install* text of `release-browser.yml`, Firefox's paragraph
-   included.
-3. **Release**:
-
-   ```bash
-   gh release create browser-v<version> explorer-for-twincat-browser-<version>.zip --verify-tag \
-     --title "Browser extension <version>" --notes-file <scratchpad>/notes.md \
-     --prerelease=false --latest=false     # true for a version with a -
-   ```
-
-4. **Submit Firefox's build to AMO**, last, once all of the above passed: AMO takes a version **once**, so a version
-   that has to change after it is a new version. The source archive is the repository at the tag; its reviewers build
-   from it as `browser/amo/README.md` says.
-
-   ```bash
-   test -n "$AMO_JWT_ISSUER" && test -n "$AMO_JWT_SECRET"
-   git archive --format=zip -o <scratchpad>/explorer-for-twincat-browser-<version>-source.zip HEAD
-   npx --yes web-ext@10.8.0 sign --source-dir browser/dist-firefox --channel listed --approval-timeout 0 \
-     --upload-source-code <scratchpad>/explorer-for-twincat-browser-<version>-source.zip \
-     --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
-   git switch develop
-   ```
-
-   The key is the AMO account's (Developer Hub, *Manage API Keys*): the repository's secrets of the same names for
-   the workflow, the session's or shell's environment by hand. Never write it into a file, a command's text or the
-   repository. Without it, tell the user to submit `browser/dist-firefox` and the source archive on AMO themselves
-   (Developer Hub, the listing, *Upload New Version*), with the *Notes to the reviewers* of `browser/amo/README.md`.
-   The first version creates the listing: `--amo-metadata browser/amo/metadata.json` added, once (see
-   `browser/amo/README.md`); a later one never passes it, as the listing is edited on AMO. A version may wait for a
-   review there before Firefox updates to it; the release does not wait for it.
-
-The Marketplace is not published by hand.
+When the changelog's section credits reporters (see 2.), add a thanks line to the GitHub release's notes once it
+exists, between the section and the install line, with an `@` mention, which notifies them: `Thanks to @<login> for
+reporting #<n>.`, saying what of the report helped when something did. Edit the notes with
+`gh release edit v<version> --notes-file <file>`, starting from `gh release view v<version> --json body -q .body`.
 
 ## 8. Report
 
-Tell the user the version, the PRs, the tag and the release's link, that the tests passed, who was credited for
-reporting the issues it fixes (or that none were), and that the Marketplace was not updated (when the workflow did
-not run). For the browser extension, say whether Firefox's build went to AMO
-(and that it may wait for a review there), and when not, why (no AMO key, an error of AMO's) and what the user does.
+Tell the user the version, the PRs, the tag and the release's link, that the runs passed (or which step failed and
+why), who was credited for reporting the issues it fixes (or that none were), and whether the Marketplace was
+updated. For the browser extension, say whether Firefox's build went to AMO (and that it may wait for a review
+there), and when not, why (no AMO key, an error of AMO's) and what the user does.

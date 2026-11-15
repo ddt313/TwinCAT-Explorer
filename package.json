@@ -2,7 +2,7 @@
   "name": "explorer-for-twincat",
   "displayName": "Explorer for TwinCAT",
   "description": "XAE-like TwinCAT PLC project tree, an XAE-like declaration/implementation split editor and Structured Text language features",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "publisher": "thanhdang",
   "private": true,
   "license": "MIT",
@@ -544,6 +544,16 @@
         "category": "TwinCAT"
       },
       {
+        "command": "twincatExplorer.showReferencesByAccess",
+        "title": "Show References by Access",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.showCallHierarchy",
+        "title": "Show Call Hierarchy",
+        "category": "TwinCAT"
+      },
+      {
         "command": "twincatExplorer.checkWorkspace",
         "title": "Check All Structured Text",
         "category": "TwinCAT"
@@ -551,6 +561,31 @@
       {
         "command": "twincatExplorer.copyName",
         "title": "Copy Name",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.copyPath",
+        "title": "Copy Path",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.copyRelativePath",
+        "title": "Copy Relative Path",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.copyFilePath",
+        "title": "Copy File Path",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.copyRelativeFilePath",
+        "title": "Copy Relative File Path",
+        "category": "TwinCAT"
+      },
+      {
+        "command": "twincatExplorer.copyQualifiedName",
+        "title": "Copy Qualified Name",
         "category": "TwinCAT"
       },
       {
@@ -817,6 +852,26 @@
           "when": "false"
         },
         {
+          "command": "twincatExplorer.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.copyRelativePath",
+          "when": "false"
+        },
+        {
+          "command": "twincatExplorer.copyFilePath",
+          "when": "resourceScheme == twincat"
+        },
+        {
+          "command": "twincatExplorer.copyRelativeFilePath",
+          "when": "resourceScheme == twincat"
+        },
+        {
+          "command": "twincatExplorer.copyQualifiedName",
+          "when": "resourceScheme == twincat"
+        },
+        {
           "command": "twincatExplorer.rename",
           "when": "false"
         },
@@ -882,6 +937,14 @@
         },
         {
           "command": "twincatExplorer.showTypeHierarchy",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.showReferencesByAccess",
+          "when": "twincatExplorer.hasProjects"
+        },
+        {
+          "command": "twincatExplorer.showCallHierarchy",
           "when": "twincatExplorer.hasProjects"
         },
         {
@@ -1271,7 +1334,7 @@
         {
           "command": "twincatExplorer.openXml",
           "when": "view == twincatExplorer.tree && viewItem =~ /hasFile/",
-          "group": "9_copy@2"
+          "group": "9_copy@5"
         },
         {
           "command": "twincatExplorer.openChanges",
@@ -1297,6 +1360,16 @@
           "command": "twincatExplorer.showTypeHierarchy",
           "when": "view == twincatExplorer.tree && viewItem =~ /typeHierarchy/",
           "group": "2_navigate@2"
+        },
+        {
+          "command": "twincatExplorer.showReferencesByAccess",
+          "when": "view == twincatExplorer.tree && viewItem =~ /openable/",
+          "group": "2_navigate@3"
+        },
+        {
+          "command": "twincatExplorer.showCallHierarchy",
+          "when": "view == twincatExplorer.tree && viewItem =~ /callHierarchy/",
+          "group": "2_navigate@4"
         },
         {
           "command": "twincatExplorer.addPou",
@@ -1377,6 +1450,21 @@
           "command": "twincatExplorer.copyName",
           "when": "view == twincatExplorer.tree && viewItem =~ /named/",
           "group": "9_copy@1"
+        },
+        {
+          "command": "twincatExplorer.copyPath",
+          "when": "view == twincatExplorer.tree && viewItem =~ /hasFile/",
+          "group": "9_copy@2"
+        },
+        {
+          "command": "twincatExplorer.copyRelativePath",
+          "when": "view == twincatExplorer.tree && viewItem =~ /hasFile/",
+          "group": "9_copy@3"
+        },
+        {
+          "command": "twincatExplorer.copyQualifiedName",
+          "when": "view == twincatExplorer.tree && viewItem =~ /hasObject/",
+          "group": "9_copy@4"
         },
         {
           "command": "twincatExplorer.expandAll",
@@ -1578,6 +1666,21 @@
       ],
       "editor/title/context": [
         {
+          "command": "twincatExplorer.copyFilePath",
+          "when": "resourceScheme == twincat",
+          "group": "1_cutcopypaste@30"
+        },
+        {
+          "command": "twincatExplorer.copyRelativeFilePath",
+          "when": "resourceScheme == twincat",
+          "group": "1_cutcopypaste@31"
+        },
+        {
+          "command": "twincatExplorer.copyQualifiedName",
+          "when": "resourceScheme == twincat",
+          "group": "1_cutcopypaste@32"
+        },
+        {
           "command": "twincatExplorer.openChanges",
           "when": "(resourceScheme == file || isWeb) && resourceExtname =~ /^\\.(TcPOU|TcDUT|TcGVL|TcIO)$/i",
           "group": "3_compare@1"
@@ -1593,6 +1696,16 @@
           "command": "twincatExplorer.autoDeclare",
           "when": "editorLangId == twincat-st && resourceScheme == vscode-notebook-cell",
           "group": "1_modification@90"
+        },
+        {
+          "command": "twincatExplorer.showReferencesByAccess",
+          "when": "editorLangId == twincat-st && resourceScheme == vscode-notebook-cell",
+          "group": "navigation@90"
+        },
+        {
+          "command": "twincatExplorer.showCallHierarchy",
+          "when": "editorLangId == twincat-st && resourceScheme == vscode-notebook-cell",
+          "group": "navigation@91"
         }
       ],
       "explorer/context": [
@@ -1713,6 +1826,54 @@
           "default": [],
           "description": "Identifiers that are never reported as unknown (for example symbols of a library without a stub)."
         },
+        "twincatExplorer.diagnostics.rules": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "The level of each kind of Structured Text problem, instead of its own (all are errors): `error`, `warning` or `off`, for example `{ \"unknown-member\": \"warning\" }`. The kind is the code a problem shows in the Problems panel. To turn checks off in one POU, method, DUT or GVL, put `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in its declaration (without a value: all checks); XAE ignores attributes it does not know.",
+          "properties": {
+            "syntax": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "Syntax errors."
+            },
+            "unknown-identifier": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A name that is not declared."
+            },
+            "unknown-type": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A type that is not declared."
+            },
+            "unknown-member": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A member that the type of the object does not have."
+            },
+            "unknown-value": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A value that the enumeration does not have."
+            },
+            "unknown-parameter": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A parameter that the function, function block or method does not have."
+            },
+            "excluded-from-build": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A use of a name declared in code excluded from the build."
+            },
+            "unimplemented-interface": {
+              "type": "string",
+              "enum": ["error", "warning", "off"],
+              "description": "A method or property of an interface that a function block (not ABSTRACT) lacks."
+            }
+          },
+          "additionalProperties": false
+        },
         "twincatExplorer.stubFiles": {
           "type": "array",
           "items": {
@@ -1791,7 +1952,8 @@
   "scripts": {
     "compile": "tsc -p . && node scripts/build-vendor.js && tsc -p src/webview && node scripts/build-webview.js && node scripts/build-mcp.js && node scripts/build-web.js",
     "watch": "tsc -w -p .",
-    "test:unit": "node --test --test-reporter=spec \"out/test/unit/*.test.js\"",
+    "test:unit": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-summary-reporter.js --test-reporter-destination=stdout \"out/test/unit/*.test.js\"",
+    "test:integration": "node scripts/test-integration.js",
     "test": "npm run compile && npm run test:unit",
     "package": "node scripts/marketplace-readme.js && vsce package --no-dependencies --readme-path out/README.marketplace.md",
     "vscode:prepublish": "npm run compile",

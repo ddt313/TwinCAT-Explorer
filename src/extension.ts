@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { TcWorkspace, fileKey } from './core/workspace';
 import { objectAtOffset } from './core/tcfile';
-import { isInHiddenFolder } from './core/paths';
+import { isInHiddenFolder, relativePathText } from './core/paths';
 import { debugLog } from './core/debugLog';
 import { LanguageIndex, SectionContext, StubSource } from './lang/index';
 import { BUNDLED_STUBS } from './lang/stubs';
@@ -14,7 +14,7 @@ import { referencedLibrarySymbols } from './core/libraries';
 import { ObjectFileSystem } from './vscode/objectFs';
 import { Xae } from './core/xae';
 import { XaeSaveHost, saveThroughXae } from './core/xaeSave';
-import { parseObjectText, positionIn, viewSections } from './core/objectText';
+import { Accessor, parseObjectText, positionIn, viewSections } from './core/objectText';
 import { forgetDocument, markFileChanged, objectTabsOf, openObjectDocument } from './vscode/openDocs';
 import { OverlaySync } from './vscode/overlays';
 import { CellLabels, FileSerializer, ObjectSerializer } from './vscode/serializers';
@@ -24,6 +24,8 @@ import { MemberCommands, NewMemberKind } from './vscode/members';
 import { ObjectCommands, ObjectTarget } from './vscode/objects';
 import { SymbolRename } from './vscode/rename';
 import { TypeHierarchy } from './vscode/typeHierarchy';
+import { AccessReferences } from './vscode/accessReferences';
+import { CallHierarchy } from './vscode/callHierarchy';
 import { ShownTab } from './vscode/tabs';
 import { itemOrder } from './core/project';
 import { NavStack } from './core/navStack';
@@ -40,6 +42,7 @@ import { BlameService } from './vscode/blame';
 import { AutoDeclare } from './vscode/autoDeclare';
 import { CompareBase, ObjectEditorProvider, RevealTarget } from './vscode/objectEditor';
 import { LocationService } from './vscode/locations';
+import { searchTextOf } from './lang/search';
 import { SEARCH_VIEW, ScopeChoice, SearchNode, SearchOption, SearchView } from './vscode/searchView';
 import { checkMcpSetup, setUpMcpServer } from './vscode/mcpSetup';
 import { LicenseStatus } from './vscode/license';
@@ -919,6 +922,28 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }
   };
 
+  /**
+   * What the Copy commands copy from: a node of the TwinCAT tree, the URI of an editor tab (its context menu), or the
+   * active editor (the Command Palette).
+   */
+  const copyTarget = (arg: unknown): { fsPath: string; objectId?: string; accessor?: Accessor } | undefined => {
+    if (arg instanceof TreeNode) return arg.fsPath ? { fsPath: arg.fsPath, objectId: arg.objectId, accessor: arg.accessor } : undefined;
+    const uri = arg instanceof vscode.Uri ? arg : activeUri();
+    if (!uri) return undefined;
+    if (uri.scheme === OBJECT_SCHEME) return parseObjectUri(uri);
+    return isFileUri(uri) ? { fsPath: uri.fsPath } : undefined;
+  };
+  const copyFilePath = async (arg: unknown) => {
+    const t = copyTarget(arg);
+    if (t) await vscode.env.clipboard.writeText(t.fsPath);
+  };
+  // As VS Code's Explorer: relative to the workspace folder, without its name, in the separator it is set to.
+  const copyRelativeFilePath = async (arg: unknown) => {
+    const t = copyTarget(arg);
+    if (!t) return;
+    const separator = vscode.workspace.getConfiguration('explorer').get<string>('copyRelativePathSeparator');
+    await vscode.env.clipboard.writeText(relativePathText(vscode.workspace.asRelativePath(fileUri(t.fsPath), false), separator));
+  };
   const activeUri = (): vscode.Uri | undefined => {
     const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
     if (input instanceof vscode.TabInputCustom) return input.uri;
@@ -1074,6 +1099,7 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
   // XAE's Auto Declare: the quick fixes of unknown names and members, and Auto Declare... (Shift+F2).
   const autoDeclare = new AutoDeclare(index, features, objectEditors, {
     addMember: (fsPath, objectId, kind, name, type) => members.addNamed(kind, { fsPath, objectId, folderPath: [], actions: false }, name, type),
+    implementInterfaces: fsPath => members.implementInterfaces(fsPath),
     openBeside: (fsPath, objectId) => openDefault(fsPath, objectId, { preview: false, preserveFocus: true, viewColumn: vscode.ViewColumn.Beside }),
   });
   objectEditors.fixes = autoDeclare;
@@ -1123,6 +1149,29 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.goToImplementation', (arg?: unknown) => hierarchy.goToImplementation(target(arg))),
   );
+  // Show Call Hierarchy: who calls a POU, method or action and what it calls, where VS Code's own does not reach.
+  const callHierarchy = new CallHierarchy(index, features);
+  objectEditors.callHierarchy = (fk, key, text, offset) => callHierarchy.showAt(fk, key, text, offset);
+  context.subscriptions.push(vscode.commands.registerCommand('twincatExplorer.showCallHierarchy', async (arg?: unknown) => {
+    const editor = vscode.window.activeTextEditor;
+    if ((arg === undefined || arg instanceof vscode.Uri) && editor && cellInfo(editor.document)) {
+      await callHierarchy.showInCell(editor.document, editor.selection.active);
+    } else {
+      await callHierarchy.showObject(target(arg));
+    }
+  }));
+  // Show References by Access: the places of a name grouped by written, read, called... (Find All References has no kinds).
+  const accessReferences = new AccessReferences(index, features);
+  objectEditors.accessReferences = (fk, key, text, offset) => accessReferences.showAt(fk, key, text, offset);
+  context.subscriptions.push(vscode.commands.registerCommand('twincatExplorer.showReferencesByAccess', async (arg?: unknown) => {
+    // From a notebook cell (its context menu, the Command Palette): at its cursor.
+    const editor = vscode.window.activeTextEditor;
+    if ((arg === undefined || arg instanceof vscode.Uri) && editor && cellInfo(editor.document)) {
+      await accessReferences.showInCell(editor.document, editor.selection.active);
+    } else {
+      await accessReferences.showObject(target(arg));
+    }
+  }));
   /**
    * Where a new object goes: the PLC project or folder of a tree node; else the folder of the active editor's
    * object, or a PLC project picked.
@@ -1168,10 +1217,12 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     return undefined;
   };
   /** The text selected on one line of a text editor or notebook cell: what Search... starts with. */
+  /** The text selected in the active editor or split editor, to search: one line, without the spaces around it. */
   const selectedText = (): string | undefined => {
     const editor = vscode.window.activeTextEditor;
-    const text = editor && !editor.selection.isEmpty ? editor.document.getText(editor.selection) : '';
-    return text && !text.includes('\n') && text.length <= 200 ? text : undefined;
+    const session = editor ? undefined : objectEditors.activeSession();
+    const raw = editor ? (editor.selection.isEmpty ? '' : editor.document.getText(editor.selection)) : session?.selection ?? '';
+    return searchTextOf(raw);
   };
   const searchOptions: SearchOption[] = ['matchCase', 'wholeWord', 'regex', 'skipComments'];
 
@@ -1421,6 +1472,17 @@ export function activate(context: vscode.ExtensionContext, web?: WebHost): TwinC
     }),
     vscode.commands.registerCommand('twincatExplorer.copyName', async (node?: TreeNode) => {
       if (node?.name) await vscode.env.clipboard.writeText(node.name);
+    }),
+    // A method, property or accessor has the file of its POU, as the POU's own node has.
+    vscode.commands.registerCommand('twincatExplorer.copyPath', (node?: unknown) => copyFilePath(node)),
+    vscode.commands.registerCommand('twincatExplorer.copyRelativePath', (node?: unknown) => copyRelativeFilePath(node)),
+    // The same, in the menu of an object's editor tab, whose own Copy Path and Copy Relative Path copy its label.
+    vscode.commands.registerCommand('twincatExplorer.copyFilePath', (arg?: unknown) => copyFilePath(arg)),
+    vscode.commands.registerCommand('twincatExplorer.copyRelativeFilePath', (arg?: unknown) => copyRelativeFilePath(arg)),
+    vscode.commands.registerCommand('twincatExplorer.copyQualifiedName', async (arg?: unknown) => {
+      const ref = copyTarget(arg);
+      const name = ref?.objectId ? ws.qualifiedName(ref.fsPath, ref.objectId, ref.accessor) : undefined;
+      if (name) await vscode.env.clipboard.writeText(name);
     }),
     vscode.commands.registerCommand('twincatExplorer.setUpMcpServer', () => setUpMcpServer(context)),
     vscode.commands.registerCommand('twincatExplorer.showLicenses', () => license?.show()),

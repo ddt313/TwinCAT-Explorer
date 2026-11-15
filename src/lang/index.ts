@@ -29,6 +29,11 @@ export interface SectionContext {
   gvl?: GvlSym;
   /** In a source file excluded from the build (XAE's Exclude from build), which XAE does not compile. */
   excluded?: true;
+  /**
+   * The problem codes not reported in this section: those the attribute 'explorer.disable' names in the declaration
+   * of its POU, method, property, action, DUT or GVL (a POU's apply to its members too); `*` for all.
+   */
+  disabled?: ReadonlySet<string>;
 }
 
 interface FileSyms {
@@ -84,6 +89,23 @@ function cleanComment(c: string): string {
   if (c.startsWith('(*')) return c.slice(2, -2).trim();
   if (c.startsWith('/*')) return c.slice(2, -2).trim();
   return c;
+}
+
+/**
+ * The problem codes that the `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` pragmas of a
+ * declaration name, lower case, added to `base`; `*` for one without a value. Undefined for none.
+ */
+export function disabledCodes(trivia: Trivia[], base?: ReadonlySet<string>): ReadonlySet<string> | undefined {
+  let out: Set<string> | undefined;
+  for (const t of trivia) {
+    if (t.kind !== 'pragma') continue;
+    const m = /^\{\s*attribute\s+'explorer\.disable'\s*(?::=\s*'([^']*)'\s*)?\}$/i.exec(t.text);
+    if (!m) continue;
+    out ??= new Set(base);
+    const codes = (m[1] ?? '').split(/[\s,;]+/).filter(c => c);
+    for (const c of codes.length ? codes : ['*']) out.add(c.toLowerCase());
+  }
+  return out ?? base;
 }
 
 function hasAttribute(trivia: Trivia[], name: string, before = Number.MAX_SAFE_INTEGER): boolean {
@@ -436,7 +458,8 @@ export class LanguageIndex {
       const pou = this.makePou(f, scope, unit, declText, parsed.trivia, declSec?.key, root, root.name);
       if (root.kind === 'itf') pou.pouKind = 'ITF';
       f.pous.push(pou);
-      for (const s of root.sections) f.contexts.set(s.key, { ...ctxBase(s, root), pou });
+      const disabled = disabledCodes(parsed.trivia);
+      for (const s of root.sections) f.contexts.set(s.key, { ...ctxBase(s, root), pou, ...(disabled ? { disabled } : {}) });
       for (const m of root.members) {
         const mDecl = m.sections.find(s => s.role === 'decl' && !s.accessor);
         const mText = mDecl ? textOf(mDecl) : '';
@@ -461,7 +484,8 @@ export class LanguageIndex {
           }
         }
         pou.members.push(member);
-        for (const s of m.sections) f.contexts.set(s.key, { ...ctxBase(s, m), pou, member });
+        const mDisabled = disabledCodes(mParsed.trivia, disabled);
+        for (const s of m.sections) f.contexts.set(s.key, { ...ctxBase(s, m), pou, member, ...(mDisabled ? { disabled: mDisabled } : {}) });
       }
     } else if (root.kind === 'dut') {
       const declSec = root.sections.find(s => s.role === 'decl');
@@ -472,7 +496,8 @@ export class LanguageIndex {
         for (const td of u.typeDecls) types.push(this.makeType(f, scope, td, declText, parsed.trivia, declSec?.key));
       }
       f.types.push(...types);
-      for (const s of root.sections) f.contexts.set(s.key, { ...ctxBase(s, root), types });
+      const disabled = disabledCodes(parsed.trivia);
+      for (const s of root.sections) f.contexts.set(s.key, { ...ctxBase(s, root), types, ...(disabled ? { disabled } : {}) });
     } else if (root.kind === 'gvl') {
       const declSec = root.sections.find(s => s.role === 'decl');
       const declText = declSec ? textOf(declSec) : '';
@@ -490,7 +515,8 @@ export class LanguageIndex {
         }
       }
       f.gvls.push(gvl);
-      for (const s of root.sections) f.contexts.set(s.key, { ...ctxBase(s, root), gvl });
+      const disabled = disabledCodes(parsed.trivia);
+      for (const s of root.sections) f.contexts.set(s.key, { ...ctxBase(s, root), gvl, ...(disabled ? { disabled } : {}) });
     }
     return f;
   }

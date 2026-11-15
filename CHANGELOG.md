@@ -3,6 +3,60 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.24.0 - 2026-11-15
+
+### Added
+- Copy Path and Copy Relative Path in the TwinCAT tree's context menu, beside Copy Name, on the nodes a file holds:
+  the TwinCAT and PLC projects, POUs, DUTs, GVLs and interfaces, and the methods, properties and actions, which
+  copy their POU's `.TcPOU`. As in VS Code's Explorer, the relative path is that of the workspace folder, in the
+  separator `explorer.copyRelativePathSeparator` sets. Then Copy Qualified Name, on the nodes of an object: its
+  name with its PLC project, `Machine:FB_Valve.Open` or `Machine:FB_Conveyor.Speed.Get`, as the MCP server's tools
+  take it. Open XML moves below them. ([#125](https://github.com/ddt313/TwinCAT-Explorer/issues/125), reported by
+  [simongaoai-coder](https://github.com/simongaoai-coder))
+- Copy File Path, Copy Relative File Path and Copy Qualified Name in the context menu of an object's editor tab, and
+  in the Command Palette while one is active. VS Code's own Copy Path and Copy Relative Path copy the tab's name
+  there (`FB_Valve.Open`). ([#125](https://github.com/ddt313/TwinCAT-Explorer/issues/125))
+- An error at the name after `IMPLEMENTS` when a function block lacks methods or properties of that interface (or
+  of the interfaces it extends), as XAE's compiler reports it: `FB_Valve does not implement method Close of
+  I_Valve`. Those of a function block it extends count; a `FUNCTION_BLOCK ABSTRACT` is not checked, nor one that
+  extends a function block not found. The interfaces of the function blocks it extends are checked too (an
+  `ABSTRACT` base leaves them to it), with an error at the name after `EXTENDS`: `FB_Valve does not implement
+  method Close of I_Valve (through FB_ValveBase)`. Its quick fix runs `Implement Interfaces...`.
+- `Implement Interfaces...` also adds what the interfaces of the function blocks it extends need.
+- Each Structured Text problem has a code, its kind (`unknown-member`, `unknown-type`, `syntax`...), shown in the
+  Problems panel, in the split editor and in the MCP server's answers.
+- `twincatExplorer.diagnostics.rules`: the level of each kind of problem, `error`, `warning` or `off`
+  (`{ "unknown-member": "warning" }`). The MCP server reads it from `.vscode/settings.json` too.
+- `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU, method,
+  property, action, DUT or GVL turns those kinds of problems off there (a POU's in its members too); without a
+  value, all of them.
+- The MCP server's `references` tells how each place uses the name: `declaration`, `write`, `readwrite`
+  (passed to a `VAR_IN_OUT`), `address` (`ADR`, `BITADR`, `REF=`), `call`, `read` or `type`, with the member or
+  index a variable is used through (`write .eState` for `stStatus.eState := ...`), and a count per kind. Its new
+  `access` filter answers who writes a variable: `access: ["write", "readwrite", "address"]`.
+- `TwinCAT: Show References by Access` (context menu of the panes, of notebook cells and of the TwinCAT tree):
+  the places of a name in the References view, grouped by how each uses it (`Write`, `Read and write
+  (VAR_IN_OUT)`, `Address taken`, `Call`, `Read`, `Declaration`, `Type`) and by object, each with its line and the
+  member or index a variable is used through. Find All References cannot tell writes from reads.
+- `TwinCAT: Show Call Hierarchy` (context menu of the panes, of notebook cells and of the TwinCAT tree): what calls a
+  function, program, function block, method or action, up to the task that calls a program, and what it calls, in
+  the References view, level by level. A method's callers include those through the interface or base method it
+  implements or overrides (`via I_Valve.Open`). The MCP server's new `calls` gives the same, to a depth of 5.
+
+### Changed
+- The highlights of a symbol in a pane tell written from read as the analysis does: also a variable passed to a
+  `VAR_IN_OUT` is written.
+
+### Fixed
+- `TwinCAT: Search...` (Ctrl+Shift+Alt+F) in the split editor searches the text selected there, as in a text
+  editor; it started with the last search text. A line selected whole searches that line, without its
+  indentation and line break, in both.
+- The MCP server's `build`, and its tools that add or delete objects, with a 32-bit TwinCAT XAE Shell
+  (`TcXaeShell.DTE.15.0`) on 64-bit Windows: they stopped with `TwinCAT XAE gave no running document table`, as
+  the XAE bridge ran as a 64-bit process, which XAE's COM proxies are not registered for. A 32-bit XAE is now driven
+  by a 32-bit bridge, compiled beside the other on first use. ([#124](https://github.com/ddt313/TwinCAT-Explorer/issues/124),
+  reported by [simongaoai-coder](https://github.com/simongaoai-coder))
+
 ## 0.23.0 - 2026-11-11
 
 ### Added

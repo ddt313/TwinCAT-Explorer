@@ -3,11 +3,12 @@
 // (vscode/language.ts) and the MCP server both build on it. Independent of the VS Code API.
 
 import { LanguageIndex, SectionContext } from './index';
-import { Analysis, Occurrence, ParamHint, analyze } from './analyzer';
+import { AnalyzeOptions, Analysis, Occurrence, ParamHint, analyze } from './analyzer';
 import { Loc, Sym } from './symbols';
 import { implementations } from './hierarchy';
 import { Highlight, highlightsAcross } from './highlights';
 import { OutlineSymbol, outline } from './outline';
+import { positionIn } from '../core/objectText';
 
 /** Where a symbol is declared, for hovers. */
 export function describeOwner(s: Sym): string {
@@ -36,15 +37,72 @@ interface CachedAnalysis {
   analysis: Analysis;
 }
 
+/** How a place uses a name, as references show, group and filter it: what writes first, the declaration last. */
+export const ACCESS_KINDS = ['write', 'readwrite', 'address', 'call', 'read', 'declaration', 'type'] as const;
+export type AccessKind = typeof ACCESS_KINDS[number];
+
+export function accessKind(o: Occurrence): AccessKind {
+  return o.decl ? 'declaration' : o.role === 'type' ? 'type' : o.access ?? 'read';
+}
+
+/** A place a symbol is declared or used, with how (see SectionFeatures.references). */
+export interface Reference {
+  loc: Loc;
+  occ: Occurrence;
+  /** The text of its section. */
+  text: string;
+}
+
+/** A place as shown: its line, where it is, and the name's range in the line as shown (trimmed). */
+export interface PlaceView {
+  ref: Reference;
+  /** The line, trimmed. */
+  line: string;
+  /** The name's range in `line`. */
+  highlight: [number, number];
+  /** `.eState  FB_Valve.A_Reset · Implementation:2` */
+  where: string;
+  /** The section it is in: `FB_Valve.A_Reset · Implementation`. */
+  section: string;
+  /** Its line in the section, from 1. */
+  lineNumber: number;
+}
+
+/** A group of places, in the order of ACCESS_KINDS, the empty ones left out. */
+export interface AccessGroup {
+  kind: AccessKind;
+  places: PlaceView[];
+}
+
+/** The references of a symbol grouped by how they use it (what writes first), each place with its line. */
+export function accessGroups(index: LanguageIndex, refs: Reference[]): AccessGroup[] {
+  const view = (ref: Reference): PlaceView => {
+    const { line, character } = positionIn(ref.text, ref.occ.start);
+    const raw = ref.text.split('\n')[line] ?? '';
+    const lead = raw.length - raw.trimStart().length;
+    const ctx = index.context(ref.loc.fileKey, ref.loc.sectionKey);
+    const object = ctx ? `${ctx.object.qualifiedName}${ctx.accessor ? `.${ctx.accessor}` : ''}` : '?';
+    const role = ctx?.role === 'decl' ? 'Declaration' : 'Implementation';
+    const start = Math.max(0, character - lead);
+    return {
+      ref, line: raw.trim(), highlight: [start, start + (ref.occ.end - ref.occ.start)],
+      where: `${ref.occ.path ? `${ref.occ.path}  ` : ''}${object} · ${role}:${line + 1}`,
+      section: `${object} · ${role}`, lineNumber: line + 1,
+    };
+  };
+  return ACCESS_KINDS.map(kind => ({ kind, places: refs.filter(r => accessKind(r.occ) === kind).map(view) }))
+    .filter(g => g.places.length > 0);
+}
+
 export class SectionFeatures {
   /** Analyses per section, of the index version `cacheVersion`. */
   private readonly cache = new Map<string, CachedAnalysis>();
   private cacheVersion = -1;
 
-  /** `ignore`: identifiers never reported as unknown (upper case), read on every analysis. */
-  constructor(readonly index: LanguageIndex, private readonly ignore: () => Set<string> = () => new Set()) {}
+  /** `options`: the identifiers never reported as unknown and the levels of the problems, read on every analysis. */
+  constructor(readonly index: LanguageIndex, private readonly options: () => AnalyzeOptions = () => ({})) {}
 
-  /** Drops cached analyses, e.g. after the identifiers to ignore changed. */
+  /** Drops cached analyses, e.g. after the options changed. */
   clear(): void {
     this.cache.clear();
   }
@@ -58,7 +116,7 @@ export class SectionFeatures {
     const key = `${ctx.fileKey}|${ctx.sectionKey}`;
     const cached = this.cache.get(key);
     if (cached?.text === text) return cached.analysis;
-    const analysis = analyze(this.index, ctx, text, { ignore: this.ignore() });
+    const analysis = analyze(this.index, ctx, text, this.options());
     this.cache.set(key, { text, analysis });
     return analysis;
   }
@@ -82,14 +140,19 @@ export class SectionFeatures {
   }
 
   referenceLocs(target: Sym, includeDeclaration: boolean): Loc[] {
-    const out: Loc[] = [];
+    return this.references(target, includeDeclaration).map(r => r.loc);
+  }
+
+  /** The places a symbol is declared (with includeDeclaration) and used, each with its occurrence: how it is used there. */
+  references(target: Sym, includeDeclaration: boolean): Reference[] {
+    const out: Reference[] = [];
     for (const ctx of this.index.allContexts()) {
       const text = this.index.sectionText(ctx.fileKey, ctx.sectionKey);
       if (text === undefined) continue;
       const a = this.analysisOf(ctx, text);
       for (const occ of a.occurrences) {
         if (occ.sym.id === target.id && (includeDeclaration || !occ.decl)) {
-          out.push({ fileKey: ctx.fileKey, sectionKey: ctx.sectionKey, start: occ.start, end: occ.end });
+          out.push({ loc: { fileKey: ctx.fileKey, sectionKey: ctx.sectionKey, start: occ.start, end: occ.end }, occ, text });
         }
       }
     }

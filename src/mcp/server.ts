@@ -11,6 +11,7 @@ import { Session, ToolError } from './session';
 import { UndoLog, defaultUndoFile } from './undo';
 import { Xae } from '../core/xae';
 import * as T from './tools';
+import { ACCESS_KINDS } from '../lang/features';
 
 const INSTRUCTIONS = `TwinCAT 3 PLC code under this folder. .TcPOU, .TcDUT, .TcGVL and .TcIO files are XML: never read or edit them as text; use these tools.
 - Objects are named like TwinCAT XAE's tabs: FB_Valve, FB_Valve.Open (method), FB_Valve.Speed.Get (property accessor). With several PLC projects: Machine:FB_Valve.
@@ -121,9 +122,29 @@ register('definition', {
 }, run(T.definition));
 
 register('references', {
-  description: 'Every place a symbol is declared or used in the Structured Text of the workspace.',
-  inputSchema: { ...symbolRef, limit: z.number().int().positive().optional() }, annotations: readOnly,
+  description: 'Every place a symbol is declared or used in the Structured Text of the workspace, each with how it is used there: '
+    + 'declaration, write (target of :=, S=, R=, REF= or =>, FOR variable, input passed in a call), readwrite (passed to a VAR_IN_OUT), '
+    + 'address (ADR, BITADR, REF=), call, read, or type. A variable written, read or called through a member or index shows it: '
+    + '"write .eState" for stStatus.eState := x. Only code in the workspace: not I/O mapping, ADS or HMI writes, not writes through pointers. '
+    + 'Who writes a variable: access ["write", "readwrite", "address"].',
+  inputSchema: {
+    ...symbolRef, limit: z.number().int().positive().optional(),
+    access: z.array(z.enum(ACCESS_KINDS)).optional().describe('Only the places used so'),
+  }, annotations: readOnly,
 }, run(T.references));
+
+register('calls', {
+  description: 'The call hierarchy of a function, program, function block (its body: an instance called), method or action: '
+    + 'incoming (default), what calls it, with the tasks that call a program and, for a method, the calls through the interface '
+    + 'or base method it implements or overrides ("via"); or outgoing, what it calls. Each caller or callee, its calls (·), then '
+    + 'one level deeper up to depth (1 to 5). Built-in functions are left out; library POUs end the hierarchy.',
+  inputSchema: {
+    ...symbolRef,
+    direction: z.enum(['incoming', 'outgoing']).optional(),
+    depth: z.number().int().min(1).max(5).optional(),
+    limit: z.number().int().positive().optional(),
+  }, annotations: readOnly,
+}, run(T.calls));
 
 register('hierarchy', {
   description: 'Supertypes and subtypes of a function block or interface; for a method or property, what implements or overrides it.',

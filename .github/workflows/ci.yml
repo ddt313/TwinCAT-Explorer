@@ -79,6 +79,9 @@ jobs:
 
       - run: npm run test:unit
 
+      # The extension in a real VS Code (downloaded, latest stable) on a copy of samples/Demo: test/integration.
+      - run: npm run test:integration
+
       - name: Package, without the browser extension
         run: |
           if npx vsce ls --no-dependencies | grep -q '^browser/'; then

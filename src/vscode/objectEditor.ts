@@ -196,6 +196,8 @@ export class EditorSession implements vscode.Disposable {
   readonly fileKey: string;
   /** The panes show their changes as diffs (as the webview reported). */
   changesMode = false;
+  /** The text selected in the focused pane of the webview ('' for none). */
+  selection = '';
   /** What the panes compare with: HEAD, or a commit chosen in the TwinCAT Changes view (until the diff is hidden). */
   base: CompareBase = HEAD_BASE;
   /** Base texts were found (false outside a git repository), once the last 'base' message was sent. */
@@ -245,7 +247,7 @@ export class EditorSession implements vscode.Disposable {
 
   /** Handles a message from the webview (also used by the tests to simulate one). */
   receive(m: WebviewMessage): Promise<void> {
-    if (m.type !== 'edit' && m.type !== 'probeResult') debugLog(`webview -> host ${m.type} ${JSON.stringify(m).slice(0, 300)}`);
+    if (m.type !== 'edit' && m.type !== 'probeResult' && m.type !== 'selection') debugLog(`webview -> host ${m.type} ${JSON.stringify(m).slice(0, 300)}`);
     switch (m.type) {
       case 'ready': return this.enqueue(() => this.init());
       case 'edit': return this.enqueue(() => this.applyEdit(m));
@@ -300,6 +302,15 @@ export class EditorSession implements vscode.Disposable {
         return Promise.resolve();
       case 'typeHierarchy':
         void this.provider.typeHierarchy?.(this.fileKey, m.key, m.text, m.offset);
+        return Promise.resolve();
+      case 'accessReferences':
+        void this.provider.accessReferences?.(this.fileKey, m.key, m.text, m.offset);
+        return Promise.resolve();
+      case 'callHierarchy':
+        void this.provider.callHierarchy?.(this.fileKey, m.key, m.text, m.offset);
+        return Promise.resolve();
+      case 'selection':
+        this.selection = m.text;
         return Promise.resolve();
       case 'error':
         this.provider.log?.(`Split editor webview: ${m.message}`);
@@ -711,6 +722,10 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
   };
   /** Show Type Hierarchy in the context menu of a pane: of the type at an offset of a section of a file (see typeHierarchy.ts). */
   typeHierarchy?: (fk: string, key: string, text: string, offset: number) => Promise<void>;
+  /** Show References by Access in the context menu of a pane: of the name at an offset of a section of a file (see accessReferences.ts). */
+  accessReferences?: (fk: string, key: string, text: string, offset: number) => Promise<void>;
+  /** Show Call Hierarchy in the context menu of a pane: of the callable at an offset of a section of a file (see callHierarchy.ts). */
+  callHierarchy?: (fk: string, key: string, text: string, offset: number) => Promise<void>;
   log?: (message: string) => void;
   private readonly disposables: vscode.Disposable[] = [];
   private changesContext: boolean | undefined;
@@ -986,11 +1001,11 @@ export class ObjectEditorProvider implements vscode.CustomTextEditorProvider, vs
     for (const s of parsed.sections) {
       const ctx = diagnosticsEnabled() ? this.index.context(fk, s.key) : undefined;
       const problems = ctx ? this.features.problemsOf(ctx, s.text) : [];
-      all.push({ key: s.key, markers: problems.map(p => ({ start: p.start, end: p.end, message: p.message, severity: p.severity })) });
+      all.push({ key: s.key, markers: problems.map(p => ({ start: p.start, end: p.end, message: p.message, severity: p.severity, code: p.code })) });
       if (problems.length === 0) continue;
       // One copy per section, so the Problems panel shows the line numbers of the pane.
       const uri = locUriOf(doc.uri, s.key, meta.get(s.key)?.label ?? s.key);
-      this.diagnostics.set(uri, problems.map(p => toDiagnostic(rangeIn(s.text, p.start, p.end), p.message, p.severity)));
+      this.diagnostics.set(uri, problems.map(p => toDiagnostic(rangeIn(s.text, p.start, p.end), p)));
       uris.push(uri);
     }
     if (uris.length) this.diagnosed.set(doc.uri.toString(), uris);

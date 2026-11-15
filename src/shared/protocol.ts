@@ -63,6 +63,8 @@ export interface Marker {
   end: number;
   message: string;
   severity: 'error' | 'warning';
+  /** The kind of problem (see PROBLEM_CODES), shown after the message as VS Code shows a diagnostic's. */
+  code?: string;
 }
 
 /** A commit that last changed lines of the panes (line blame). */
@@ -189,6 +191,10 @@ export type WebviewMessage =
   | { type: 'autoDeclare'; key: string; text: string; offset: number }
   /** Show Type Hierarchy at an offset of a pane (context menu): the host shows it in VS Code's References view. */
   | { type: 'typeHierarchy'; key: string; text: string; offset: number }
+  | { type: 'accessReferences'; key: string; text: string; offset: number }
+  | { type: 'callHierarchy'; key: string; text: string; offset: number }
+  /** The text selected in the focused pane ('' for none), for Search... (Ctrl+Shift+Alt+F) to start with. */
+  | { type: 'selection'; text: string }
   | { type: 'probeResult'; id: number; result: unknown }
   | { type: 'error'; message: string };
 

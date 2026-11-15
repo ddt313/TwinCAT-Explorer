@@ -3,6 +3,7 @@
 
 import * as A from './ast';
 import { ELEMENTARY } from './builtins';
+import { implementingBases, unimplementedMembers } from './hierarchy';
 import { LanguageIndex } from './index';
 import { RESERVED, parseDeclaration } from './parser';
 import { MemberSym, PouSym, Scope } from './symbols';
@@ -76,15 +77,24 @@ function stubSpec(index: LanguageIndex, m: MemberSym): MemberSpec {
 
 /**
  * The methods and properties a function block lacks to implement its interfaces: those of the interfaces it
- * names after IMPLEMENTS, and of the interfaces these extend, that neither it nor a function block it extends
- * has. Each comes with the declaration of the interface's.
+ * names after IMPLEMENTS, then of those the function blocks it extends name (an ABSTRACT base leaves them to it),
+ * and of the interfaces these extend, that neither it nor a function block it extends has. Each comes with the
+ * declaration of the interface's.
  */
 export function interfaceStubs(index: LanguageIndex, file: TcSourceFile): InterfaceStubs {
   const root = file.root;
   const decl = root?.sections.find(s => s.role === 'decl' && !s.accessor);
   const pou = decl && index.context(fileKey(file.path), decl.key)?.pou;
   if (!root || !pou) throw new Error(`${file.path} is not a POU of a PLC project of the workspace`);
-  return stubsFor(index, pou.scope, pou.implementsNames, [pou], root.members.map(m => m.name));
+  const own = root.members.map(m => m.name);
+  const out = stubsFor(index, pou.scope, pou.implementsNames, [pou], own);
+  for (const b of implementingBases(index, pou)) {
+    const more = stubsFor(index, b.scope, b.implementsNames, [pou], [...own, ...out.stubs.map(s => s.spec.name)]);
+    out.stubs.push(...more.stubs);
+    out.interfaces.push(...more.interfaces.filter(i => !out.interfaces.includes(i)));
+    out.missing.push(...more.missing.filter(m => !out.missing.includes(m)));
+  }
+  return out;
 }
 
 /**
@@ -92,37 +102,10 @@ export function interfaceStubs(index: LanguageIndex, file: TcSourceFile): Interf
  * the ones it has (`own`) or gets from `bases`, the function blocks it is or extends, and their bases.
  */
 export function stubsFor(index: LanguageIndex, scope: Scope, implementsNames: A.QualName[], bases: PouSym[], own: string[]): InterfaceStubs {
-  const taken = new Set(own.map(n => n.toUpperCase()));
-  const pous = new Set<PouSym>();
-  const take = (p: PouSym, depth: number) => {
-    if (depth > 20 || pous.has(p)) return;
-    pous.add(p);
-    for (const m of p.members) taken.add(m.name.toUpperCase());
-    for (const q of p.extendsNames) {
-      const b = index.resolveGlobal(q.parts, p.scope);
-      if (b?.kind === 'pou') take(b, depth + 1);
-    }
+  const u = unimplementedMembers(index, scope, implementsNames, bases, own);
+  return {
+    stubs: u.members.map(m => ({ from: m.from.name, spec: stubSpec(index, m.member) })),
+    interfaces: u.interfaces.map(i => i.name),
+    missing: u.missing,
   };
-  for (const b of bases) take(b, 0);
-  const out: InterfaceStubs = { stubs: [], interfaces: [], missing: [] };
-  const interfaces = new Set<PouSym>();
-  const visit = (q: A.QualName, scope: Scope, depth: number) => {
-    const itf = index.resolveGlobal(q.parts, scope);
-    if (itf?.kind !== 'pou' || itf.pouKind !== 'ITF') {
-      const name = q.parts.map(p => p.name).join('.');
-      if (!out.missing.includes(name)) out.missing.push(name);
-      return;
-    }
-    if (depth > 20 || interfaces.has(itf)) return;
-    interfaces.add(itf);
-    out.interfaces.push(itf.name);
-    for (const m of itf.members) {
-      if ((m.kind !== 'method' && m.kind !== 'property') || taken.has(m.name.toUpperCase())) continue;
-      taken.add(m.name.toUpperCase());
-      out.stubs.push({ from: itf.name, spec: stubSpec(index, m) });
-    }
-    for (const e of itf.extendsNames) visit(e, itf.scope, depth + 1);
-  };
-  for (const q of implementsNames) visit(q, scope, 0);
-  return out;
 }

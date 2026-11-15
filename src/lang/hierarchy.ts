@@ -1,10 +1,12 @@
 // Inheritance of function blocks and interfaces, as the language index resolves EXTENDS and IMPLEMENTS: what a
 // POU extends or implements and what extends or implements it, the methods and properties that go with one in a
-// rename (relatedMembers), what Go to Implementation lists, and the supertypes and subtypes of the type hierarchy.
+// rename (relatedMembers), the methods and properties a function block lacks to implement its interfaces
+// (unimplementedMembers), what Go to Implementation lists, and the supertypes and subtypes of the type hierarchy.
 
 import { Analysis } from './analyzer';
+import * as A from './ast';
 import { LanguageIndex, SectionContext } from './index';
-import { MemberSym, PouSym, Sym, isLibrarySym } from './symbols';
+import { MemberSym, PouSym, Scope, Sym, isLibrarySym } from './symbols';
 
 /** The function blocks and interfaces a function block or interface extends or implements, and theirs. */
 export function ancestors(index: LanguageIndex, pou: PouSym): Set<PouSym> {
@@ -29,6 +31,79 @@ export function ancestors(index: LanguageIndex, pou: PouSym): Set<PouSym> {
  */
 export function descendants(index: LanguageIndex, pou: PouSym): PouSym[] {
   return index.allGlobals().filter((g): g is PouSym => g.kind === 'pou' && g !== pou && ancestors(index, g).has(pou));
+}
+
+/** The function blocks a function block extends (its base, then the base's...) that name interfaces after IMPLEMENTS. */
+export function implementingBases(index: LanguageIndex, pou: PouSym): PouSym[] {
+  const out: PouSym[] = [];
+  const seen = new Set<PouSym>([pou]);
+  for (let p = pou, depth = 0; p.extendsNames.length && depth < 20; depth++) {
+    const b = index.resolveGlobal(p.extendsNames[0].parts, p.scope);
+    if (b?.kind !== 'pou' || seen.has(b)) break;
+    seen.add(b);
+    if (b.implementsNames.length) out.push(b);
+    p = b;
+  }
+  return out;
+}
+
+/** What a function block lacks to implement its interfaces (see unimplementedMembers). */
+export interface Unimplemented {
+  /** Each method or property lacking, with the name after IMPLEMENTS it comes through and the interface declaring it. */
+  members: { via: A.QualName; from: PouSym; member: MemberSym }[];
+  /** The interfaces implemented, those they extend included. */
+  interfaces: PouSym[];
+  /** Names in IMPLEMENTS or in an interface's EXTENDS that are not interfaces of the workspace or of the library stubs. */
+  missing: string[];
+  /**
+   * Whether the function blocks it is or extends are all found and declared (not known by their names only). When
+   * not, a member listed may be one that an unknown base has.
+   */
+  basesKnown: boolean;
+}
+
+/**
+ * The methods and properties of the interfaces named after IMPLEMENTS (`implementsNames`, resolved in `scope`) and
+ * of those they extend, less the ones named in `own` and those of `bases`, the function blocks it is or extends,
+ * and of their bases. A method or property lacking twice (an interface reached through two names) is listed once.
+ */
+export function unimplementedMembers(index: LanguageIndex, scope: Scope, implementsNames: A.QualName[], bases: PouSym[],
+  own: string[]): Unimplemented {
+  const out: Unimplemented = { members: [], interfaces: [], missing: [], basesKnown: true };
+  const taken = new Set(own.map(n => n.toUpperCase()));
+  const pous = new Set<PouSym>();
+  const take = (p: PouSym, depth: number) => {
+    if (depth > 20 || pous.has(p)) return;
+    pous.add(p);
+    if (p.namesOnly) out.basesKnown = false;
+    for (const m of p.members) taken.add(m.name.toUpperCase());
+    for (const q of p.extendsNames) {
+      const b = index.resolveGlobal(q.parts, p.scope);
+      if (b?.kind === 'pou') take(b, depth + 1);
+      else out.basesKnown = false;
+    }
+  };
+  for (const b of bases) take(b, 0);
+  const seen = new Set<PouSym>();
+  const visit = (via: A.QualName, q: A.QualName, scope: Scope, depth: number) => {
+    const itf = index.resolveGlobal(q.parts, scope);
+    if (itf?.kind !== 'pou' || itf.pouKind !== 'ITF') {
+      const name = q.parts.map(p => p.name).join('.');
+      if (!out.missing.includes(name)) out.missing.push(name);
+      return;
+    }
+    if (depth > 20 || seen.has(itf)) return;
+    seen.add(itf);
+    out.interfaces.push(itf);
+    for (const m of itf.members) {
+      if ((m.kind !== 'method' && m.kind !== 'property') || taken.has(m.name.toUpperCase())) continue;
+      taken.add(m.name.toUpperCase());
+      out.members.push({ via, from: itf, member: m });
+    }
+    for (const e of itf.extendsNames) visit(via, e, itf.scope, depth + 1);
+  };
+  for (const q of implementsNames) visit(q, q, scope, 0);
+  return out;
 }
 
 /**

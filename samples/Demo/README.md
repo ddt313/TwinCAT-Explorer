@@ -28,14 +28,33 @@ A small TwinCAT 3 solution to try the extension on, to run the scripts and the M
 | --- | --- |
 | `E_FillStep` | enum with a base type (`UINT`) |
 | `ST_Recipe` | struct, uses `T_Percent` from DemoLib |
-| `GVL_IO` | GVL with `AT %I*` / `AT %Q*` |
+| `ST_DriveIn` | struct of inputs, linked member by member |
+| `GVL_IO` | GVL with `AT %I*` / `AT %Q*`: whole variables, the struct `stDrive`, the array `aLamps` |
+| `POUs/Equipment/FB_Sensor` | `bSignal AT %I*` inside a function block, so its link is per instance |
 | `GVL_Parameters` | GVL, `VAR_GLOBAL PERSISTENT` |
 | `POUs/Equipment/FB_Valve` | `EXTENDS FB_ValveBase`: overrides `Open` with `SUPER^`, action `A_Reset` |
 | `POUs/Equipment/FB_Conveyor` | property `Speed` (Get and Set), methods `Start`, `Stop` |
 | `POUs/Sequences/FB_FillSequence` | a `CASE` step sequence, takes an `I_Valve` |
 | `PRG_Lamp` | program in CFC (not ST) |
 | `POUs/Experimental/FB_Prototype` | in a folder set to **Exclude from build**. Its code names an unknown symbol on purpose, to show how a tool treats excluded code. Nothing calls it, and the build passes |
-| `MAIN` | program called by `PlcTask` |
+| `MAIN` | program called by `PlcTask`, with the instances `fbSensorLeft` and `fbSensorRight` of `FB_Sensor` |
+
+**I/O**: an EtherCAT master, offline (no hardware needed), saved in its own file `Demo/_Config/IO/Device 1 (EtherCAT).xti`: `Device 1 (EtherCAT)` → `Term 1 (EK1100)` → `Term 2 (EL1008)`, `Term 3 (EL2008)`, `Term 4 (EL3064)`. The links are in `<Mappings>` of `Demo.tsproj`:
+
+| PLC variable | Linked to |
+| --- | --- |
+| `GVL_IO.bStartButton` | `Term 2 (EL1008)` `Channel 1^Input` |
+| `MAIN.fbSensorLeft.bSignal` | `Term 2 (EL1008)` `Channel 2^Input` |
+| `GVL_IO.stDrive.bReady` | `Term 2 (EL1008)` `Channel 3^Input` |
+| `GVL_IO.stDrive.bFault` | `Term 2 (EL1008)` `Channel 4^Input` |
+| `GVL_IO.nLevelRaw` | `Term 4 (EL3064)` `AI Standard Channel 1^Value` |
+| `GVL_IO.bInletOpen` | `Term 3 (EL2008)` `Channel 1^Output` |
+| `GVL_IO.bConveyorRun` | `Term 3 (EL2008)` `Channel 2^Output` |
+| `GVL_IO.aLamps[1]`, `[2]` | `Term 3 (EL2008)` `Channel 3^Output`, `Channel 4^Output` |
+
+Not linked, on purpose: `MAIN.fbSensorRight.bSignal` (one instance of two), `GVL_IO.stDrive.nVelocity` (a member of a struct), `GVL_IO.aLamps[3]` (an element of an array), `GVL_IO.bSpareOut` (a whole variable). XAE names a struct member as a child (`PlcTask Inputs^GVL_IO.stDrive^bFault`), an array element and an instance variable with the PLC's own name. DemoLib has no task and no links.
+
+`../Add-DemoIo.ps1` added the I/O, its PLC code and the links through the Automation Interface; saving the device as its own `.xti` was done by hand in XAE (Independent Project File).
 
 ## Opening it in XAE
 

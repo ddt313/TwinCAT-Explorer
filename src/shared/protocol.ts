@@ -62,7 +62,7 @@ export interface Marker {
   start: number;
   end: number;
   message: string;
-  severity: 'error' | 'warning';
+  severity: 'error' | 'warning' | 'info';
   /** The kind of problem (see PROBLEM_CODES), shown after the message as VS Code shows a diagnostic's. */
   code?: string;
 }

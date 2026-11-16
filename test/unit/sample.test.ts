@@ -13,9 +13,10 @@ import { TcWorkspace } from '../../src/core/workspace';
 import { decodeBytes, encodeText, parseTcText } from '../../src/core/tcfile';
 import { applySectionEdits } from '../../src/core/splice';
 import { LanguageIndex } from '../../src/lang/index';
-import { analyze } from '../../src/lang/analyzer';
+import { analyze, problemLevels } from '../../src/lang/analyzer';
 import { SectionFeatures, accessGroups } from '../../src/lang/features';
-import { PouSym } from '../../src/lang/symbols';
+import { GlobalSym, GvlSym, PouSym, Sym, TypeSym } from '../../src/lang/symbols';
+import { ioLinkHover, ioLinksThrough, staleIoLinks } from '../../src/lang/ioHover';
 import { parseBody, parseDeclaration } from '../../src/lang/parser';
 import { BUNDLED_STUBS } from '../../src/lang/stubs';
 import { findFiles } from './helpers';
@@ -234,3 +235,176 @@ test('samples/Demo: its files have the bytes XAE wrote, and a section edited and
 });
 
 const normalize = (s: string) => s.replace(/\r\n?/g, '\n');
+
+test('samples/Demo: the hover of a GVL variable AT %I* / %Q* tells what it is linked to, as XAE saved Demo.tsproj', () => {
+  const ws = load();
+  const index = new LanguageIndex(ws);
+  const gvl = (owner: string) => index.allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === owner)!;
+  const hover = (owner: string, name: string) => ioLinkHover(ws, index, gvl(owner).vars.find(v => v.name === name)!);
+  const term = 'Device 1 (EtherCAT) › Term 1 (EK1100) › ';
+  assert.equal(hover('GVL_IO', 'bStartButton'), `**I/O** · Demo.tsproj\n\n- \`${term}Term 2 (EL1008) › Channel 1 › Input\``);
+  assert.equal(hover('GVL_IO', 'bConveyorRun'), `**I/O** · Demo.tsproj\n\n- \`${term}Term 3 (EL2008) › Channel 2 › Output\``);
+  // A struct and an array: the links of their members and elements.
+  assert.equal(hover('GVL_IO', 'stDrive'), [
+    '**I/O** · Demo.tsproj', '',
+    `- \`.bFault\` → \`${term}Term 2 (EL1008) › Channel 4 › Input\``,
+    `- \`.bReady\` → \`${term}Term 2 (EL1008) › Channel 3 › Input\``,
+  ].join('\n'));
+  assert.match(hover('GVL_IO', 'aLamps')!, /^- `\[1\]` → `.*Channel 3 › Output`\n- `\[2\]` → `.*Channel 4 › Output`$/m);
+  // Left unlinked on purpose; the process image of the last build has it.
+  assert.equal(hover('GVL_IO', 'bSpareOut'), '**I/O** · Demo.tsproj\n\nNot linked.');
+  // No address, or in a GVL of DemoLib, which no task runs and nothing links: no I/O to tell.
+  assert.equal(hover('GVL_Parameters', 'fMaxSpeed'), undefined);
+  assert.equal(hover('GVL_DemoLib', gvl('GVL_DemoLib').vars[0].name), undefined);
+});
+
+test('samples/Demo: a GVL variable AT %I* added since the last build is not linked yet, and says so', () => {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-copy-'));
+  try {
+    fs.cpSync(SAMPLE, copy, { recursive: true });
+    const file = path.join(copy, 'Demo', 'Machine', 'GVLs', 'GVL_IO.TcGVL');
+    const { text, bom } = decodeBytes(fs.readFileSync(file));
+    fs.writeFileSync(file, encodeText(text.replace('VAR_GLOBAL', 'VAR_GLOBAL\r\n\tbNewSensor\tAT %I*\t: BOOL;'), bom));
+    const ws = new TcWorkspace();
+    ws.load(findFiles(copy, '.tsproj'));
+    const index = new LanguageIndex(ws);
+    const gvl = index.allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === 'GVL_IO')!;
+    assert.match(ioLinkHover(ws, index, gvl.vars.find(v => v.name === 'bNewSensor')!)!, /^\*\*I\/O\*\* · Demo\.tsproj\n\nNot linked\. The last build in TwinCAT XAE did not have this variable/);
+    // Without <Mappings> the project's I/O is not known: nothing is said, not even "not linked".
+    const tsproj = path.join(copy, 'Demo', 'Demo.tsproj');
+    fs.writeFileSync(tsproj, fs.readFileSync(tsproj, 'utf8').replace(/<Mappings>[\s\S]*<\/Mappings>/, ''));
+    ws.load(findFiles(copy, '.tsproj'));
+    const bareIndex = new LanguageIndex(ws);
+    const bare = bareIndex.allGlobals().find((g): g is GvlSym => g.kind === 'gvl' && g.name === 'GVL_IO')!;
+    assert.equal(ioLinkHover(ws, bareIndex, bare.vars.find(v => v.name === 'bStartButton')!), undefined);
+  } finally {
+    fs.rmSync(copy, { recursive: true, force: true });
+  }
+});
+
+test('samples/Demo: the hover of a variable AT %I* of a function block tells the links of each of its instances', () => {
+  const ws = load();
+  const index = new LanguageIndex(ws);
+  const fb = index.allGlobals().find((g): g is PouSym => g.kind === 'pou' && g.name === 'FB_Sensor')!;
+  assert.equal(ioLinkHover(ws, index, fb.vars.find(v => v.name === 'bSignal')!), [
+    '**I/O** · Demo.tsproj', '',
+    '- `MAIN.fbSensorLeft.bSignal` → `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 2 › Input`',
+    '- `MAIN.fbSensorRight.bSignal`: not linked',
+  ].join('\n'));
+  // A variable of the function block without an address has no I/O.
+  assert.equal(ioLinkHover(ws, index, fb.vars.find(v => v.name === 'bActive')!), undefined);
+});
+
+test('samples/Demo: instances of a function block in an array of a GVL and in a program, each path checked against the declarations', () => {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-copy-'));
+  try {
+    fs.cpSync(SAMPLE, copy, { recursive: true });
+    const edit = (rel: string, change: (t: string) => string) => {
+      const file = path.join(copy, 'Demo', ...rel.split('/'));
+      const { text, bom } = decodeBytes(fs.readFileSync(file));
+      fs.writeFileSync(file, encodeText(change(text), bom));
+    };
+    edit('Machine/GVLs/GVL_IO.TcGVL', t => t.replace('VAR_GLOBAL', 'VAR_GLOBAL\r\n\taSensors\t: ARRAY[1..2] OF FB_Sensor;'));
+    edit('Machine/POUs/MAIN.TcPOU', t => t.replace('VAR', 'VAR\r\n\tbLocal\tAT %I*\t: BOOL;'));
+    // As a build would list them, with a path that ends in bSignal but is no FB_Sensor (FB_Conveyor has none).
+    const vars = ['GVL_IO.aSensors[1].bSignal', 'GVL_IO.aSensors[2].bSignal', 'MAIN.fbConveyor.bSignal', 'MAIN.bLocal']
+      .map(n => `\t\t\t\t\t\t<Var>\r\n\t\t\t\t\t\t\t<Name>${n}</Name>\r\n\t\t\t\t\t\t\t<Type>BOOL</Type>\r\n\t\t\t\t\t\t</Var>\r\n`).join('');
+    edit('Demo.tsproj', t => t
+      .replace(/(<Name>PlcTask Inputs<\/Name>\r\n)/, `$1${vars}`)
+      .replace('<Link VarA="PlcTask Inputs^GVL_IO.bStartButton"', '<Link VarA="PlcTask Inputs^GVL_IO.aSensors[2].bSignal" VarB="Channel 5^Input"/>\r\n\t\t\t\t<Link VarA="PlcTask Inputs^GVL_IO.bStartButton"'));
+    const ws = new TcWorkspace();
+    ws.load(findFiles(copy, '.tsproj'));
+    const index = new LanguageIndex(ws);
+    const pou = (name: string) => index.allGlobals().find((g): g is PouSym => g.kind === 'pou' && g.name === name)!;
+    assert.equal(ioLinkHover(ws, index, pou('FB_Sensor').vars.find(v => v.name === 'bSignal')!), [
+      '**I/O** · Demo.tsproj', '',
+      '- `GVL_IO.aSensors[1].bSignal`: not linked',
+      '- `GVL_IO.aSensors[2].bSignal` → `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 5 › Input`',
+      '- `MAIN.fbSensorLeft.bSignal` → `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 2 › Input`',
+      '- `MAIN.fbSensorRight.bSignal`: not linked',
+    ].join('\n'));
+    // A variable of a program is one variable of the process image, as one of a GVL.
+    assert.equal(ioLinkHover(ws, index, pou('MAIN').vars.find(v => v.name === 'bLocal')!), '**I/O** · Demo.tsproj\n\nNot linked.');
+  } finally {
+    fs.rmSync(copy, { recursive: true, force: true });
+  }
+});
+
+test('samples/Demo: an information at each variable AT %I* / %Q* linked to no I/O, in the editors only', () => {
+  const ws = load();
+  const index = new LanguageIndex(ws);
+  index.setStubs(BUNDLED_STUBS);
+  const infos = (options: Parameters<typeof analyze>[3]) => index.allContexts().flatMap(ctx => {
+    const text = index.sectionText(ctx.fileKey, ctx.sectionKey)!;
+    return analyze(index, ctx, text, options).problems
+      .map(p => `${ctx.object.qualifiedName} [${ctx.label}] ${text.slice(p.start, p.end)} ${p.severity} ${p.code}: ${p.message}`);
+  });
+  // stDrive and aLamps are linked in part (nVelocity, [3] not): no information, the hover tells which.
+  assert.deepEqual(infos({ io: true }).sort(), [
+    'FB_Sensor [Declaration] bSignal info unlinked-io: FB_Sensor.bSignal is not linked to any I/O in 1 of its 2 instances: MAIN.fbSensorRight (Demo.tsproj).',
+    'GVL_IO [Declaration] bSpareOut info unlinked-io: GVL_IO.bSpareOut is not linked to any I/O (Demo.tsproj).',
+  ]);
+  assert.deepEqual(infos({ io: true, levels: problemLevels({ 'unlinked-io': 'warning' }) }).map(p => p.split(' ').slice(3, 5).join(' ')), ['warning unlinked-io:', 'warning unlinked-io:']);
+  assert.deepEqual(infos({ io: true, levels: problemLevels({ 'unlinked-io': 'off' }) }), []);
+  // Without io (the MCP server's check, the tests of the code above): none.
+  assert.deepEqual(infos({}), []);
+});
+
+test('samples/Demo: the I/O links a rename would leave naming a variable the PLC no longer has', () => {
+  const ws = load();
+  const index = new LanguageIndex(ws);
+  const global = (name: string) => index.allGlobals().find((g: GlobalSym) => g.name === name)!;
+  const varOf = (owner: string, name: string): Sym => {
+    const g = global(owner);
+    const vars = g.kind === 'type' ? (g as TypeSym).fields : (g as GvlSym | PouSym).vars;
+    return vars.find(v => v.name === name)!;
+  };
+  const through = (s: Sym) => ioLinksThrough(ws, index, s).flatMap(f => f.links.map(l => `${path.basename(f.tsProject.path)} ${l.variable}`));
+  assert.deepEqual(through(varOf('GVL_IO', 'bStartButton')), ['Demo.tsproj GVL_IO.bStartButton']);
+  // A struct or an array: the links of its members and elements.
+  assert.deepEqual(through(varOf('GVL_IO', 'stDrive')), ['Demo.tsproj GVL_IO.stDrive.bFault', 'Demo.tsproj GVL_IO.stDrive.bReady']);
+  // A member of a struct, a variable of a function block: in each instance.
+  assert.deepEqual(through(varOf('ST_DriveIn', 'bReady')), ['Demo.tsproj GVL_IO.stDrive.bReady']);
+  assert.deepEqual(through(varOf('FB_Sensor', 'bSignal')), ['Demo.tsproj MAIN.fbSensorLeft.bSignal']);
+  // An instance in a program; the other one is linked to nothing.
+  assert.deepEqual(through(varOf('MAIN', 'fbSensorLeft')), ['Demo.tsproj MAIN.fbSensorLeft.bSignal']);
+  assert.deepEqual(through(varOf('MAIN', 'fbSensorRight')), []);
+  // A GVL or a program: every link of its variables.
+  assert.equal(through(global('GVL_IO')).length, 8);
+  assert.deepEqual(through(global('MAIN')), ['Demo.tsproj MAIN.fbSensorLeft.bSignal']);
+  // A type's name and a variable without I/O are not in the process image.
+  assert.deepEqual(through(global('FB_Sensor')), []);
+  assert.deepEqual(through(global('ST_DriveIn')), []);
+  assert.deepEqual(through(varOf('GVL_Parameters', 'fMaxSpeed')), []);
+});
+
+test('samples/Demo: links of the .tsproj to variables the code no longer declares are stale, at their VarA', () => {
+  assert.deepEqual(staleIoLinks(load(), new LanguageIndex(load())), []);
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'twincat-sample-copy-'));
+  try {
+    fs.cpSync(SAMPLE, copy, { recursive: true });
+    const edit = (rel: string, from: string, to: string) => {
+      const file = path.join(copy, 'Demo', ...rel.split('/'));
+      const { text, bom } = decodeBytes(fs.readFileSync(file));
+      assert.ok(text.includes(from), `${rel}: ${from}`);
+      fs.writeFileSync(file, encodeText(text.replace(from, to), bom));
+    };
+    // Renamed in the code since XAE saved Demo.tsproj: a GVL variable, a struct member, an instance in MAIN.
+    edit('Machine/GVLs/GVL_IO.TcGVL', 'bStartButton', 'bStart');
+    edit('Machine/DUTs/ST_DriveIn.TcDUT', 'bReady', 'bIsReady');
+    edit('Machine/POUs/MAIN.TcPOU', 'fbSensorLeft\t', 'fbLeft\t');
+    const ws = new TcWorkspace();
+    ws.load(findFiles(copy, '.tsproj'));
+    const stale = staleIoLinks(ws, new LanguageIndex(ws));
+    assert.deepEqual(stale.map(s => `${s.link.variable}: ${s.reason}`), [
+      'GVL_IO.bStartButton: GVL_IO has no variable bStartButton',
+      'GVL_IO.stDrive.bReady: ST_DriveIn has no member bReady',
+      'MAIN.fbSensorLeft.bSignal: MAIN has no variable fbSensorLeft',
+    ]);
+    const text = fs.readFileSync(path.join(copy, 'Demo', 'Demo.tsproj'), 'utf8');
+    assert.deepEqual(stale.map(s => text.slice(s.link.range!.start, s.link.range!.end)),
+      ['PlcTask Inputs^GVL_IO.bStartButton', 'PlcTask Inputs^GVL_IO.stDrive^bReady', 'PlcTask Inputs^MAIN.fbSensorLeft.bSignal']);
+  } finally {
+    fs.rmSync(copy, { recursive: true, force: true });
+  }
+});

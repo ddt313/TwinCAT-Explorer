@@ -14,6 +14,7 @@ import { completionContext, expressionBeforeDot } from '../lang/completion';
 import { CallParam, Callable, callArguments, callSnippet, callableOfSymbol, returnsValue, signatureAt } from '../lang/calls';
 import { snippetsAt } from '../lang/snippets';
 import { foldingRanges } from '../lang/folding';
+import { ioLinkHover } from '../lang/ioHover';
 import { OutlineSymbol, symbolKindOf } from '../lang/outline';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { positionIn } from '../core/objectText';
@@ -38,7 +39,9 @@ export function diagnosticsEnabled(): boolean {
 
 /** A problem found by the Structured Text analysis, as a VS Code diagnostic. */
 export function toDiagnostic(range: vscode.Range, p: Pick<Problem, 'message' | 'severity' | 'code'>, message = p.message): vscode.Diagnostic {
-  const d = new vscode.Diagnostic(range, message, p.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
+  const severity = p.severity === 'error' ? vscode.DiagnosticSeverity.Error
+    : p.severity === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Information;
+  const d = new vscode.Diagnostic(range, message, severity);
   d.source = 'TwinCAT';
   d.code = p.code;
   return d;
@@ -165,7 +168,7 @@ export class LanguageFeatures implements
   private analyzeOptions(): AnalyzeOptions {
     const config = vscode.workspace.getConfiguration('twincatExplorer');
     const list = config.get<string[]>('diagnostics.ignore', []);
-    return { ignore: new Set(list.map(s => s.toUpperCase())), levels: problemLevels(config.get('diagnostics.rules')) };
+    return { ignore: new Set(list.map(s => s.toUpperCase())), levels: problemLevels(config.get('diagnostics.rules')), io: true };
   }
 
   /** Drops cached analyses, e.g. after the diagnostics settings changed. */
@@ -215,7 +218,8 @@ export class LanguageFeatures implements
     const o = this.occurrenceAt(this.analysisOf(ctx, text), offset);
     if (!o) return undefined;
     const s = o.sym;
-    return { markdown: codeblock(s.signature || s.name) + symbolDoc(s), start: o.start, end: o.end };
+    const io = ioLinkHover(this.ws, this.index, s);
+    return { markdown: codeblock(s.signature || s.name) + symbolDoc(s) + (io ? `\n\n---\n\n${io}` : ''), start: o.start, end: o.end };
   }
 
   completionsAt(ctx: SectionContext, text: string, offset: number): CompletionResult[] {

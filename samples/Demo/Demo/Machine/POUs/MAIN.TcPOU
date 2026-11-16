@@ -7,6 +7,8 @@ VAR
 	fbConveyor	: FB_Conveyor;
 	fbFill		: FB_FillSequence;
 	uRaw		: U_Word;
+	fbSensorLeft	: FB_Sensor;
+	fbSensorRight	: FB_Sensor;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -22,6 +24,12 @@ IF fbFill.bDone AND NOT fbConveyor.bRunning THEN
 END_IF
 GVL_IO.bConveyorRun := fbConveyor.bRunning;
 PRG_Lamp();
+
+fbSensorLeft();
+fbSensorRight();
+GVL_IO.aLamps[1] := fbSensorLeft.bActive;
+GVL_IO.aLamps[2] := fbSensorRight.bActive;
+GVL_IO.aLamps[3] := GVL_IO.stDrive.bReady AND NOT GVL_IO.stDrive.bFault AND GVL_IO.stDrive.nVelocity > 0;
 ]]></ST>
     </Implementation>
   </POU>

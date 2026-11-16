@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_DriveIn" Id="{808e1f11-3bfd-46e1-9457-a1d8ddc58e16}">
+    <Declaration><![CDATA[TYPE ST_DriveIn :
+STRUCT
+	bReady		: BOOL;
+	bFault		: BOOL;
+	nVelocity	: INT;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

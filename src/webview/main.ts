@@ -1608,7 +1608,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
             const r = rangeOf(pane.model, mk.start, Math.max(mk.end, mk.start));
             return {
               startLineNumber: r.startLineNumber, startColumn: r.startColumn, endLineNumber: r.endLineNumber, endColumn: r.endColumn,
-              message: mk.message, severity: mk.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+              message: mk.message, severity: mk.severity === 'error' ? monaco.MarkerSeverity.Error : mk.severity === 'warning' ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Info,
               source: 'TwinCAT', ...(mk.code ? { code: mk.code } : {}),
             };
           }));

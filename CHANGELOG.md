@@ -3,6 +3,30 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+- The hover of a GVL or program variable declared `AT %I*` or `AT %Q*` tells what it is linked to, without opening XAE's
+  Mapping: `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 1 › Input`, read from the
+  `<Mappings>` of the `.tsproj` as XAE last saved it. A struct or an array lists the links of its members and
+  elements (`.bReady`, `[1]`). A variable linked to nothing says so, and one that the last build did not have yet
+  says to build and save the project in XAE first. A project without `<Mappings>` (a library, I/O not committed)
+  shows nothing. `samples/Demo` now has I/O, added in XAE by `samples/Add-DemoIo.ps1`.
+- The same for a variable `AT %I*` / `AT %Q*` of a function block: one line per instance, by its path
+  (`MAIN.fbSensorLeft.bSignal`), with what it is linked to or `not linked`. The instances are those of the last
+  build in XAE, in programs, GVLs, struct members and array elements, and of function blocks that extend it.
+- An information (`unlinked-io`) at the declaration of a variable `AT %I*` / `AT %Q*` that the TwinCAT project
+  links to no I/O, not even in part, or, of a function block, in some of its instances. Not told in a project
+  without links. `twincatExplorer.diagnostics.rules` can make it a warning or an error, or turn it off; the
+  attribute `explorer.disable` turns it off in one GVL or POU.
+- Renaming what I/O links go through asks first, listing the links: a variable `AT %I*` / `AT %Q*`, a struct,
+  array or function block instance that holds one, a member of such a struct, or the GVL or program itself.
+  The `.tsproj` names the linked variable by its old name, so after the next build in XAE the link finds no such
+  variable and has to be made again there.
+- A warning (`stale-io-link`) in the Problems panel, at the variable of each link of a `.tsproj` that the code no
+  longer declares, as it is now (saved or not): a variable, struct member or instance renamed or deleted since
+  XAE saved the project. `twincatExplorer.diagnostics.rules` can change its level or turn it off.
+
 ## 0.24.0 - 2026-11-15
 
 ### Added

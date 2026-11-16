@@ -1,5 +1,38 @@
 <?xml version="1.0"?>
 <TcSmProject xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.beckhoff.com/schemas/2012/07/TcSmProject" TcSmVersion="1.0" TcVersion="3.1.4026.27">
+	<DataTypes>
+		<DataType>
+			<Name GUID="{69C558F2-BF8B-B500-2746-171DAD70058C}" AutoDeleteType="true">ST_DriveIn</Name>
+			<BitSize>32</BitSize>
+			<SubItem>
+				<Name>bReady</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>bFault</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<BitSize>8</BitSize>
+				<BitOffs>8</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>nVelocity</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000006}">INT</Type>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{FCC357D1-7124-E2AD-B3F6-8EAA3F7F80C9}" IecBaseType="true" AutoDeleteType="true">ARRAY [1..3] OF BOOL</Name>
+			<BitSize>24</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000030}">BOOL</BaseType>
+			<ArrayInfo>
+				<LBound>1</LBound>
+				<Elements>3</Elements>
+			</ArrayInfo>
+		</DataType>
+	</DataTypes>
 	<Project ProjectGUID="{0791B867-FE30-4C16-923A-21C4FE1FBE2A}" Target64Bit="true" ShowHideConfigurations="#x6">
 		<System>
 			<Tasks>
@@ -10,7 +43,7 @@
 		</System>
 		<Plc>
 			<Project GUID="{8A45A8CD-7F9D-4450-A569-9E2CBD3491A4}" Name="Machine" PrjFilePath="Machine\Machine.plcproj" TmcFilePath="Machine\Machine.tmc" ReloadTmc="true" AmsPort="851" FileArchiveSettings="#x000e" SymbolicMapping="true">
-				<Instance Id="#x08502000" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcHash="{FF51A48A-AC25-A7C7-774F-BB4DCAE0A892}">
+				<Instance Id="#x08502000" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcHash="{7447DD7B-6E7A-9D23-C865-2B4E7D6B24FA}" TmcPath="Machine\Machine.tmc">
 					<Name>Machine Instance</Name>
 					<CLSID ClassFactory="TcPlc30">{08500001-0000-0000-F000-000000000064}</CLSID>
 					<Vars VarGrpType="2" AreaNo="1">
@@ -23,9 +56,26 @@
 							<Name>GVL_IO.bConveyorRun</Name>
 							<Type>BOOL</Type>
 						</Var>
+						<Var>
+							<Name>GVL_IO.bSpareOut</Name>
+							<Comment><![CDATA[ spare: not linked]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_IO.aLamps</Name>
+							<Type GUID="{FCC357D1-7124-E2AD-B3F6-8EAA3F7F80C9}">ARRAY [1..3] OF BOOL</Type>
+						</Var>
 					</Vars>
 					<Vars VarGrpType="1">
 						<Name>PlcTask Inputs</Name>
+						<Var>
+							<Name>MAIN.fbSensorLeft.bSignal</Name>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>MAIN.fbSensorRight.bSignal</Name>
+							<Type>BOOL</Type>
+						</Var>
 						<Var>
 							<Name>GVL_IO.nLevelRaw</Name>
 							<Type>INT</Type>
@@ -33,6 +83,10 @@
 						<Var>
 							<Name>GVL_IO.bStartButton</Name>
 							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_IO.stDrive</Name>
+							<Type GUID="{69C558F2-BF8B-B500-2746-171DAD70058C}">ST_DriveIn</Type>
 						</Var>
 					</Vars>
 					<Contexts>
@@ -52,11 +106,33 @@
 				</Instance>
 			</Project>
 			<Project GUID="{41141F77-B115-4B9A-98A1-E9C57BC21C0F}" Name="DemoLib" PrjFilePath="DemoLib\DemoLib.plcproj" TmcFilePath="DemoLib\DemoLib.tmc" ReloadTmc="true" AmsPort="852" FileArchiveSettings="#x000e" SymbolicMapping="true">
-				<Instance Id="#x08502040" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcHash="{83465F68-F6A8-D1E1-72F3-FC42BEC3FF07}">
+				<Instance Id="#x08502040" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcHash="{83465F68-F6A8-D1E1-72F3-FC42BEC3FF07}" TmcPath="DemoLib\DemoLib.tmc">
 					<Name>DemoLib Instance</Name>
 					<CLSID ClassFactory="TcPlc30">{08500001-0000-0000-F000-000000000064}</CLSID>
 				</Instance>
 			</Project>
 		</Plc>
+		<Io>
+			<Device File="Device 1 (EtherCAT).xti" Id="1"/>
+		</Io>
 	</Project>
+	<Mappings>
+		<OwnerA Name="TIPC^Machine^Machine Instance">
+			<OwnerB Name="TIID^Device 1 (EtherCAT)^Term 1 (EK1100)^Term 2 (EL1008)">
+				<Link VarA="PlcTask Inputs^GVL_IO.bStartButton" VarB="Channel 1^Input"/>
+				<Link VarA="PlcTask Inputs^GVL_IO.stDrive^bFault" VarB="Channel 4^Input"/>
+				<Link VarA="PlcTask Inputs^GVL_IO.stDrive^bReady" VarB="Channel 3^Input"/>
+				<Link VarA="PlcTask Inputs^MAIN.fbSensorLeft.bSignal" VarB="Channel 2^Input"/>
+			</OwnerB>
+			<OwnerB Name="TIID^Device 1 (EtherCAT)^Term 1 (EK1100)^Term 3 (EL2008)">
+				<Link VarA="PlcTask Outputs^GVL_IO.aLamps[1]" VarB="Channel 3^Output"/>
+				<Link VarA="PlcTask Outputs^GVL_IO.aLamps[2]" VarB="Channel 4^Output"/>
+				<Link VarA="PlcTask Outputs^GVL_IO.bConveyorRun" VarB="Channel 2^Output"/>
+				<Link VarA="PlcTask Outputs^GVL_IO.bInletOpen" VarB="Channel 1^Output"/>
+			</OwnerB>
+			<OwnerB Name="TIID^Device 1 (EtherCAT)^Term 1 (EK1100)^Term 4 (EL3064)">
+				<Link VarA="PlcTask Inputs^GVL_IO.nLevelRaw" VarB="AI Standard Channel 1^Value"/>
+			</OwnerB>
+		</OwnerA>
+	</Mappings>
 </TcSmProject>

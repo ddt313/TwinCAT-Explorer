@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_Sensor" Id="{8d408d6d-27ad-4505-bffa-752af12fe80f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Sensor
+VAR_OUTPUT
+	bActive	: BOOL;
+END_VAR
+VAR
+	bSignal	AT %I*	: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[bActive := bSignal;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

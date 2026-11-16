@@ -61,6 +61,8 @@ export interface VarSym extends SymBase {
   /** The type and the initial value as written. */
   typeText: string;
   initText?: string;
+  /** The address of `AT %I*`, `AT %QX0.1` as written: `%I*`, `%QX0.1`. */
+  at?: string;
   owner: PouSym | MemberSym | TypeSym | GvlSym;
   accessor?: 'Get' | 'Set';
 }

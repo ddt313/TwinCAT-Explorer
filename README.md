@@ -458,6 +458,11 @@ Rename (F2) changes the uses too, in every PLC project of the workspace.
 - **When the new name would change what other code means** (a variable renamed to the name of another
   one that its uses would then mean, or that a local variable would hide), a warning names the places
   first: Rename Anyway, or Show Places.
+- **When I/O links go through the old name** (a variable `AT %I*` / `AT %Q*`, a struct or a function
+  block instance that holds one, a member of such a struct, the GVL or program itself), a warning lists
+  them first (`GVL_IO.bStartButton → ... › Channel 1 › Input (Demo.tsproj)`): the `.tsproj` names them by
+  the old name, so after the next build in XAE they find no such variable. Rename Anyway, then link the
+  new name again in XAE.
 - **What is written:** only the CDATA of the sections that change. Every other byte of each file stays
   as it was, its BOM and line breaks too. Comments and strings keep the old name.
 - **After it**, the message says how many places changed, and what keeps the old name: places the
@@ -482,6 +487,11 @@ These work in both panes and in notebook cells. They come from a parser of the T
   inheritance. `fbValve.Open()` opens the `Open` method of `FB_Valve`, or of the function block it
   extends, at the method name; a local variable moves the cursor to the declaration pane.
 - **Hover** with the declaration, its comments and where it is declared.
+  - A variable declared `AT %I*` / `AT %Q*` (of a GVL, a program or a function block) also tells what it is
+    linked to, from the `<Mappings>` of the `.tsproj` as XAE last saved it:
+    `Device 1 (EtherCAT) › Term 1 (EK1100) › Term 2 (EL1008) › Channel 1 › Input`; a struct or an array the
+    links of its members and elements; a function block's variable one line per instance
+    (`MAIN.fbSensorLeft.bSignal`). A project without `<Mappings>` shows nothing.
 - **Completion** after `.` (members, inherited members, enum values) and of the names in scope.
   - **Calls with their arguments**, like `Insert with arguments` in XAE's Input Assistant: next to a
     function block instance, function, program, method or action, a second item inserts the call with
@@ -562,7 +572,17 @@ These work in both panes and in notebook cells. They come from a parser of the T
     `twincatExplorer.diagnostics.rules` makes a kind a warning or turns it off:
     `{ "unknown-member": "warning", "unknown-type": "off" }`. The kinds: `syntax`,
     `unknown-identifier`, `unknown-type`, `unknown-member`, `unknown-value`, `unknown-parameter`,
-    `excluded-from-build`, `unimplemented-interface`.
+    `excluded-from-build`, `unimplemented-interface`, `unlinked-io`, `stale-io-link`.
+  - `unlinked-io` is an information, not an error: a variable `AT %I*` / `AT %Q*` that the TwinCAT
+    project links to no I/O (`GVL_IO.bSpareOut is not linked to any I/O (Demo.tsproj).`), not even in part;
+    for a function block, the instances of the last build in XAE that are not
+    (`... in 1 of its 2 instances: MAIN.fbSensorRight`). Nothing is told in a project without links (a
+    library, I/O not committed). Set it to `off` for spare channels left unlinked on purpose, or turn it
+    off in one GVL with `{attribute 'explorer.disable' := 'unlinked-io'}`.
+  - `stale-io-link` is a warning in the `.tsproj`, at the variable of a link that the code no longer
+    declares (`GVL_IO.bStartButton, linked to ... › Channel 1 › Input: GVL_IO has no variable
+    bStartButton`): renamed or deleted since XAE saved the project, so the link finds nothing after the next
+    build. Link it again in XAE. A path through a library's objects is not checked.
   - `{attribute 'explorer.disable' := 'unknown-member, unknown-type'}` in the declaration of a POU,
     method, property, action, DUT or GVL turns those kinds off there (a POU's in its members too);
     without a value, all of them. XAE ignores attributes it does not know.

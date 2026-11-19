@@ -3,7 +3,7 @@
 All notable changes to Explorer for TwinCAT. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.25.0 - 2026-11-19
 
 ### Added
 - The hover of a GVL or program variable declared `AT %I*` or `AT %Q*` tells what it is linked to, without opening XAE's
@@ -34,7 +34,8 @@ All notable changes to Explorer for TwinCAT. The format follows
   modification, an addition. A folder inside a POU or interface (`Methods`, `States`) takes that of the methods,
   properties and actions in it, a deleted one counting in the folder it had in HEAD. Moving an object to another
   folder alone is no change. The tooltip of the dot counts the changes
-  ([#135](https://github.com/ddt313/TwinCAT-Explorer/issues/135)).
+  ([#135](https://github.com/ddt313/TwinCAT-Explorer/issues/135), reported by
+  [show2723](https://github.com/show2723)).
 
 ## 0.24.0 - 2026-11-15
 

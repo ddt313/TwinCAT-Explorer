@@ -56,3 +56,5 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.tag.outputs.tag }}
+    # Repository secrets (AZURE_CLIENT_ID, AZURE_TENANT_ID); those of the marketplace environment reach it anyway.
+    secrets: inherit

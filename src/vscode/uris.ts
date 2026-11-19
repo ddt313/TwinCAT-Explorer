@@ -125,9 +125,15 @@ export function locUriOf(objectDocUri: vscode.Uri, sectionKey: string, sectionLa
 }
 
 /**
- * A folder inside a POU or interface in the TwinCAT tree (`Methods`, `States`), which GitChanges colors when an
- * object in it differs from HEAD: `twincat-folder:/c:/.../FB_X.TcPOU/Methods/States?{"file":"/c:/.../FB_X.TcPOU","folder":["Methods","States"]}`.
+ * A node of the TwinCAT tree that holds others, which GitChanges colors with the strongest change it holds:
+ * - a folder inside a POU or interface (`Methods`, `States`), by the objects in it:
+ *   `twincat-folder:/c:/.../FB_X.TcPOU/Methods/States?{"file":"/c:/.../FB_X.TcPOU","folder":["Methods","States"]}`;
+ * - a folder of a PLC project, a PLC project or a TwinCAT project, by the files in its directories (`dirs`) that
+ *   differ from HEAD, deleted ones too: `twincat-folder:/c:/.../POUs?{"dirs":["c:\\...\\POUs"]}`.
+ * Not `file:` URIs, which the Explorer's decorations would follow.
  */
+export type FolderRef = { fsPath: string; folderPath: string[] } | { dirs: string[] };
+
 export function innerFolderUri(fsPath: string, folderPath: string[]): vscode.Uri {
   const file = vscode.Uri.file(fsPath);
   return vscode.Uri.from({
@@ -136,16 +142,22 @@ export function innerFolderUri(fsPath: string, folderPath: string[]): vscode.Uri
   });
 }
 
-/** The file and the folder path inside its POU or interface of an innerFolderUri. */
-export function parseInnerFolderUri(uri: vscode.Uri): { fsPath: string; folderPath: string[] } | undefined {
+export function directoriesUri(dirs: string[]): vscode.Uri {
+  const first = vscode.Uri.file(dirs[0]);
+  return vscode.Uri.from({ scheme: FOLDER_SCHEME, authority: first.authority, path: first.path, query: JSON.stringify({ dirs }) });
+}
+
+export function parseFolderUri(uri: vscode.Uri): FolderRef | undefined {
   if (uri.scheme !== FOLDER_SCHEME) return undefined;
+  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(s => typeof s === 'string');
   try {
     const q = JSON.parse(uri.query);
-    if (typeof q.file !== 'string' || !Array.isArray(q.folder) || !q.folder.every((s: unknown) => typeof s === 'string')) return undefined;
-    return { fsPath: fileUnder(uri, q.file), folderPath: q.folder };
+    if (strings(q.dirs)) return { dirs: q.dirs };
+    if (typeof q.file === 'string' && strings(q.folder)) return { fsPath: fileUnder(uri, q.file), folderPath: q.folder };
   } catch {
-    return undefined;
+    // not one of ours
   }
+  return undefined;
 }
 
 export interface ObjectRef {

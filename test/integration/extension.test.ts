@@ -2,11 +2,13 @@
 // the TwinCAT tree, the split editor and the notebook, the language features VS Code asks for, saving, changes on
 // disk, the TwinCAT Changes view and rename. The tests run in order: the last ones change files.
 import * as assert from 'assert';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import type { TwinCatExplorerApi } from '../../src/extension';
 import {
-  EXTENSION_ID, api, childLabels, demoPath, objectId, openSplit, positionOf, test, treeNode, waitFor,
+  EXTENSION_ID, api, childLabels, demoPath, objectId, openSplit, positionOf, root, test, treeNode, waitFor,
 } from './harness';
 
 const MAIN = 'Demo/Machine/POUs/MAIN.TcPOU';
@@ -269,41 +271,77 @@ test('Copy Qualified Name: a method from its editor tab', async () => {
   assert.strictEqual(await vscode.env.clipboard.readText(), 'Machine:FB_Conveyor.Stop');
 });
 
+/** The color of the git decoration of a node of the TwinCAT tree; undefined without one. */
+function gitColor(a: TwinCatExplorerApi, labels: string[]): string | undefined {
+  const uri = a.tree.getTreeItem(treeNode(a, labels)).resourceUri;
+  assert.ok(uri, `${labels.join(' › ')} has no URI`);
+  const color = a.git.provideFileDecoration(uri)?.color;
+  return (color as vscode.ThemeColor | undefined)?.id;
+}
+
+const MODIFIED = 'gitDecoration.modifiedResourceForeground';
+const DELETED = 'gitDecoration.deletedResourceForeground';
+
 // https://github.com/ddt313/TwinCAT-Explorer/issues/135
-test('TwinCAT tree: a folder carries the URI of its directory, which the git extension colors as the Explorer does', async () => {
+test('TwinCAT tree: a folder, a PLC project and a TwinCAT project get the color of the strongest change they hold, a deletion too', async () => {
   const a = await api();
-  const item = a.tree.getTreeItem(treeNode(a, ['Demo', 'Machine', 'POUs', 'Sequences']));
-  assert.strictEqual(item.resourceUri?.toString(), vscode.Uri.file(demoPath('Demo/Machine/POUs/Sequences')).toString());
-  assert.strictEqual(item.label, 'Sequences');
+  // The tests before changed MAIN and FB_FillSequence.
+  await waitFor(() => gitColor(a, ['Demo', 'Machine', 'POUs', 'Sequences']) === MODIFIED || undefined, 'Sequences to be modified', 15000);
+  assert.strictEqual(gitColor(a, ['Demo', 'Machine', 'POUs']), MODIFIED);
+  assert.strictEqual(gitColor(a, ['Demo', 'Machine']), MODIFIED);
+  assert.strictEqual(gitColor(a, ['Demo']), MODIFIED);
+  assert.strictEqual(gitColor(a, ['Demo', 'Machine', 'DUTs']), undefined);
+  assert.strictEqual(gitColor(a, ['Demo', 'DemoLib']), undefined);
+
+  // A file deleted: its folder is red, and so is what holds it, a deletion going before a modification.
+  const recipe = demoPath('Demo/Machine/DUTs/ST_Recipe.TcDUT');
+  const bytes = fs.readFileSync(recipe);
+  fs.unlinkSync(recipe);
+  try {
+    await waitFor(() => gitColor(a, ['Demo', 'Machine', 'DUTs']) === DELETED || undefined, 'DUTs to show the deletion', 15000);
+    assert.strictEqual(gitColor(a, ['Demo', 'Machine']), DELETED);
+    assert.strictEqual(gitColor(a, ['Demo']), DELETED);
+    assert.strictEqual(gitColor(a, ['Demo', 'Machine', 'POUs']), MODIFIED);
+    const uri = a.tree.getTreeItem(treeNode(a, ['Demo', 'Machine'])).resourceUri!;
+    assert.match(a.git.provideFileDecoration(uri)?.tooltip ?? '', /^Since HEAD: 1 deleted, \d+ modified$/);
+  } finally {
+    fs.writeFileSync(recipe, bytes);
+  }
+  await waitFor(() => gitColor(a, ['Demo', 'Machine', 'DUTs']) === undefined || undefined, 'DUTs to lose its color once the file is back', 15000);
 });
 
 // https://github.com/ddt313/TwinCAT-Explorer/issues/135
-test('TwinCAT tree: a folder inside a POU gets the color of a changed object it holds, and none without one', async () => {
+test('TwinCAT tree: a folder inside a POU gets the color of what changed in it, a deleted method too, and none without one', async () => {
   const a = await api();
   const fsPath = demoPath(CONVEYOR);
   const text = fs.readFileSync(fsPath, 'utf8');
-  // Start moved into a folder Commands and changed; Stop, outside it, stays as it is.
-  const changed = text
-    .replace('<Method Name="Start" Id="{1b3e6602-7884-4fb4-b326-99630cc286c9}">', '<Method Name="Start" Id="{1b3e6602-7884-4fb4-b326-99630cc286c9}" FolderPath="Commands\\">')
-    .replace('bStartReq := bEnable;', 'bStartReq := bEnable AND NOT bRunning;');
-  assert.notStrictEqual(changed, text);
+  const START = '<Method Name="Start" Id="{1b3e6602-7884-4fb4-b326-99630cc286c9}">';
+  const STOP = '<Method Name="Stop" Id="{713dbbbc-37e5-4f78-9aad-2cff70743fac}">';
+  const COMMANDS = ['Demo', 'Machine', 'POUs', 'Equipment', 'FB_Conveyor (FB)', 'Commands'];
+  // Start and Stop in a folder Commands, committed: a deleted method counts in the folder it has in HEAD.
+  const inFolder = text
+    .replace(START, START.replace('>', ' FolderPath="Commands\\">'))
+    .replace(STOP, STOP.replace('>', ' FolderPath="Commands\\">'));
+  fs.writeFileSync(fsPath, inFolder);
+  execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'Commands', '--', fsPath], { cwd: root().fsPath });
+  // Start changed.
+  const changed = inFolder.replace('bStartReq := bEnable;', 'bStartReq := bEnable AND NOT bRunning;');
+  assert.notStrictEqual(changed, inFolder);
   fs.writeFileSync(fsPath, changed);
-  const folder = await waitFor(() => {
+  await waitFor(() => {
     try {
-      return treeNode(a, ['Demo', 'Machine', 'POUs', 'Equipment', 'FB_Conveyor (FB)', 'Commands']);
+      return gitColor(a, COMMANDS) === MODIFIED || undefined;
     } catch {
       return undefined;
     }
-  }, 'the folder Commands in FB_Conveyor');
-  const uri = a.tree.getTreeItem(folder).resourceUri;
-  assert.ok(uri, 'the folder has no URI');
-  const decoration = await waitFor(() => a.git.provideFileDecoration(uri), 'the folder Commands to be colored', 15000);
-  assert.strictEqual((decoration.color as vscode.ThemeColor).id, 'gitDecoration.modifiedResourceForeground');
-  assert.strictEqual(decoration.badge, '•');
-  assert.strictEqual(a.git.folderChangeOf(fsPath, ['commands']), 'modified', 'the folder path is compared ignoring case');
+  }, 'the folder Commands in FB_Conveyor to be modified', 15000);
+  assert.strictEqual(a.git.provideFileDecoration(a.tree.getTreeItem(treeNode(a, COMMANDS)).resourceUri!)?.badge, '•');
 
-  // Start back as in HEAD, still in the folder: the folder holds no change and loses its color.
-  fs.writeFileSync(fsPath, changed.replace('bStartReq := bEnable AND NOT bRunning;', 'bStartReq := bEnable;'));
-  await waitFor(() => !a.git.changeOf(fsPath, objectId(a, fsPath, 'Start')) || undefined, 'Start to be as in HEAD', 15000);
-  assert.strictEqual(a.git.provideFileDecoration(a.tree.getTreeItem(treeNode(a, ['Demo', 'Machine', 'POUs', 'Equipment', 'FB_Conveyor (FB)', 'Commands'])).resourceUri!), undefined);
+  // Stop deleted, Start as in HEAD: the folder shows the deletion.
+  fs.writeFileSync(fsPath, inFolder.replace(/ {4}<Method Name="Stop"[\s\S]*?<\/Method>\r\n/, ''));
+  await waitFor(() => gitColor(a, COMMANDS) === DELETED || undefined, 'the folder Commands to show the deleted Stop', 15000);
+
+  // Both back, as committed: it holds no change.
+  fs.writeFileSync(fsPath, inFolder);
+  await waitFor(() => gitColor(a, COMMANDS) === undefined || undefined, 'the folder Commands to lose its color', 15000);
 });

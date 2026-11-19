@@ -10,6 +10,7 @@ import {
   BlameCommit, COMMIT_FORMAT, CommitInfo, FileLogEntry, NameStatus, blameArgs, fileLogArgs, parseBlame, parseCommit, parseFileLog,
   parseNameStatus,
 } from '../core/gitLog';
+import { PathStatus, parsePorcelainStatus } from '../core/gitStatus';
 import { findOnPath } from '../core/paths';
 import { RunGit, parseIndexEntries } from '../core/staging';
 import { fileKey } from '../core/workspace';
@@ -301,25 +302,13 @@ export async function headCommit(root: string): Promise<string> {
 }
 
 /**
- * TwinCAT source files of a repository that differ from HEAD: changed (staged or not), added, untracked,
- * renamed. Deleted files are left out (there is nothing to show for them).
+ * The files of a repository that differ from HEAD, staged or not, untracked ones too, by their path; nothing in the
+ * browser, which knows no status of the working tree.
  */
-export async function changedSourceFiles(root: string): Promise<string[]> {
-  // The browser knows no status of the working tree: a file is compared with HEAD once it is opened or saved.
+export async function workingTreeStatus(root: string): Promise<{ fsPath: string; status: PathStatus }[]> {
   if (revisions) return [];
-  const args = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...extensionSpecs(SOURCE_EXTENSIONS)];
-  const tokens = (await git(args, root)).toString('utf8').split('\0');
-  const out: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const entry = tokens[i];
-    if (entry.length < 4) continue;
-    const xy = entry.slice(0, 2);
-    // A rename or copy is followed by the path it came from.
-    if (/[RC]/.test(xy)) i++;
-    if (xy.includes('D')) continue;
-    out.push(path.join(root, entry.slice(3)));
-  }
-  return out;
+  const out = (await git(['status', '--porcelain=v1', '-z', '--untracked-files=all'], root)).toString('utf8');
+  return [...parsePorcelainStatus(out)].map(([rel, status]) => ({ fsPath: path.join(root, rel), status }));
 }
 
 /** A file that differs between a commit and the working tree. */

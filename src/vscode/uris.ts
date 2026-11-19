@@ -8,6 +8,7 @@ import { Accessor, viewLabel } from '../core/objectText';
 
 export const OBJECT_SCHEME = 'twincat';
 export const LOC_SCHEME = 'twincat-loc';
+export const FOLDER_SCHEME = 'twincat-folder';
 export const DIFF_SCHEME = 'twincat-diff';
 export const OBJECT_EDITOR = 'twincatExplorer.objectEditor';
 export const OBJECT_NOTEBOOK = 'twincat-object';
@@ -121,6 +122,42 @@ export function locUriOf(objectDocUri: vscode.Uri, sectionKey: string, sectionLa
   if (q.acc) query.acc = q.acc;
   query.sec = sectionKey;
   return objectDocUri.with({ scheme: LOC_SCHEME, query: JSON.stringify(query) });
+}
+
+/**
+ * A node of the TwinCAT tree that holds others, which GitChanges colors with the strongest change it holds:
+ * - a folder inside a POU or interface (`Methods`, `States`), by the objects in it:
+ *   `twincat-folder:/c:/.../FB_X.TcPOU/Methods/States?{"file":"/c:/.../FB_X.TcPOU","folder":["Methods","States"]}`;
+ * - a folder of a PLC project, a PLC project or a TwinCAT project, by the files in its directories (`dirs`) that
+ *   differ from HEAD, deleted ones too: `twincat-folder:/c:/.../POUs?{"dirs":["c:\\...\\POUs"]}`.
+ * Not `file:` URIs, which the Explorer's decorations would follow.
+ */
+export type FolderRef = { fsPath: string; folderPath: string[] } | { dirs: string[] };
+
+export function innerFolderUri(fsPath: string, folderPath: string[]): vscode.Uri {
+  const file = vscode.Uri.file(fsPath);
+  return vscode.Uri.from({
+    scheme: FOLDER_SCHEME, authority: file.authority, path: `${file.path}/${folderPath.map(safeName).join('/')}`,
+    query: JSON.stringify({ file: file.path, folder: folderPath }),
+  });
+}
+
+export function directoriesUri(dirs: string[]): vscode.Uri {
+  const first = vscode.Uri.file(dirs[0]);
+  return vscode.Uri.from({ scheme: FOLDER_SCHEME, authority: first.authority, path: first.path, query: JSON.stringify({ dirs }) });
+}
+
+export function parseFolderUri(uri: vscode.Uri): FolderRef | undefined {
+  if (uri.scheme !== FOLDER_SCHEME) return undefined;
+  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(s => typeof s === 'string');
+  try {
+    const q = JSON.parse(uri.query);
+    if (strings(q.dirs)) return { dirs: q.dirs };
+    if (typeof q.file === 'string' && strings(q.folder)) return { fsPath: fileUnder(uri, q.file), folderPath: q.folder };
+  } catch {
+    // not one of ours
+  }
+  return undefined;
 }
 
 export interface ObjectRef {

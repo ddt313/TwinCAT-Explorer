@@ -9,7 +9,7 @@ import { Accessor } from '../core/objectText';
 import { InnerFolder, ObjectKind, TcObject, TcSourceFile, stripTrivia } from '../core/tcfile';
 import { PlcProject, TsProject, libraryName, resolutionLibraryName, sameName } from '../core/project';
 import { KIND_WORD, accessorIconName, compareLabels, objectIconName, objectTreeLabel } from '../core/treeLabels';
-import { OBJECT_SCHEME, fileUri, isSourcePath, objectUri } from './uris';
+import { OBJECT_SCHEME, directoriesUri, fileUri, innerFolderUri, isSourcePath, objectUri } from './uris';
 
 export { KIND_WORD, compareLabels, objectTreeLabel };
 
@@ -42,7 +42,11 @@ export class TreeNode {
   objectId?: string;
   accessor?: Accessor;
   icon?: TreeIcon;
-  /** URI of the object view of a member or accessor node, which carries its git decoration (see GitChanges). */
+  /**
+   * The URI that carries a node's git decoration (see GitChanges): the object view of a member or accessor; for a
+   * TwinCAT project, a PLC project or one of its folders, the directories it holds (directoriesUri); for a folder
+   * inside a POU, its innerFolderUri. A file's node gets its file's URI, which the git extension colors.
+   */
   resourceUri?: vscode.Uri;
   openable = false;
   /** Name used by "Copy Name". */
@@ -228,6 +232,8 @@ export class TwinCatTree implements vscode.TreeDataProvider<TreeNode> {
       failed.tooltip = `${ref.plcprojPath}
 ${error ?? 'The .plcproj file does not exist.'}`;
     }
+    // Its own folder (the .tsproj, its .xti files) and those of its PLC projects, which may be elsewhere.
+    root.resourceUri = directoriesUri([path.dirname(ts.path), ...ts.plcProjects.map(r => path.dirname(r.plcprojPath))]);
     return root;
   }
 
@@ -239,6 +245,7 @@ ${error ?? 'The .plcproj file does not exist.'}`;
     node.tooltip = plc.path;
     node.description = 'PLC project';
     node.objectTarget = { plcprojPath: plc.path, folder: '' };
+    node.resourceUri = directoriesUri([plc.dir]);
 
     const refs = this.add(new TreeNode(`refs:${prefix}`, 'references', 'References', node));
     refs.icon = twincatIcon('references');
@@ -275,6 +282,10 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       f.sortGroup = 1;
       f.name = f.label;
       f.objectTarget = { plcprojPath: plc.path, folder: rel };
+      // The folders of a PLC project are directories: colored by the files in them that differ from HEAD.
+      const dir = path.join(plc.dir, rel.replace(/\\/g, path.sep));
+      f.resourceUri = directoriesUri([dir]);
+      f.tooltip = dir;
       if (excludedItself(rel)) f.description = EXCLUDED;
       folders.set(key, f);
       return f;
@@ -337,6 +348,8 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       f.sortGroup = 1;
       f.memberTarget = memberTarget(folderPath);
       f.innerFolderPath = folderPath;
+      f.resourceUri = innerFolderUri(fsPath, folderPath);
+      f.tooltip = [root.name, ...folderPath].join(' › ');
       inner.set(key, f);
       return f;
     };

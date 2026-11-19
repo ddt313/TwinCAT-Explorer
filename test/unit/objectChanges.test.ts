@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { parseTcText } from '../../src/core/tcfile';
-import { changeKey, metadataChange, objectChanges, onlyTmcHashChanged, viewChanges } from '../../src/core/objectChanges';
+import { changeKey, deletedMembers, metadataChange, objectChanges, onlyTmcHashChanged, viewChanges } from '../../src/core/objectChanges';
 import { SpliceError, removeMember, restoreView } from '../../src/core/splice';
 
 const FB = '{11111111-1111-1111-1111-111111111111}';
@@ -148,4 +148,15 @@ test('build output: TmcHash-only project changes and ProductVersion-only sources
   assert.equal(onlyTmcHashChanged(tsproj('AAAA-1'), tsproj('AAAA-1')), false);
   assert.equal(metadataChange(pou(), pou({ version: '3.1.4026.21' })), 'ProductVersion 3.1.4026.13 → 3.1.4026.21');
   assert.equal(metadataChange(pou(), pou().replace('SpecialFunc="None"', 'SpecialFunc="None" X="1"')), 'XML only, no code');
+});
+
+// https://github.com/ddt313/TwinCAT-Explorer/issues/135
+test('deletedMembers: the methods and properties no longer there, with their folder in the version before', () => {
+  const before = parseTcText('FB_Test.TcPOU', pou({ stop: true }).replace(`<Method Name="Stop" Id="${STOP}">`, `<Method Name="Stop" Id="${STOP}" FolderPath="Commands\\Manual\\">`));
+  assert.deepEqual(deletedMembers(before, parseTcText('FB_Test.TcPOU', pou({ stop: true }))), []);
+  const gone = deletedMembers(before, parseTcText('FB_Test.TcPOU', pou()));
+  assert.deepEqual(gone.map(o => [o.name, o.folderPath]), [['Stop', ['Commands', 'Manual']]]);
+  // A new file: nothing deleted; an accessor deleted changes its property instead (objectChanges).
+  assert.deepEqual(deletedMembers(undefined, parseTcText('FB_Test.TcPOU', pou())), []);
+  assert.deepEqual(deletedMembers(parseTcText('FB_Test.TcPOU', pou({ set: true })), parseTcText('FB_Test.TcPOU', pou())), []);
 });

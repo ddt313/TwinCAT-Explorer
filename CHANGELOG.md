@@ -27,6 +27,15 @@ All notable changes to Explorer for TwinCAT. The format follows
   longer declares, as it is now (saved or not): a variable, struct member or instance renamed or deleted since
   XAE saved the project. `twincatExplorer.diagnostics.rules` can change its level or turn it off.
 
+### Fixed
+- In the TwinCAT tree, a folder holding changes since HEAD now has the git color and a dot, like the Explorer,
+  also while it is collapsed. A folder of a PLC project, the PLC project and the TwinCAT project take the strongest
+  change of the files in their directories: a conflict, a deletion (red, which the Explorer leaves out), a
+  modification, an addition. A folder inside a POU or interface (`Methods`, `States`) takes that of the methods,
+  properties and actions in it, a deleted one counting in the folder it had in HEAD. Moving an object to another
+  folder alone is no change. The tooltip of the dot counts the changes
+  ([#135](https://github.com/ddt313/TwinCAT-Explorer/issues/135)).
+
 ## 0.24.0 - 2026-11-15
 
 ### Added

@@ -46,6 +46,14 @@ export function objectChanges(before: TcSourceFile | undefined, now: TcSourceFil
   return out;
 }
 
+/**
+ * The methods, properties and actions of `before` that `now` no longer has (by id), with their folder path in
+ * `before`; none when the file is new.
+ */
+export function deletedMembers(before: TcSourceFile | undefined, now: TcSourceFile): TcObject[] {
+  return [...before?.objects.values() ?? []].filter(o => o.parent && !now.objects.has(o.id));
+}
+
 export type ViewChangeKind = 'modified' | 'added' | 'deleted';
 
 /** A changed object view: what one tab shows (a POU, method, ... or one accessor of a property). */

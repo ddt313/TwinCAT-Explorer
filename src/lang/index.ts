@@ -585,6 +585,7 @@ export class LanguageIndex {
       loc: this.loc(f, sectionKey, n), signature: `${n.name} : ${typeText}${initText !== undefined ? ` := ${initText}` : ''}`,
       doc: docComment(text, trivia, decl),
     };
+    if (decl.at) v.at = decl.at;
     this.register(f, sectionKey, n, v);
     return v;
   }

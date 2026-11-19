@@ -5,11 +5,12 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { cached } from '../core/cache';
-import { ObjectChange, ViewChange, changeKey, objectChanges, viewChanges } from '../core/objectChanges';
+import { PathStatus, StatusCounts, countStatuses, describeCounts, strongestStatus } from '../core/gitStatus';
+import { ObjectChange, ViewChange, changeKey, deletedMembers, objectChanges, viewChanges } from '../core/objectChanges';
 import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
-import { GitDirWatcher, changedSourceFiles, headCommit, mergeBase, originalPath, readBlobs, repositoryRoot, showAtRef } from './git';
-import { INDEX, isSourcePath, parseObjectUri } from './uris';
+import { GitDirWatcher, headCommit, mergeBase, originalPath, readBlobs, repositoryRoot, showAtRef, workingTreeStatus } from './git';
+import { FolderRef, INDEX, isSourcePath, parseFolderUri, parseObjectUri } from './uris';
 
 /** HEAD text of each section of an object view; null for a section that is not in HEAD (a new object). */
 export interface ViewBase {
@@ -30,6 +31,15 @@ export interface CommitFile {
   error?: string;
 }
 
+/** The colors of the git extension, which the files in the tree have. */
+const STATUS_COLORS: Record<PathStatus, string> = {
+  conflict: 'gitDecoration.conflictingResourceForeground',
+  deleted: 'gitDecoration.deletedResourceForeground',
+  modified: 'gitDecoration.modifiedResourceForeground',
+  added: 'gitDecoration.addedResourceForeground',
+  untracked: 'gitDecoration.untrackedResourceForeground',
+};
+
 export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposable {
   private readonly decorationsEmitter = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
   readonly onDidChangeFileDecorations = this.decorationsEmitter.event;
@@ -46,8 +56,13 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
   private readonly headFiles = new Map<string, Promise<HeadFile | undefined>>();
   /** Files at a commit (they never change), the oldest dropped first. */
   private readonly commitFiles = new Map<string, Promise<CommitFile>>();
-  /** Changed objects per file (fileKey), keyed by changeKey. */
-  private readonly changes = new Map<string, { fsPath: string; objects: Map<string, ObjectChange> }>();
+  /**
+   * Changed objects per file (fileKey), keyed by changeKey, and the folder paths (in HEAD) of the methods, properties
+   * and actions deleted since.
+   */
+  private readonly changes = new Map<string, { fsPath: string; objects: Map<string, ObjectChange>; deleted: string[][] }>();
+  /** Files that differ from HEAD (deleted ones too) per repository root (fileKey), by fileKey. */
+  private readonly status = new Map<string, { root: string; files: Map<string, PathStatus> }>();
   /** Files changed on disk since the last recompute, by fileKey. */
   private readonly changedFiles = new Map<string, string>();
   private filesTimer: NodeJS.Timeout | undefined;
@@ -186,13 +201,13 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
       void this.gitDirs.watch(plc.path);
     }
     const candidates = new Map<string, string>();
+    for (const key of [...this.status.keys()]) if (!roots.has(key)) this.status.delete(key);
     for (const root of roots.values()) {
       await this.headOf(root);
-      try {
-        // Only files of the projects: the tree shows nothing else (templates, copies in worktrees).
-        for (const f of await changedSourceFiles(root)) if (this.ws.entry(f)) candidates.set(fileKey(f), f);
-      } catch (e) {
-        this.log?.(`git status in ${root} failed: ${(e as Error).message}`);
+      await this.readStatus(root);
+      // Only source files of the projects: the tree shows nothing else (templates, copies in worktrees).
+      for (const [key, status] of this.status.get(fileKey(root))?.files ?? []) {
+        if (status !== 'deleted' && isSourcePath(key) && this.ws.entry(key)) candidates.set(key, this.ws.entry(key)!.path);
       }
     }
     // Files marked before and no longer changed (committed, reverted) lose their marks.
@@ -229,20 +244,44 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
       if (await this.headIsRead(f)) changed = (await this.computeFile(f)) || changed;
       else unknown = true;
     }
-    if (unknown) await this.refreshAllNow();
-    else if (changed) this.decorationsEmitter.fire(undefined);
+    if (unknown) return this.refreshAllNow();
+    // Files added or deleted change the colors of their folders.
+    let statusChanged = false;
+    for (const { root } of [...this.status.values()]) statusChanged = (await this.readStatus(root)) || statusChanged;
+    if (changed || statusChanged) this.decorationsEmitter.fire(undefined);
+  }
+
+  /** Reads the status of a repository's working tree again; true when it differs from what was known. */
+  private async readStatus(root: string): Promise<boolean> {
+    const key = fileKey(root);
+    let files: Map<string, PathStatus>;
+    try {
+      files = new Map((await workingTreeStatus(root)).map(f => [fileKey(f.fsPath), f.status]));
+    } catch (e) {
+      // What was known stays until git answers again.
+      this.log?.(`git status in ${root} failed: ${(e as Error).message}`);
+      return false;
+    }
+    const before = this.status.get(key)?.files;
+    this.status.set(key, { root, files });
+    return before?.size !== files.size || [...files].some(([k, v]) => before.get(k) !== v);
   }
 
   /** Computes the changed objects of a file; true when they differ from what was known. */
   private async computeFile(fsPath: string): Promise<boolean> {
     const key = fileKey(fsPath);
-    const before = this.changes.get(key)?.objects;
+    const known = this.changes.get(key);
+    const before = known?.objects;
     let now: Map<string, ObjectChange> | undefined;
+    let deleted: string[][] = [];
     try {
       const work = this.ws.getFile(fsPath);
       if (work && !work.error && work.root) {
         const head = await this.headFile(fsPath);
-        if (head) now = objectChanges(head.file, work);
+        if (head) {
+          now = objectChanges(head.file, work);
+          deleted = deletedMembers(head.file, work).map(m => m.folderPath);
+        }
       }
     } catch (e) {
       // The file is held by another program (XAE, a virus scanner) or went away during a checkout: its marks
@@ -250,9 +289,10 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
       this.log?.(`Comparing ${path.basename(fsPath)} with HEAD failed: ${(e as Error).message}`);
       return false;
     }
-    if (now && now.size) this.changes.set(key, { fsPath, objects: now });
+    if (now?.size || deleted.length) this.changes.set(key, { fsPath, objects: now ?? new Map(), deleted });
     else this.changes.delete(key);
-    return (before?.size ?? 0) !== (now?.size ?? 0) || [...(now ?? [])].some(([k, v]) => before?.get(k) !== v);
+    return (before?.size ?? 0) !== (now?.size ?? 0) || [...(now ?? [])].some(([k, v]) => before?.get(k) !== v)
+      || JSON.stringify(known?.deleted ?? []) !== JSON.stringify(deleted);
   }
 
   /** Change of an object view (or of an object with all its accessors) against HEAD. */
@@ -260,7 +300,41 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
     return this.changes.get(fileKey(fsPath))?.objects.get(changeKey(objectId, accessor));
   }
 
+  /**
+   * What a node of the TwinCAT tree that holds others holds that differs from HEAD, by kind: for a folder inside a
+   * POU or interface, its methods, properties and actions (at any depth), deleted ones too; for directories, the
+   * files in them, deleted ones too. Undefined when nothing differs.
+   */
+  folderCounts(ref: FolderRef): StatusCounts | undefined {
+    const statuses: PathStatus[] = [];
+    if ('dirs' in ref) {
+      const prefixes = ref.dirs.map(d => fileKey(d) + path.sep);
+      for (const { files } of this.status.values()) {
+        for (const [key, status] of files) if (prefixes.some(p => key.startsWith(p))) statuses.push(status);
+      }
+      return countStatuses(statuses);
+    }
+    const known = this.changes.get(fileKey(ref.fsPath));
+    const root = known && this.ws.getFile(ref.fsPath)?.root;
+    if (!root) return undefined;
+    const inFolder = (p: string[]) => p.length >= ref.folderPath.length
+      && ref.folderPath.every((s, i) => s.toLowerCase() === p[i].toLowerCase());
+    for (const m of root.members) {
+      const change = inFolder(m.folderPath) ? this.changeOf(ref.fsPath, m.id) : undefined;
+      if (change) statuses.push(change);
+    }
+    for (const p of known.deleted) if (inFolder(p)) statuses.push('deleted');
+    return countStatuses(statuses);
+  }
+
   provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    const folder = parseFolderUri(uri);
+    if (folder) {
+      // As the Explorer shows a folder holding changed files, its color and a dot; deletions too, which it leaves out.
+      const counts = this.folderCounts(folder);
+      const status = counts && strongestStatus(counts);
+      return status && new vscode.FileDecoration('•', `Since HEAD: ${describeCounts(counts)}`, new vscode.ThemeColor(STATUS_COLORS[status]));
+    }
     const ref = parseObjectUri(uri);
     if (!ref) return undefined;
     const change = this.changeOf(ref.fsPath, ref.objectId, ref.accessor);

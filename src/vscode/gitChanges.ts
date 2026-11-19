@@ -9,7 +9,7 @@ import { ObjectChange, ViewChange, changeKey, objectChanges, viewChanges } from 
 import { TcSourceFile, parseTcFile } from '../core/tcfile';
 import { TcWorkspace, fileKey } from '../core/workspace';
 import { GitDirWatcher, changedSourceFiles, headCommit, mergeBase, originalPath, readBlobs, repositoryRoot, showAtRef } from './git';
-import { INDEX, isSourcePath, parseObjectUri } from './uris';
+import { INDEX, isSourcePath, parseInnerFolderUri, parseObjectUri } from './uris';
 
 /** HEAD text of each section of an object view; null for a section that is not in HEAD (a new object). */
 export interface ViewBase {
@@ -260,7 +260,34 @@ export class GitChanges implements vscode.FileDecorationProvider, vscode.Disposa
     return this.changes.get(fileKey(fsPath))?.objects.get(changeKey(objectId, accessor));
   }
 
+  /**
+   * Change of what a folder inside a POU or interface holds, at any depth: modified when an object in it is
+   * modified, added when all its changed objects are added; undefined when none differs from HEAD.
+   */
+  folderChangeOf(fsPath: string, folderPath: string[]): ObjectChange | undefined {
+    const objects = this.changes.get(fileKey(fsPath))?.objects;
+    const root = objects && this.ws.getFile(fsPath)?.root;
+    if (!root) return undefined;
+    const inFolder = (p: string[]) => p.length >= folderPath.length && folderPath.every((s, i) => s.toLowerCase() === p[i].toLowerCase());
+    let change: ObjectChange | undefined;
+    for (const m of root.members) {
+      if (!inFolder(m.folderPath)) continue;
+      const c = this.changeOf(fsPath, m.id);
+      if (c === 'modified') return c;
+      if (c) change = c;
+    }
+    return change;
+  }
+
   provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    const folder = parseInnerFolderUri(uri);
+    if (folder) {
+      // As the Explorer shows a folder holding changed files: its color and a dot, no letter.
+      const change = this.folderChangeOf(folder.fsPath, folder.folderPath);
+      if (change === 'added') return new vscode.FileDecoration('•', 'Contains objects added since HEAD', new vscode.ThemeColor('gitDecoration.addedResourceForeground'));
+      if (change === 'modified') return new vscode.FileDecoration('•', 'Contains objects modified since HEAD', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
+      return undefined;
+    }
     const ref = parseObjectUri(uri);
     if (!ref) return undefined;
     const change = this.changeOf(ref.fsPath, ref.objectId, ref.accessor);

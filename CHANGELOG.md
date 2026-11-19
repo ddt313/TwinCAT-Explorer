@@ -27,6 +27,12 @@ All notable changes to Explorer for TwinCAT. The format follows
   longer declares, as it is now (saved or not): a variable, struct member or instance renamed or deleted since
   XAE saved the project. `twincatExplorer.diagnostics.rules` can change its level or turn it off.
 
+### Fixed
+- In the TwinCAT tree, a folder holding a changed file now has the git color, like the Explorer: the folders of a
+  PLC project, and the folders inside a POU or interface (`Methods`, `States`), which get the color of the methods
+  and properties in them that differ from HEAD, also while they are collapsed
+  ([#135](https://github.com/ddt313/TwinCAT-Explorer/issues/135)).
+
 ## 0.24.0 - 2026-11-15
 
 ### Added

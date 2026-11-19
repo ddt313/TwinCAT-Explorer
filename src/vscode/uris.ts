@@ -8,6 +8,7 @@ import { Accessor, viewLabel } from '../core/objectText';
 
 export const OBJECT_SCHEME = 'twincat';
 export const LOC_SCHEME = 'twincat-loc';
+export const FOLDER_SCHEME = 'twincat-folder';
 export const DIFF_SCHEME = 'twincat-diff';
 export const OBJECT_EDITOR = 'twincatExplorer.objectEditor';
 export const OBJECT_NOTEBOOK = 'twincat-object';
@@ -121,6 +122,30 @@ export function locUriOf(objectDocUri: vscode.Uri, sectionKey: string, sectionLa
   if (q.acc) query.acc = q.acc;
   query.sec = sectionKey;
   return objectDocUri.with({ scheme: LOC_SCHEME, query: JSON.stringify(query) });
+}
+
+/**
+ * A folder inside a POU or interface in the TwinCAT tree (`Methods`, `States`), which GitChanges colors when an
+ * object in it differs from HEAD: `twincat-folder:/c:/.../FB_X.TcPOU/Methods/States?{"file":"/c:/.../FB_X.TcPOU","folder":["Methods","States"]}`.
+ */
+export function innerFolderUri(fsPath: string, folderPath: string[]): vscode.Uri {
+  const file = vscode.Uri.file(fsPath);
+  return vscode.Uri.from({
+    scheme: FOLDER_SCHEME, authority: file.authority, path: `${file.path}/${folderPath.map(safeName).join('/')}`,
+    query: JSON.stringify({ file: file.path, folder: folderPath }),
+  });
+}
+
+/** The file and the folder path inside its POU or interface of an innerFolderUri. */
+export function parseInnerFolderUri(uri: vscode.Uri): { fsPath: string; folderPath: string[] } | undefined {
+  if (uri.scheme !== FOLDER_SCHEME) return undefined;
+  try {
+    const q = JSON.parse(uri.query);
+    if (typeof q.file !== 'string' || !Array.isArray(q.folder) || !q.folder.every((s: unknown) => typeof s === 'string')) return undefined;
+    return { fsPath: fileUnder(uri, q.file), folderPath: q.folder };
+  } catch {
+    return undefined;
+  }
 }
 
 export interface ObjectRef {

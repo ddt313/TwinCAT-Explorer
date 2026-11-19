@@ -9,7 +9,7 @@ import { Accessor } from '../core/objectText';
 import { InnerFolder, ObjectKind, TcObject, TcSourceFile, stripTrivia } from '../core/tcfile';
 import { PlcProject, TsProject, libraryName, resolutionLibraryName, sameName } from '../core/project';
 import { KIND_WORD, accessorIconName, compareLabels, objectIconName, objectTreeLabel } from '../core/treeLabels';
-import { OBJECT_SCHEME, fileUri, isSourcePath, objectUri } from './uris';
+import { OBJECT_SCHEME, fileUri, innerFolderUri, isSourcePath, objectUri } from './uris';
 
 export { KIND_WORD, compareLabels, objectTreeLabel };
 
@@ -42,7 +42,11 @@ export class TreeNode {
   objectId?: string;
   accessor?: Accessor;
   icon?: TreeIcon;
-  /** URI of the object view of a member or accessor node, which carries its git decoration (see GitChanges). */
+  /**
+   * The URI that carries a node's git decoration: the object view of a member or accessor (see GitChanges), the
+   * directory of a folder (the git extension colors it when a file in it changed), the innerFolderUri of a folder
+   * inside a POU (GitChanges colors it when an object in it changed).
+   */
   resourceUri?: vscode.Uri;
   openable = false;
   /** Name used by "Copy Name". */
@@ -275,6 +279,10 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       f.sortGroup = 1;
       f.name = f.label;
       f.objectTarget = { plcprojPath: plc.path, folder: rel };
+      // The folders of a PLC project are directories: the git extension colors them as the Explorer does.
+      const dir = path.join(plc.dir, rel.replace(/\\/g, path.sep));
+      f.resourceUri = fileUri(dir);
+      f.tooltip = dir;
       if (excludedItself(rel)) f.description = EXCLUDED;
       folders.set(key, f);
       return f;
@@ -337,6 +345,8 @@ ${error ?? 'The .plcproj file does not exist.'}`;
       f.sortGroup = 1;
       f.memberTarget = memberTarget(folderPath);
       f.innerFolderPath = folderPath;
+      f.resourceUri = innerFolderUri(fsPath, folderPath);
+      f.tooltip = [root.name, ...folderPath].join(' › ');
       inner.set(key, f);
       return f;
     };

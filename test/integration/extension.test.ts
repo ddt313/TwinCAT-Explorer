@@ -268,3 +268,42 @@ test('Copy Qualified Name: a method from its editor tab', async () => {
   // With its PLC project, as the MCP server's tools take it.
   assert.strictEqual(await vscode.env.clipboard.readText(), 'Machine:FB_Conveyor.Stop');
 });
+
+// https://github.com/ddt313/TwinCAT-Explorer/issues/135
+test('TwinCAT tree: a folder carries the URI of its directory, which the git extension colors as the Explorer does', async () => {
+  const a = await api();
+  const item = a.tree.getTreeItem(treeNode(a, ['Demo', 'Machine', 'POUs', 'Sequences']));
+  assert.strictEqual(item.resourceUri?.toString(), vscode.Uri.file(demoPath('Demo/Machine/POUs/Sequences')).toString());
+  assert.strictEqual(item.label, 'Sequences');
+});
+
+// https://github.com/ddt313/TwinCAT-Explorer/issues/135
+test('TwinCAT tree: a folder inside a POU gets the color of a changed object it holds, and none without one', async () => {
+  const a = await api();
+  const fsPath = demoPath(CONVEYOR);
+  const text = fs.readFileSync(fsPath, 'utf8');
+  // Start moved into a folder Commands and changed; Stop, outside it, stays as it is.
+  const changed = text
+    .replace('<Method Name="Start" Id="{1b3e6602-7884-4fb4-b326-99630cc286c9}">', '<Method Name="Start" Id="{1b3e6602-7884-4fb4-b326-99630cc286c9}" FolderPath="Commands\\">')
+    .replace('bStartReq := bEnable;', 'bStartReq := bEnable AND NOT bRunning;');
+  assert.notStrictEqual(changed, text);
+  fs.writeFileSync(fsPath, changed);
+  const folder = await waitFor(() => {
+    try {
+      return treeNode(a, ['Demo', 'Machine', 'POUs', 'Equipment', 'FB_Conveyor (FB)', 'Commands']);
+    } catch {
+      return undefined;
+    }
+  }, 'the folder Commands in FB_Conveyor');
+  const uri = a.tree.getTreeItem(folder).resourceUri;
+  assert.ok(uri, 'the folder has no URI');
+  const decoration = await waitFor(() => a.git.provideFileDecoration(uri), 'the folder Commands to be colored', 15000);
+  assert.strictEqual((decoration.color as vscode.ThemeColor).id, 'gitDecoration.modifiedResourceForeground');
+  assert.strictEqual(decoration.badge, '•');
+  assert.strictEqual(a.git.folderChangeOf(fsPath, ['commands']), 'modified', 'the folder path is compared ignoring case');
+
+  // Start back as in HEAD, still in the folder: the folder holds no change and loses its color.
+  fs.writeFileSync(fsPath, changed.replace('bStartReq := bEnable AND NOT bRunning;', 'bStartReq := bEnable;'));
+  await waitFor(() => !a.git.changeOf(fsPath, objectId(a, fsPath, 'Start')) || undefined, 'Start to be as in HEAD', 15000);
+  assert.strictEqual(a.git.provideFileDecoration(a.tree.getTreeItem(treeNode(a, ['Demo', 'Machine', 'POUs', 'Equipment', 'FB_Conveyor (FB)', 'Commands'])).resourceUri!), undefined);
+});
